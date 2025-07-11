@@ -271,7 +271,7 @@ def make_survival(n_samples=100, n_features=20, n_informative=10, coef=None, ran
     # Discretize times if requested
     if discretize:
         # Round to 2 significant digits to create ties
-        observed_time = np.round(observed_time, decimals=1)
+        observed_time = np.round(observed_time, decimals=1) + 0.2
         if start_id:
             # Also discretize start times
             start_times = np.zeros(n_samples)
@@ -287,7 +287,7 @@ def make_survival(n_samples=100, n_features=20, n_informative=10, coef=None, ran
         if discretize:
             start_times = np.round(start_times, decimals=1)
             # After discretization, ensure strict inequality
-            start_times = np.minimum(start_times, observed_time - 0.1)
+            start_times = np.maximum(np.minimum(start_times, observed_time - 0.1), 0)
         data = {'start': start_times, **data}
     y = pd.DataFrame(data)
     return X, y, coef 

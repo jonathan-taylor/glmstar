@@ -10,7 +10,7 @@ from scipy.stats import norm as normal_dbn
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
 
-from coxdev import CoxDeviance
+from coxdev import StratifiedCoxDeviance # , CoxDeviance
     
 from .glm import (GLMFamilySpec,
                   GLMState,
@@ -142,6 +142,8 @@ class CoxFamilySpec(object):
         Column name for event status (0=censored, 1=event).
     start_id : str, optional, default=None
         Column name for start times (for start-stop data).
+    strata_id : str, optional, default=None
+        Column name for strata (for stratified Cox models).
     name : str, default='Cox'
         Family name.
     """
@@ -150,40 +152,53 @@ class CoxFamilySpec(object):
     event_id: Optional[str] = 'event'
     status_id: Optional[str] = 'status'
     start_id: Optional[str] = None
+    strata_id: Optional[str] = None
     name: str = 'Cox'
     
     def __hash__(self):
-
         return (self.tie_breaking,
                 self.event_id,
                 self.status_id,
                 self.start_id,
+                self.strata_id,
                 self.name).__hash__()
 
     def __post_init__(self, event_data):
-
         self.is_gaussian = False
         self.is_binomial = False
 
         if (self.event_id not in event_data.columns or
             self.status_id not in event_data.columns):
-            raise ValueError(f'expecting f{event_id} and f{status_id} columns')
+            raise ValueError(f'expecting f{self.event_id} and f{self.status_id} columns')
         
         event = event_data[self.event_id]
         status = event_data[self.status_id]
+        n = len(event)
+
+        if self.strata_id is not None and self.strata_id in event_data.columns:
+            strata = np.asarray(event_data[self.strata_id])
+        else:
+            strata = np.zeros(n, dtype=int)
+        self.strata = strata
         
         if self.start_id is not None:
             start = event_data[self.start_id]
-            self._coxdev = CoxDeviance(np.asarray(event, float),
-                                       status,
-                                       start=np.asarray(start, float),
-                                       tie_breaking=self.tie_breaking)
+            self._coxdev = StratifiedCoxDeviance(
+                np.asarray(event, float),
+                status,
+                start=np.asarray(start, float),
+                strata=strata,
+                tie_breaking=self.tie_breaking
+            )
         else:
             start = None
-            self._coxdev = CoxDeviance(np.asarray(event, float),
-                                       status,
-                                       start=None,
-                                       tie_breaking=self.tie_breaking)
+            self._coxdev = StratifiedCoxDeviance(
+                np.asarray(event, float),
+                status,
+                start=None,
+                strata=strata,
+                tie_breaking=self.tie_breaking
+            )
 
 
     # GLMFamilySpec API
@@ -198,6 +213,8 @@ class CoxFamilySpec(object):
         link_parameter = mu
         self._result = self._coxdev(link_parameter,
                                     sample_weight)
+        if np.isnan(self._result.deviance):
+            raise ValueError
         return self._result.deviance
     
     def null_fit(self,
@@ -274,7 +291,8 @@ class CoxLM(GLM):
                              tie_breaking=self.family.tie_breaking,
                              event_id=self.family.event_id,
                              status_id=self.family.status_id,
-                             start_id=self.family.start_id)
+                             start_id=self.family.start_id,
+                             strata_id=self.family.strata_id)
 
     def get_data_arrays(self,
                         X,
@@ -359,7 +377,8 @@ class RegCoxLM(RegGLM):
                              tie_breaking=self.family.tie_breaking,
                              event_id=self.family.event_id,
                              status_id=self.family.status_id,
-                             start_id=self.family.start_id)
+                             start_id=self.family.start_id,
+                             strata_id=self.family.strata_id)
 
 @dataclass
 class CoxNet(GLMNet):
@@ -399,7 +418,8 @@ class CoxNet(GLMNet):
                              tie_breaking=self.family.tie_breaking,
                              event_id=self.family.event_id,
                              status_id=self.family.status_id,
-                             start_id=self.family.start_id)
+                             start_id=self.family.start_id,
+                             strata_id=self.family.strata_id)
     
     def get_LM(self):
         return CoxLM(family=self.family,

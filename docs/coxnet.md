@@ -135,7 +135,6 @@ fit_efron = CoxNet(family=family_efron).fit(X, y)
 # Compare coefficients at lambda=0
 coefs_breslow, _ = fit_breslow.interpolate_coefs(0)
 coefs_efron, _ = fit_efron.interpolate_coefs(0)
-
 ```
 
 ```{code-cell} ipython3
@@ -161,7 +160,7 @@ Since version 4.1 `glmnet` can fit models where the response is a (start, stop] 
 The code below shows how to create a response of this type and how to fit such a model with `glmnet`.
 
 ```{code-cell} ipython3
-X, yss, coef = make_survival(n_samples=2000, n_features=15, 
+X, yss, coef = make_survival(n_samples=200, n_features=15, 
                             n_informative=5, snr=3.0, 
                             start_id=True, discretize=True, 
                             random_state=42)
@@ -194,25 +193,23 @@ One extension of the Cox regression model is to allow for strata that divide the
 
 `glmnet` can fit stratified Cox models with the elastic net penalty. Since `glmnet` does not use a model formula, we achieve this by adding a strata column to the response DataFrame.
 
-**Note: Stratified Cox models are not yet implemented in the Python glmnet package. The code below shows how it would work once a `strata_id` argument is added to `CoxNet`.**
-
 ```{code-cell} ipython3
-# This section is commented out until stratified Cox is implemented
-# strata = np.repeat(np.arange(1, 6), nobs // 5)
-# y2 = y.copy()
-# y2['strata'] = strata
-# print("First 6 rows of stratified data:")
-# print(y2.head(6))
+rng = np.random.default_rng(0)
+strata = rng.choice(range(1, 6), size=(yss.shape[0],))
+y2 = yss.copy()
+y2['strata'] = strata
+print("First 6 rows of stratified data:")
+print(y2.head(6))
 
-# # Fit stratified Cox model (commented out until implementation)
-# # family = CoxFamilySpec(y2, event_id='event', status_id='status', strata_id='strata', tie_breaking='breslow')
-# # fit = CoxNet(family=family).fit(X, y2)
+# Fit stratified Cox model (commented out until implementation)
+family = CoxFamilySpec(y2, event_id='event', status_id='status', strata_id='strata', tie_breaking='efron')
+fit = CoxNet(family=family).fit(X, y2)
 
-# # Cross-validation with stratified data (commented out until implementation)
-# # cv_fit = CoxNet(family=family).fit(X, y2)
-# # _, cvpath = cv_fit.cross_validation_path(X, y2, cv=5)
-# # ax = cvpath.plot(score='C Index')
-# # ax.set_title('Cross-validation Results for Stratified Cox Model')
+# Cross-validation with stratified data (commented out until implementation)
+cv_fit = CoxNet(family=family).fit(X, y2)
+_, cvpath = cv_fit.cross_validation_path(X, y2, cv=5)
+ax = cvpath.plot(score='Cox Deviance')
+ax.set_title('Cross-validation Results for Stratified Cox Model')
 ```
 
 ## Plotting survival curves
@@ -255,3 +252,7 @@ cv_predictions.shape
 ---
 
 *This document adapts the R glmnet vignette for the Python glmnet package. The original R vignette was written by Kenneth Tay, Noah Simon, Jerome Friedman, Trevor Hastie, Rob Tibshirani, and Balasubramanian Narasimhan.*
+
+```{code-cell} ipython3
+
+```
