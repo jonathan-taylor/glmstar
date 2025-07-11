@@ -16,6 +16,11 @@ kernelspec:
 
 The `FishNet` class fits a Poisson regression model with elastic net regularization (Poisson family). It is suitable for count data and event rate modeling.
 
+**Data requirements:**
+> The `FishNet` class fits Poisson regression models for count data. It expects:
+> - `X`: a 2D NumPy array or pandas DataFrame of shape `(n_samples, n_features)` (predictors).
+> - `y`: a 1D array, Series, or DataFrame column of shape `(n_samples,)` containing non-negative integer counts (e.g., number of events).
+
 ## Example Usage
 
 ```{code-cell} ipython3
@@ -35,4 +40,4 @@ print(model.coefs_.shape)
     :members:
     :inherited-members:
     :show-inheritance:
-``` 
+```

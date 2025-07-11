@@ -16,6 +16,11 @@ kernelspec:
 
 The `MultiGaussNet` class fits a multi-response linear regression model with elastic net regularization (Gaussian family). It is suitable for continuous response data with multiple outputs.
 
+**Data requirements:**
+> The `MultiGaussNet` class fits multi-response (multi-output) linear regression models. It expects:
+> - `X`: a 2D NumPy array or pandas DataFrame of shape `(n_samples, n_features)` (predictors).
+> - `y`: a 2D array or DataFrame of shape `(n_samples, n_targets)` (multiple continuous responses).
+
 ## Example Usage
 
 ```{code-cell} ipython3
@@ -36,4 +41,4 @@ print(model.coefs_.shape)
     :members:
     :inherited-members:
     :show-inheritance:
-``` 
+```

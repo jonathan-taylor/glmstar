@@ -13,39 +13,39 @@ import numpy as np
 from scipy.special import expit, softmax
 from numpy.random import default_rng
 import pandas as pd
+from statsmodels.genmod.families import Family as StatsmodelsFamily
+from glmnet.glmnet import GLMNet  # Import at the top as requested
 
 
-def make_dataset(estimator_class, n_samples=100, n_features=20, n_informative=10, noise=1.0, snr=None,
-                 coef=None, random_state=None, bias=None, n_targets=None, n_classes=None, **kwargs):
+def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef=None, snr=5, bias=0.0, random_state=None, **kwargs):
     """
-    Generate a random regression or classification problem for GLMNet estimator classes.
+    Generate a random regression, classification, or count dataset for GLMNet estimators or instances.
+
+    This function can be used to generate synthetic data for regression, classification, or count models.
+    It supports both estimator classes (e.g., LogNet, GaussNet) and GLMNet instances. If a GLMNet instance
+    is provided, the function will use its family.base.rvs method (from statsmodels) to generate the response
+    variable, allowing for custom family/link combinations.
 
     Parameters
     ----------
-    estimator_class : type
-        The GLMNet estimator class (e.g., LogNet, GaussNet, MultiGaussNet, MultiClassNet, FishNet).
+    estimator : type or GLMNet instance
+        The GLMNet estimator class (e.g., LogNet, GaussNet, MultiGaussNet, MultiClassNet, FishNet),
+        or an instance of GLMNet. If an instance is provided, its family.base.rvs method will be used
+        to generate the response.
     n_samples : int, default=100
         The number of samples.
     n_features : int, default=20
         The total number of features.
     n_informative : int, default=10
         The number of informative features.
-    noise : float, default=1.0
-        Standard deviation of the Gaussian noise added to the output (for regression).
-    snr : float or None, default=None
-        Desired signal-to-noise ratio. If set, noise will be scaled to achieve this SNR.
     coef : array-like, default=None
         The coefficients to use. If None, random coefficients are generated.
-        For multi-output, should be (n_features, n_targets) or (n_features, n_classes).
+    snr : float or None, default=5
+        Desired signal-to-noise ratio. If set, noise will be scaled to achieve this SNR.
+    bias : float, array-like, or None, default=0.0
+        The bias (intercept) term in the underlying linear model. For multi-output, can be array-like.
     random_state : int, RandomState instance or None, default=None
         Determines random number generation for dataset creation.
-    bias : float, array-like, or None, default=None
-        The bias (intercept) term in the underlying linear model. If None, a random value is generated.
-        For multi-output, can be array-like.
-    n_targets : int or None, default=None
-        Number of targets for multi-output regression (e.g., MultiGaussNet). If None, defaults to 1.
-    n_classes : int or None, default=None
-        Number of classes for multiclass classification (e.g., MultiClassNet). If None, defaults to 3.
     **kwargs : dict
         Additional keyword arguments (ignored).
 
@@ -72,15 +72,35 @@ def make_dataset(estimator_class, n_samples=100, n_features=20, n_informative=10
     >>> X, y, coef, intercept = make_dataset(MultiClassNet, n_samples=100, n_features=10, n_classes=4, snr=2)
     >>> np.unique(y)
     array([0, 1, 2, 3])
-    """
-    rng = default_rng(random_state)
-    X = rng.standard_normal((n_samples, n_features))
 
-    # Ensure n_informative does not exceed n_features
-    n_informative = min(n_informative, n_features)
+    Using a GLMNet instance with a custom family:
+    >>> from glmnet.glmnet import GLMNet
+    >>> import statsmodels.api as sm
+    >>> glmnet_instance = GLMNet(family=sm.families.Poisson())
+    >>> X, y, coef, intercept = make_dataset(glmnet_instance, n_samples=100, n_features=10)
+    >>> X.shape, y.shape, coef.shape, np.shape(intercept)
+    ((100, 10), (100,), (10,), ())
+    """
+    rng = np.random.default_rng(random_state)
+    X = rng.standard_normal((n_samples, n_features))
+    if coef is None:
+        coef = np.zeros(n_features)
+        coef[:n_informative] = rng.normal(size=n_informative)
+    lin_pred = X @ coef + bias
+
+    # If estimator is an instance of GLMNet, use its family.base.rvs
+
+    if not isinstance(estimator, type) and isinstance(estimator, GLMNet):
+        fam = estimator.family if not callable(estimator.family) else estimator.family()
+        base = getattr(fam, 'base', None)
+        mu = base.link.inverse(lin_pred)
+        dist = base.get_distribution(mu, scale=1)
+        y = dist.rvs(random_state=rng)
+        intercept = bias
+        return X, y, coef, intercept
 
     # Determine family/type from estimator class name
-    name = estimator_class.__name__.lower()
+    name = estimator.__name__.lower()
     if 'multiclass' in name:
         family = 'multiclass'
     elif 'multigauss' in name:
@@ -92,7 +112,7 @@ def make_dataset(estimator_class, n_samples=100, n_features=20, n_informative=10
     elif 'fishnet' in name:
         family = 'poisson'
     else:
-        raise ValueError(f"Unknown estimator class: {estimator_class}")
+        raise ValueError(f"Unknown estimator class: {estimator}")
 
     if family == 'gaussian':
         # Standard regression

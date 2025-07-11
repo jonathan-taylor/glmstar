@@ -16,6 +16,14 @@ kernelspec:
 
 The `CoxNet` class fits a Cox proportional hazards model with elastic net regularization. It is suitable for survival (time-to-event) analysis with censored data.
 
+**Data requirements:**
+> The `CoxNet` class fits Cox proportional hazards models for survival analysis. It expects:
+> - `X`: a 2D NumPy array or pandas DataFrame of shape `(n_samples, n_features)` (predictors).
+> - `y`: a pandas DataFrame with at least two columns:
+>   - `'event'`: event or observed time (float)
+>   - `'status'`: event indicator (1=event, 0=censored)
+>   Optionally, a `'start'` column for start-stop (interval) data, and a `'strata'` column for stratified models.
+
 ## Example Usage
 
 ```{code-cell} ipython3
@@ -35,4 +43,4 @@ print(model.coefs_.shape)
     :members:
     :inherited-members:
     :show-inheritance:
-``` 
+```

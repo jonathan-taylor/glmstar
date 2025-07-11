@@ -16,6 +16,12 @@ kernelspec:
 
 The `GaussNet` class fits a linear regression model with elastic net regularization (Gaussian family). It is suitable for continuous response data.
 
+**Data requirements:**
+> The `GaussNet` class fits linear regression models with elastic net regularization. It expects:
+> - `X`: a 2D NumPy array or pandas DataFrame of shape `(n_samples, n_features)` (continuous predictors).
+> - `y`: a 1D NumPy array, pandas Series, or DataFrame column of shape `(n_samples,)` (continuous response).
+> The response should be numeric (float or int).
+
 ## Example Usage
 
 ```{code-cell} ipython3
@@ -35,4 +41,4 @@ print(model.coefs_.shape)
     :members:
     :inherited-members:
     :show-inheritance:
-``` 
+```
