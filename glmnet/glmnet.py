@@ -473,7 +473,7 @@ class GLMNet(BaseEstimator,
             nlambda = self.nlambda
             squeeze = False
             
-        value = np.zeros((fits.shape[0], nlambda), float) * np.nan
+        value = np.empty((fits.shape[0], nlambda), fits.dtype)
         value[:,:fits.shape[1]] = fits
         value[:,fits.shape[1]:] = fits[:,-1][:,None]
         if squeeze:

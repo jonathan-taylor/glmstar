@@ -5,11 +5,14 @@ from glmnet.paths import LogNet, GaussNet, MultiGaussNet, MultiClassNet, FishNet
 
 @pytest.mark.parametrize("n_samples,n_features,n_informative,snr,bias", [
     (50, 8, 4, 3, 0.0),
-    (30, 5, 2, None, 1.5),
+    (30, 5, 3, None, 1.5),
     (10, 10, 10, 1, -2.0),
 ])
 def test_gaussian(n_samples, n_features, n_informative, snr, bias):
-    X, y, coef, intercept = make_dataset(GaussNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, snr=snr, bias=bias)
+    if snr is not None:
+        X, y, coef, intercept = make_dataset(GaussNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, snr=snr, bias=bias)
+    else:
+        X, y, coef, intercept = make_dataset(GaussNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, bias=bias)
     assert X.shape == (n_samples, n_features)
     assert y.shape == (n_samples,)
     assert coef.shape == (n_features,)
@@ -21,7 +24,10 @@ def test_gaussian(n_samples, n_features, n_informative, snr, bias):
     (20, 4, 2, 3, None, [1.0, -1.0, 0.5]),
 ])
 def test_multigaussian(n_samples, n_features, n_informative, n_targets, snr, bias):
-    X, y, coef, intercept = make_dataset(MultiGaussNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, n_targets=n_targets, snr=snr, bias=bias)
+    if snr is not None:
+        X, y, coef, intercept = make_dataset(MultiGaussNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, n_targets=n_targets, snr=snr, bias=bias)
+    else:
+        X, y, coef, intercept = make_dataset(MultiGaussNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, n_targets=n_targets, bias=bias)
     assert X.shape == (n_samples, n_features)
     assert y.shape == (n_samples, n_targets)
     assert coef.shape == (n_features, n_targets)
@@ -45,7 +51,7 @@ def test_binomial(n_samples, n_features, n_informative, snr, bias):
     (25, 6, 3, 3, None, [0.5, -0.5, 1.0]),
 ])
 def test_multiclass(n_samples, n_features, n_informative, n_classes, snr, bias):
-    X, y, coef, intercept = make_dataset(MultiClassNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, n_classes=n_classes, snr=snr, bias=bias)
+    X, y, coef, intercept = make_dataset(MultiClassNet, n_samples=n_samples, n_features=n_features, n_informative=n_informative, n_targets=n_classes, snr=snr, bias=bias)
     assert X.shape == (n_samples, n_features)
     assert y.shape == (n_samples,)
     assert coef.shape == (n_features, n_classes)

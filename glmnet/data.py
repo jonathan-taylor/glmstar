@@ -17,7 +17,7 @@ from statsmodels.genmod.families import Family as StatsmodelsFamily
 from glmnet.glmnet import GLMNet  # Import at the top as requested
 
 
-def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef=None, snr=5, bias=0.0, random_state=None, **kwargs):
+def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, n_targets=None, coef=None, snr=5, bias=0.0, random_state=None, **kwargs):
     """
     Generate a random regression, classification, or count dataset for GLMNet estimators or instances.
 
@@ -38,9 +38,12 @@ def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef
         The total number of features.
     n_informative : int, default=10
         The number of informative features.
+    n_targets : int or None, default=None
+        The dimension or the number of classes. Used only for MultiGaussNet and MultiClassNet. 
+        For MultiClassNet it is interpreted as the number of classes.
     coef : array-like, default=None
         The coefficients to use. If None, random coefficients are generated.
-    snr : float or None, default=5
+    snr : float, default=5
         Desired signal-to-noise ratio. If set, noise will be scaled to achieve this SNR.
     bias : float, array-like, or None, default=0.0
         The bias (intercept) term in the underlying linear model. For multi-output, can be array-like.
@@ -69,7 +72,7 @@ def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef
     >>> X, y, coef, intercept = make_dataset(MultiGaussNet, n_samples=100, n_features=10, n_targets=3, snr=5)
     >>> X.shape, y.shape, coef.shape, intercept.shape
     ((100, 10), (100, 3), (10, 3), (3,))
-    >>> X, y, coef, intercept = make_dataset(MultiClassNet, n_samples=100, n_features=10, n_classes=4, snr=2)
+    >>> X, y, coef, intercept = make_dataset(MultiClassNet, n_samples=100, n_features=10, n_targets=4, snr=2)
     >>> np.unique(y)
     array([0, 1, 2, 3])
 
@@ -83,14 +86,16 @@ def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef
     """
     rng = np.random.default_rng(random_state)
     X = rng.standard_normal((n_samples, n_features))
-    if coef is None:
-        coef = np.zeros(n_features)
-        coef[:n_informative] = rng.normal(size=n_informative)
-    lin_pred = X @ coef + bias
 
     # If estimator is an instance of GLMNet, use its family.base.rvs
 
     if not isinstance(estimator, type) and isinstance(estimator, GLMNet):
+
+        if coef is None:
+            coef = np.zeros(n_features)
+            coef[:n_informative] = rng.normal(size=n_informative)
+        lin_pred = X @ coef + bias
+
         fam = estimator.family if not callable(estimator.family) else estimator.family()
         base = getattr(fam, 'base', None)
         mu = base.link.inverse(lin_pred)
@@ -125,10 +130,11 @@ def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef
         else:
             intercept = bias
         lin_pred = X @ coef + intercept
-        if snr is not None:
-            signal_var = np.var(lin_pred)
-            noise_var = signal_var / snr
-            noise = np.sqrt(noise_var)
+
+        signal_var = np.var(lin_pred)
+        noise_var = signal_var / snr
+        noise = np.sqrt(noise_var)
+
         y = lin_pred + rng.normal(0, noise, size=n_samples)
     elif family == 'multigaussian':
         # Multi-output regression
@@ -144,10 +150,11 @@ def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef
         else:
             intercept = np.broadcast_to(bias, (n_targets,))
         lin_pred = X @ coef + intercept
-        if snr is not None:
-            signal_var = np.var(lin_pred, axis=0)
-            noise_var = signal_var / snr
-            noise = np.sqrt(noise_var)
+
+        signal_var = np.var(lin_pred, axis=0)
+        noise_var = signal_var / snr
+        noise = np.sqrt(noise_var)
+
         y = lin_pred + rng.normal(0, noise, size=(n_samples, n_targets))
     elif family == 'binomial':
         # Binary classification
@@ -170,8 +177,9 @@ def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, coef
         y = rng.binomial(1, p, size=n_samples)
     elif family == 'multiclass':
         # Multiclass classification
-        if n_classes is None:
-            n_classes = 3
+        if n_targets is None:
+            n_targets = 3
+        n_classes = n_targets
         if coef is None:
             coef = np.zeros((n_features, n_classes))
             for j in range(n_classes):
