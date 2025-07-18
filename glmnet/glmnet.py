@@ -277,6 +277,7 @@ class GLMNet(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._finalize_family(response=y)
 
+        self.exclude.extend(list(self.prefilter(X, y)))
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
@@ -833,6 +834,25 @@ class GLMNet(BaseEstimator,
         cls = self.state_.__class__
         state = cls(coefs[0], intercepts[0])
         return estimator, state
+
+    def prefilter(self, X, y):
+        """
+        Method intended to be overwritten by subclasses to implement pre-filtering of features.
+        Allows dynamic computation of an excluded set of features based on X and y.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+
+        Returns
+        -------
+        exclude : list
+            List of feature indices to exclude.
+        """
+        return self.exclude
 
 
 @dataclass

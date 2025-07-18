@@ -467,3 +467,44 @@ def test_CV(offset,
     assert np.allclose(CVM, CVM_)
     assert np.allclose(CVSD, CVSD_)
 
+
+def test_prefilter_excludes_features():
+    from glmnet.paths.gaussnet import GaussNet
+
+    class PrefilterGaussNet(GaussNet):
+        def prefilter(self, X, y):
+            # Exclude features where the sum of X[:, j] * y is negative
+            return np.nonzero(X.T @ y > 0)[0]
+
+    X = rng.standard_normal((100, 10))
+    y = rng.standard_normal(100)
+    X[:,:2] *= np.sign(X.T @ y)[:2][None,:]
+    model = PrefilterGaussNet()
+    model.fit(X, y)
+    # All excluded features should have all-zero coefficients for all lambdas
+    excluded = model.exclude
+    assert excluded, "No features were excluded by prefilter"
+    coefs = model.coefs_
+    assert np.allclose(coefs[:, excluded], 0)
+
+
+def test_prefilter_and_explicit_exclude():
+    from glmnet.paths.gaussnet import GaussNet
+
+    class PrefilterGaussNet(GaussNet):
+        def prefilter(self, X, y):
+            # Exclude features where the sum of X[:, j] * y is negative
+            return np.nonzero(X.T @ y > 0)[0]
+
+    X = rng.standard_normal((100, 10))
+    y = rng.standard_normal(100)
+    X[:,:2] *= -np.sign(X.T @ y)[:2][None,:]
+
+    # Explicitly exclude feature 0, and let prefilter exclude others
+    model = PrefilterGaussNet(exclude=[0])
+    model.fit(X, y)
+    excluded = model.exclude
+    assert 0 in excluded, "Explicitly excluded feature 0 not in exclude list"
+    coefs = model.coefs_
+    assert np.allclose(coefs[:, excluded], 0)
+

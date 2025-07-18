@@ -130,6 +130,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
+        self.exclude.extend(list(self.prefilter(X, y)))
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -430,6 +431,25 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  }
 
         return _args
+
+    def prefilter(self, X, y):
+        """
+        Method intended to be overwritten by subclasses to implement pre-filtering of features.
+        Allows dynamic computation of an excluded set of features based on X and y.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+
+        Returns
+        -------
+        exclude : list
+            List of feature indices to exclude.
+        """
+        return self.exclude
 
 
 @dataclass
