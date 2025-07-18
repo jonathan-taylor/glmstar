@@ -125,19 +125,19 @@ class ElNet(BaseEstimator,
         if self.lambda_val > 0 or not (np.all(design.centers_ == 0) and np.all(design.scaling_ == 1)):
             if self.control is None:
                 self.control = ElNetControl()
-            nobs, nvars = design.X.shape
+            n_samples, n_features = design.X.shape
             design.X, y = check_X_y(design.X, y,
                                     accept_sparse=['csc'],
                                     multi_output=False,
                                     estimator=self)
             if sample_weight is None:
-                sample_weight = np.ones(nobs) / nobs
+                sample_weight = np.ones(n_samples) / n_samples
             lower_limits_, upper_limits_ = _check_limits(self.lower_limits,
                                                          self.upper_limits,
-                                                         nvars,
+                                                         n_features,
                                                          big=self.control.big)
             penalty_factor_, self.exclude_ = _check_penalty_factor(self.penalty_factor,
-                                                                   nvars,
+                                                                   n_features,
                                                                    self.exclude)
             if hasattr(self, "_wrapper_args") and warm is not None:
                 args = self._wrapper_args
@@ -252,30 +252,30 @@ def _elnet_wrapper_args(design,
     """
     X = design.X
     exclude = np.asarray(exclude, np.int32)
-    nobs, nvars = X.shape
+    n_samples, n_features = X.shape
     if penalty_factor is None:
-        penalty_factor = np.ones(nvars)
+        penalty_factor = np.ones(n_features)
     ybar = np.sum(y * sample_weight) / np.sum(sample_weight)
     nulldev = np.sum(sample_weight * (y - ybar)**2)
-    ju = np.ones((nvars, 1), np.int32)
+    ju = np.ones((n_features, 1), np.int32)
     ju[exclude] = 0
     cl = np.asfortranarray([lower_limits,
                             upper_limits], float)
-    nx = nvars
-    a  = np.zeros((nvars, 1))
+    nx = n_features
+    a  = np.zeros((n_features, 1))
     aint = 0.
     alm0  = 0.
-    g = np.zeros((nvars, 1))
+    g = np.zeros((n_features, 1))
     ia = np.zeros((nx, 1), np.int32)
-    iy = np.zeros((nvars, 1), np.int32)
+    iy = np.zeros((n_features, 1), np.int32)
     iz = 0
     m = 1
-    mm = np.zeros((nvars, 1), np.int32)
+    mm = np.zeros((n_features, 1), np.int32)
     nino = int(0)
     nlp = 0
     r =  (sample_weight * y).reshape((-1,1))
     rsqc = 0.
-    xv = np.zeros((nvars, 1))
+    xv = np.zeros((n_features, 1))
     alpha = float(alpha)
     almc = float(lambda_val)
     intr = int(intercept)
@@ -288,8 +288,8 @@ def _elnet_wrapper_args(design,
              'almc':almc,
              'alpha':alpha,
              'm':m,
-             'no':nobs,
-             'ni':nvars,
+             'no':n_samples,
+             'ni':n_features,
              'r':r,
              'xv':xv,
              'v':v,
@@ -316,7 +316,7 @@ def _elnet_wrapper_args(design,
 
 def _check_limits(lower_limits,
                   upper_limits,
-                  nvars,
+                  n_features,
                   big=9.9e35):
     """
     Validate and broadcast lower and upper coefficient limits for elastic net models.
@@ -324,47 +324,47 @@ def _check_limits(lower_limits,
     Parameters
     ----------
     lower_limits : float or array-like
-        Lower bounds for coefficients. Can be a scalar or array of length nvars.
+        Lower bounds for coefficients. Can be a scalar or array of length n_features.
     upper_limits : float or array-like
-        Upper bounds for coefficients. Can be a scalar or array of length nvars.
-    nvars : int
-        Number of variables (features).
+        Upper bounds for coefficients. Can be a scalar or array of length n_features.
+    n_features : int
+        Number of features.
     big : float, default=9.9e35
         Value to use in place of infinite bounds.
 
     Returns
     -------
     lower_limits : np.ndarray
-        Array of lower bounds, shape (nvars,).
+        Array of lower bounds, shape (n_features,).
     upper_limits : np.ndarray
-        Array of upper bounds, shape (nvars,).
+        Array of upper bounds, shape (n_features,).
 
     Raises
     ------
     ValueError
-        If the provided limits are not compatible with nvars.
+        If the provided limits are not compatible with n_features.
     """
     lower_limits = np.asarray(lower_limits)
     upper_limits = np.asarray(upper_limits)
 
     if lower_limits.shape in [(), (1,)]:
-        lower_limits = lower_limits * np.ones(nvars)
+        lower_limits = lower_limits * np.ones(n_features)
     if upper_limits.shape in [(), (1,)]:
-        upper_limits = upper_limits * np.ones(nvars)
-    lower_limits = lower_limits[:nvars]
-    upper_limits = upper_limits[:nvars]
-    if lower_limits.shape[0] < nvars:
-        raise ValueError('lower_limits should have shape {0}, but has shape {1}'.format((nvars,),
+        upper_limits = upper_limits * np.ones(n_features)
+    lower_limits = lower_limits[:n_features]
+    upper_limits = upper_limits[:n_features]
+    if lower_limits.shape[0] < n_features:
+        raise ValueError('lower_limits should have shape {0}, but has shape {1}'.format((n_features,),
                                                                                         lower_limits.shape))
-    if upper_limits.shape[0] < nvars:
-        raise ValueError('upper_limits should have shape {0}, but has shape {1}'.format((nvars,),
+    if upper_limits.shape[0] < n_features:
+        raise ValueError('upper_limits should have shape {0}, but has shape {1}'.format((n_features,),
                                                                                         upper_limits.shape))
     lower_limits[lower_limits == -np.inf] = -big
     upper_limits[upper_limits == np.inf] = big
     return lower_limits, upper_limits
 
 def _check_penalty_factor(penalty_factor,
-                          nvars,
+                          n_features,
                           exclude):
     """
     Validate and broadcast penalty factors for elastic net models, and update excluded variables.
@@ -373,15 +373,15 @@ def _check_penalty_factor(penalty_factor,
     ----------
     penalty_factor : float or array-like or None
         Penalty factors for each coefficient. If None, defaults to ones. Infinite values indicate exclusion.
-    nvars : int
-        Number of variables (features).
+    n_features : int
+        Number of features.
     exclude : list
         List of variable indices to exclude from penalization (0-based).
 
     Returns
     -------
     vp : np.ndarray
-        Normalized penalty factors, shape (nvars, 1).
+        Normalized penalty factors, shape (n_features, 1).
     exclude : list
         Updated list of excluded variable indices (1-based for C++ backend).
 
@@ -392,7 +392,7 @@ def _check_penalty_factor(penalty_factor,
     """
 
     if penalty_factor is None:
-        penalty_factor = np.ones(nvars)
+        penalty_factor = np.ones(n_features)
     else:
         penalty_factor = np.asarray(penalty_factor)
     _isinf_penalty = np.isinf(penalty_factor)
@@ -401,11 +401,11 @@ def _check_penalty_factor(penalty_factor,
         exclude = np.unique(exclude)
     exclude = list(np.asarray(exclude, int))
     if len(exclude) > 0:
-        if max(exclude) >= nvars:
+        if max(exclude) >= n_features:
             raise ValueError("Some excluded variables out of range")
         penalty_factor[exclude] = 1
     vp = np.maximum(0, penalty_factor).reshape((-1,1))
-    vp = (vp * nvars / vp.sum())
+    vp = (vp * n_features / vp.sum())
     exclude = list(np.asarray(exclude, int) + 1)
     return vp, exclude
 
