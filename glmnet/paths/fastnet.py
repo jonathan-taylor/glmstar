@@ -446,10 +446,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         Returns
         -------
-        exclude : list
+        filtered : list
             List of feature indices to exclude.
         """
-        return self.exclude
+        return []
 
 
 @dataclass

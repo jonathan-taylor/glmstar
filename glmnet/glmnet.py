@@ -849,10 +849,10 @@ class GLMNet(BaseEstimator,
 
         Returns
         -------
-        exclude : list
+        filtered : list
             List of feature indices to exclude.
         """
-        return self.exclude
+        return []
 
 
 @dataclass
