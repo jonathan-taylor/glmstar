@@ -172,7 +172,7 @@ def sample1(n):
 
 def sample2(n):
     V = sample1(n)
-    V[:n//5] = 0
+    V[rng.choice(n, size=4)] = 0
     return V
 
 def get_data(n, p, sample_weight, offset):
