@@ -11,8 +11,8 @@ from tqdm import tqdm
 
 from ..base import _get_design
 from ..glm import GLMState
-from ..elnet import (_check_and_set_limits,
-                    _check_and_set_vp,
+from ..elnet import (_check_limits,
+                    _check_penalty_factor,
                     _design_wrapper_args)
 from ..glmnet import (GLMNet,
                       CoefPath)
@@ -20,8 +20,6 @@ from ..family import GLMFamilySpec
 
 from .._utils import (_jerr_elnetfit,
                       _validate_cpp_args)
-from ..docstrings import (make_docstring,
-                          add_dataclass_docstring)
 
 @dataclass
 class FastNetControl(object):
@@ -159,17 +157,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         sample_weight = weight
         
-        _check_and_set_limits(self, nvars)
-        self.exclude = _check_and_set_vp(self, nvars, self.exclude)
-
-        self.lower_limits = np.asarray(self.lower_limits)
-        if self.lower_limits.shape == (): # a single float 
-            self.lower_limits = np.ones(nvars) * self.lower_limits
-        
-        self.upper_limits = np.asarray(self.upper_limits)
-        if self.upper_limits.shape == (): # a single float 
-            self.upper_limits = np.ones(nvars) * self.upper_limits
-
         self.pb = tqdm(total=self.nlambda)
         self._args = self._wrapper_args(design,
                                         response,
@@ -371,24 +358,34 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if response.ndim == 1:
             response = response.reshape((-1,1))
 
+        # compute vp
+        penalty_factor_, self.exclude_ = _check_penalty_factor(self.penalty_factor,
+                                                               nvars,
+                                                               exclude)
+
         # compute jd
         # assume that there are no constant variables
 
-        if len(exclude) > 0:
-            jd = np.hstack([len(exclude), exclude]).astype(np.int32)
+        if len(self.exclude_) > 0:
+            jd = np.hstack([len(self.exclude_), self.exclude_]).astype(np.int32)
         else:
             jd = np.array([0], np.int32)
             
+        lower_limits_, upper_limits_ = _check_limits(self.lower_limits,
+                                                     self.upper_limits,
+                                                     nvars,
+                                                     big=self.control.big)
+
         # compute cl from upper and lower limits
 
-        if not np.all(self.lower_limits <= 0):
+        if not np.all(lower_limits_ <= 0):
             raise ValueError('lower limits should be <= 0')
 
-        if not np.all(self.upper_limits >= 0):
+        if not np.all(upper_limits_ >= 0):
             raise ValueError('upper limits should be >= 0')
 
-        cl = np.asarray([self.lower_limits,
-                         self.upper_limits], float)
+        cl = np.asarray([lower_limits_,
+                         upper_limits_], float)
         
         if np.any(cl[0] == 0) or np.any(cl[-1] == 0):
             self.control.fdev = 0
@@ -408,7 +405,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'y':np.asfortranarray(response),
                  'w': np.asarray(sample_weight).reshape((-1, 1)),
                  'jd': jd,
-                 'vp': np.asarray(self.penalty_factor).reshape((-1, 1)),
+                 'vp': np.asarray(penalty_factor_).reshape((-1, 1)),
                  'cl': np.asfortranarray(cl),
                  'ne': self.df_max,
                  'nx': nx,

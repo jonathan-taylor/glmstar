@@ -15,5 +15,5 @@ parts:
   - file: paths/LogNet.md
   - file: paths/FishNet.md
   - file: paths/CoxNet.md
-  - file: paths/MultiClass.md
-  - file: paths/MultiGauss.md
+  - file: paths/MultiClassNet.md
+  - file: paths/MultiGaussNet.md

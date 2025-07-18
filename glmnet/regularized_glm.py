@@ -128,19 +128,22 @@ class ElNetRegularizer(Penalty):
         control: RegGLMControl
             Control parameters.
         """
-        self.lower_limits = np.asarray(self.lower_limits)
-        if self.lower_limits.shape == (): # a single float 
-            self.lower_limits = np.ones(nvars) * self.lower_limits
+        # lower_limits_ = np.asarray(self.lower_limits)
+        # if lower_limits_.shape == (): # a single float 
+        #     lower_limits_ = np.ones(nvars) * lower_limits_
         
-        self.upper_limits = np.asarray(self.upper_limits)
-        if self.upper_limits.shape == (): # a single float 
-            self.upper_limits = np.ones(nvars) * self.upper_limits
+        # upper_limits_ = np.asarray(upper_limits_)
+        # if upper_limits_.shape == (): # a single float 
+        #     upper_limits_ = np.ones(nvars) * upper_limits_
         
         if self.penalty_factor is None:
-            self.penalty_factor = np.ones(nvars)
+            penalty_factor_ = np.ones(nvars)
+        else:
+            penalty_factor_ = self.penalty_factor
 
-        self.penalty_factor *= nvars / self.penalty_factor.sum() 
-            
+        penalty_factor_ *= nvars / penalty_factor_.sum() 
+        self.penalty_factor_ = penalty_factor_
+        
         self.elnet_estimator = ElNet(lambda_val=self.lambda_val,
                                      alpha=self.alpha,
                                      control=control,

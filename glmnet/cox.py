@@ -433,7 +433,7 @@ class CoxNet(GLMNet):
                            exclude):
 
         n, p = X.shape
-        keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
+        keep = self.reg_glm_est_.regularizer_.penalty_factor_ == 0
         keep[exclude] = 0
 
         coef_ = np.zeros(p)

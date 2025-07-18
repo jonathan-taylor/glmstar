@@ -132,8 +132,13 @@ class ElNet(BaseEstimator,
                                     estimator=self)
             if sample_weight is None:
                 sample_weight = np.ones(nobs) / nobs
-            _check_and_set_limits(self, nvars)
-            self.exclude = _check_and_set_vp(self, nvars, self.exclude)
+            lower_limits_, upper_limits_ = _check_limits(self.lower_limits,
+                                                         self.upper_limits,
+                                                         nvars,
+                                                         big=self.control.big)
+            penalty_factor_, self.exclude_ = _check_penalty_factor(self.penalty_factor,
+                                                                   nvars,
+                                                                   self.exclude)
             if hasattr(self, "_wrapper_args") and warm is not None:
                 args = self._wrapper_args
                 nulldev = self._nulldev
@@ -151,10 +156,10 @@ class ElNet(BaseEstimator,
                                                     self.lambda_val,
                                                     alpha=self.alpha,
                                                     intercept=self.fit_intercept,
-                                                    penalty_factor=self.penalty_factor,
-                                                    exclude=self.exclude,
-                                                    lower_limits=self.lower_limits,
-                                                    upper_limits=self.upper_limits,
+                                                    penalty_factor=penalty_factor_,
+                                                    exclude=self.exclude_,
+                                                    lower_limits=lower_limits_,
+                                                    upper_limits=upper_limits_,
                                                     thresh=self.control.thresh,
                                                     maxit=self.control.maxit)
                 self._wrapper_args = args
@@ -309,20 +314,39 @@ def _elnet_wrapper_args(design,
     _args.update(**_design_wrapper_args(design))
     return _args, nulldev
 
-def _check_and_set_limits(spec, nvars):
-    """Check and set coefficient limits.
-    
+def _check_limits(lower_limits,
+                  upper_limits,
+                  nvars,
+                  big=9.9e35):
+    """
+    Validate and broadcast lower and upper coefficient limits for elastic net models.
+
     Parameters
     ----------
-    spec : ElNetSpec
-        Specification object.
+    lower_limits : float or array-like
+        Lower bounds for coefficients. Can be a scalar or array of length nvars.
+    upper_limits : float or array-like
+        Upper bounds for coefficients. Can be a scalar or array of length nvars.
     nvars : int
-        Number of variables.
+        Number of variables (features).
+    big : float, default=9.9e35
+        Value to use in place of infinite bounds.
+
+    Returns
+    -------
+    lower_limits : np.ndarray
+        Array of lower bounds, shape (nvars,).
+    upper_limits : np.ndarray
+        Array of upper bounds, shape (nvars,).
+
+    Raises
+    ------
+    ValueError
+        If the provided limits are not compatible with nvars.
     """
-    lower_limits = np.asarray(spec.lower_limits)
-    upper_limits = np.asarray(spec.upper_limits)
     lower_limits = np.asarray(lower_limits)
     upper_limits = np.asarray(upper_limits)
+
     if lower_limits.shape in [(), (1,)]:
         lower_limits = lower_limits * np.ones(nvars)
     if upper_limits.shape in [(), (1,)]:
@@ -335,30 +359,42 @@ def _check_and_set_limits(spec, nvars):
     if upper_limits.shape[0] < nvars:
         raise ValueError('upper_limits should have shape {0}, but has shape {1}'.format((nvars,),
                                                                                         upper_limits.shape))
-    lower_limits[lower_limits == -np.inf] = -spec.control.big
-    upper_limits[upper_limits == np.inf] = spec.control.big
-    spec.lower_limits, spec.upper_limits = lower_limits, upper_limits
+    lower_limits[lower_limits == -np.inf] = -big
+    upper_limits[upper_limits == np.inf] = big
+    return lower_limits, upper_limits
 
-def _check_and_set_vp(spec, nvars, exclude):
-    """Check and set penalty factors.
-    
+def _check_penalty_factor(penalty_factor,
+                          nvars,
+                          exclude):
+    """
+    Validate and broadcast penalty factors for elastic net models, and update excluded variables.
+
     Parameters
     ----------
-    spec : ElNetSpec
-        Specification object.
+    penalty_factor : float or array-like or None
+        Penalty factors for each coefficient. If None, defaults to ones. Infinite values indicate exclusion.
     nvars : int
-        Number of variables.
+        Number of variables (features).
     exclude : list
-        Variables to exclude.
-        
+        List of variable indices to exclude from penalization (0-based).
+
     Returns
     -------
+    vp : np.ndarray
+        Normalized penalty factors, shape (nvars, 1).
     exclude : list
-        Updated exclude list to 1-based for C++ code.
+        Updated list of excluded variable indices (1-based for C++ backend).
+
+    Raises
+    ------
+    ValueError
+        If any excluded variable index is out of range.
     """
-    penalty_factor = spec.penalty_factor
+
     if penalty_factor is None:
         penalty_factor = np.ones(nvars)
+    else:
+        penalty_factor = np.asarray(penalty_factor)
     _isinf_penalty = np.isinf(penalty_factor)
     if np.any(_isinf_penalty):
         exclude.extend(np.nonzero(_isinf_penalty)[0])
@@ -370,9 +406,8 @@ def _check_and_set_vp(spec, nvars, exclude):
         penalty_factor[exclude] = 1
     vp = np.maximum(0, penalty_factor).reshape((-1,1))
     vp = (vp * nvars / vp.sum())
-    spec.penalty_factor = vp
     exclude = list(np.asarray(exclude, int) + 1)
-    return exclude
+    return vp, exclude
 
 def _design_wrapper_args(design):
     """Create design wrapper arguments for C++ function.

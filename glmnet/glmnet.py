@@ -328,7 +328,7 @@ class GLMNet(BaseEstimator,
                                       normed_sample_weight)
 
         score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
-        pf = regularizer_.penalty_factor
+        pf = regularizer_.penalty_factor_
         score_ /= (pf + (pf <= 0))
         score_[self.exclude] = 0
         self.lambda_max_ = np.fabs(score_).max() / max(self.alpha, 1e-3)
@@ -742,7 +742,7 @@ class GLMNet(BaseEstimator,
             (state, keep) where state is GLMState and keep is boolean array.
         """
         n, p = X.shape
-        keep = self.reg_glm_est_.regularizer_.penalty_factor == 0
+        keep = self.reg_glm_est_.regularizer_.penalty_factor_ == 0
         keep[exclude] = 0
 
         coef_ = np.zeros(p)
