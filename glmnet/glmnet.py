@@ -284,7 +284,7 @@ class GLMNet(BaseEstimator,
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        nobs, nvar = X.shape
+        n_samples, n_features = X.shape
 
         # we use column of y to retrieve optional weight
 
@@ -335,7 +335,7 @@ class GLMNet(BaseEstimator,
 
         if self.lambda_values is None:
             if self.lambda_min_ratio is None:
-                lambda_min_ratio = 1e-2 if nobs < nvar else 1e-4
+                lambda_min_ratio = 1e-2 if n_samples < n_features else 1e-4
             else:
                 lambda_min_ratio = self.lambda_min_ratio
             self.lambda_values_ = np.exp(np.linspace(
@@ -741,11 +741,11 @@ class GLMNet(BaseEstimator,
         tuple
             (state, keep) where state is GLMState and keep is boolean array.
         """
-        n, p = X.shape
+        n_samples, n_features = X.shape
         keep = self.reg_glm_est_.regularizer_.penalty_factor_ == 0
         keep[exclude] = 0
 
-        coef_ = np.zeros(p)
+        coef_ = np.zeros(n_features)
 
         if keep.sum() > 0:
             X_keep = X[:,keep]

@@ -135,7 +135,7 @@ class LogNet(FastNetMixin):
         offset = np.column_stack([offset,-offset])
         offset = np.asfortranarray(offset)
 
-        nobs, nvars = design.X.shape
+        n_samples, n_features = design.X.shape
 
         # add 'kopt' 
         _args['kopt'] = int(self.modified_newton)
@@ -150,7 +150,7 @@ class LogNet(FastNetMixin):
         # fix intercept and coefs
 
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
-        _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
+        _args['ca'] = np.zeros((n_features*self.nlambda*nc, 1))
 
         # reshape y
         encoder = OneHotEncoder(sparse_output=False)

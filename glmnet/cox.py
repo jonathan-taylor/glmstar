@@ -458,7 +458,7 @@ class CoxNet(GLMNet):
         Parameters
         ----------
         X : Union[np.ndarray, scipy.sparse, DesignSpec]
-            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            Input matrix, of shape `(n_samples, n_features)`; each row is an observation
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized. If it is not a sparse matrix, a copy is made and
             standardized.

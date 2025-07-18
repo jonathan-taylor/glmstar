@@ -153,7 +153,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if self.control is None:
             self.control = FastNetControl()
 
-        nobs, nvars = design.X.shape
+        n_samples, n_features = design.X.shape
 
         sample_weight = weight
         
@@ -204,7 +204,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # extract the coefficients
         
         result = self._extract_fits(X.shape, response.shape)
-        nvars = design.X.shape[1]
+        n_features = design.X.shape[1]
 
         self.coefs_ = result['coefs']
         self.intercepts_ = result['intercepts']
@@ -268,7 +268,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
         """
         _fit, _args = self._fit, self._args
-        nvars = X_shape[1]
+        n_features = X_shape[1]
         nfits = _fit['lmu']
 
         if nfits < 1:
@@ -280,7 +280,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         if ninmax > 0:
             if _fit['ca'].ndim == 1: # logistic is like this
-                unsort_coefs = _fit['ca'][:(nvars*nfits)].reshape(nfits, nvars)
+                unsort_coefs = _fit['ca'][:(n_features*nfits)].reshape(nfits, n_features)
             else:
                 unsort_coefs = _fit['ca'][:,:nfits].T
             df = (np.fabs(unsort_coefs) > 0).sum(1)
@@ -290,7 +290,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
             active_seq = _fit['ia'].reshape(-1)[:ninmax] - 1
 
-            coefs = np.zeros((nfits, nvars))
+            coefs = np.zeros((nfits, n_features))
             coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
             intercepts = _fit['a0'][:nfits]
 
@@ -333,10 +333,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         sample_weight = np.asfortranarray(sample_weight)
         
         X = design.X
-        nobs, nvars = X.shape
+        n_samples, n_features = X.shape
 
         if self.lambda_min_ratio is None:
-            if nobs < nvars:
+            if n_samples < n_features:
                 self.lambda_min_ratio = 1e-2
             else:
                 self.lambda_min_ratio = 1e-4
@@ -360,7 +360,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # compute vp
         penalty_factor_, self.exclude_ = _check_penalty_factor(self.penalty_factor,
-                                                               nvars,
+                                                               n_features,
                                                                exclude)
 
         # compute jd
@@ -373,7 +373,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             
         lower_limits_, upper_limits_ = _check_limits(self.lower_limits,
                                                      self.upper_limits,
-                                                     nvars,
+                                                     n_features,
                                                      big=self.control.big)
 
         # compute cl from upper and lower limits
@@ -392,16 +392,16 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # all but the X -- this is set below
 
-        # isn't this always nvars?
+        # isn't this always n_features?
         # should have a df_max arg
         if self.df_max is not None:
-            nx = min(self.df_max*2+20, nvars)
+            nx = min(self.df_max*2+20, n_features)
         else:
-            nx = nvars
+            nx = n_features
 
         _args = {'parm':float(self.alpha),
-                 'ni':nvars,
-                 'no':nobs,
+                 'ni':n_features,
+                 'no':n_samples,
                  'y':np.asfortranarray(response),
                  'w': np.asarray(sample_weight).reshape((-1, 1)),
                  'jd': jd,
@@ -522,7 +522,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
         """
         _fit, _args = self._fit, self._args
-        nvars = X_shape[1]
+        n_features = X_shape[1]
         nresp = response_shape[1]
         nfits = _fit['lmu']
         if nfits < 1:
@@ -533,9 +533,9 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         lambda_values = _fit['alm'][:nfits]
 
         if ninmax > 0:
-            unsort_coefs = _fit['ca'][:(nresp*nvars*nfits)].reshape(nfits,
+            unsort_coefs = _fit['ca'][:(nresp*n_features*nfits)].reshape(nfits,
                                                                     nresp,
-                                                                    nvars)
+                                                                    n_features)
             unsort_coefs = np.transpose(unsort_coefs, [0,2,1])
             df = ((unsort_coefs**2).sum(2) > 0).sum(1)
 
@@ -544,7 +544,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
             active_seq = _fit['ia'].reshape(-1)[:ninmax] - 1
 
-            coefs = np.zeros((nfits, nvars, nresp))
+            coefs = np.zeros((nfits, n_features, nresp))
             coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
             intercepts = _fit['a0'][:,:nfits].T
 
@@ -589,9 +589,9 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         # ensure shapes are correct
 
-        (nobs, nvars), nr = design.X.shape, response.shape[1]
+        (n_samples, n_features), nr = design.X.shape, response.shape[1]
         _args['a0'] = np.asfortranarray(np.zeros((nr, self.nlambda), float))
-        _args['ca'] = np.zeros((self.nlambda * nr * nvars, 1))
-        _args['y'] = np.asfortranarray(_args['y'].reshape((nobs, nr)))
+        _args['ca'] = np.zeros((self.nlambda * nr * n_features, 1))
+        _args['y'] = np.asfortranarray(_args['y'].reshape((n_samples, nr)))
 
         return _args

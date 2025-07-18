@@ -15,7 +15,7 @@ class Design(LinearOperator):
     Parameters
     ----------
     X: Union[np.ndarray, scipy.sparse.csc_array]
-        Input matrix, of shape `(nobs, nvars)`; each row is an observation
+        Input matrix, of shape `(n_samples, n_features)`; each row is an observation
         vector. If it is a sparse matrix, it is assumed to be
         unstandardized.  If it is not a sparse matrix, a copy is made and
         standardized.
@@ -546,7 +546,7 @@ def _get_design(X,
     Parameters
     ----------
     X: Union[np.ndarray, scipy.sparse, DesignSpec]
-        Input matrix, of shape `(nobs, nvars)`; each row is an observation
+        Input matrix, of shape `(n_samples, n_features)`; each row is an observation
         vector. If it is a sparse matrix, it is assumed to be
         unstandardized.  If it is not a sparse matrix, a copy is made and
         standardized.
@@ -581,7 +581,7 @@ class Base(object):
     Parameters
     ----------
     X: Union[np.ndarray, scipy.sparse.csc_array, Design]
-        Input matrix, of shape `(nobs, nvars)`; each row is an observation
+        Input matrix, of shape `(n_samples, n_features)`; each row is an observation
         vector. If it is a sparse matrix, it is assumed to be
         unstandardized.  If it is not a sparse matrix, a copy is made and
         standardized.
@@ -610,7 +610,7 @@ class Penalty(object):
         Vector of lower limits for each coefficient; default
         `-np.inf`. Each of these must be non-positive. Can be
         presented as a single value (which will then be replicated),
-        else a vector of length `nvars`.
+        else a vector of length `n_features`.
     upper_limits: float
         Vector of upper limits for each coefficient; default
         `np.inf`. See `lower_limits`.
@@ -622,7 +622,7 @@ class Penalty(object):
         included in the model. Default is 1 for all variables (and
         implicitly infinity for variables listed in `exclude`). Note:
         the penalty factors are internally rescaled to sum to
-        `nvars=X.shape[1]`.
+        `n_features=X.shape[1]`.
     """
     lambda_val : float
     alpha: float = 1.0
