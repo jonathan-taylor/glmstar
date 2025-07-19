@@ -661,7 +661,7 @@ Below, we exclude all features `j` for which $X_j'y < 0$:
 class PrefilterGaussNet(GaussNet):
     def prefilter(self, X, y):
         # Exclude features where the sum of X[:, j] * y is negative
-        return [j for j in range(X.shape[1]) if (X[:, j] * y).sum() < 0]
+        return np.nonzero(X.T @ y < 0)[0]
 ```
 
 Let's now fit the model with prefiltering
@@ -669,13 +669,13 @@ Let's now fit the model with prefiltering
 ```{code-cell} ipython3
 model = PrefilterGaussNet()
 model.fit(X_gaussian, y_gaussian)
-print("Excluded features:", model.exclude)
+print("Excluded features:", model.excluded_)
 ```
 
 Let's check that the prefiltered features are indeed zeroed out:
 
 ```{code-cell} ipython3
-np.allclose(model.coefs_[:,model.exclude], 0)
+np.allclose(model.coefs_[:,model.excluded_], 0)
 ```
 
 The prefiltered features are combined with any specified by the `exclude` argument. 
@@ -683,8 +683,8 @@ The prefiltered features are combined with any specified by the `exclude` argume
 ```{code-cell} ipython3
 model = PrefilterGaussNet(exclude=[0])
 model.fit(X_gaussian, y_gaussian)
-print("Excluded features:", model.exclude)
-np.allclose(model.coefs_[:,model.exclude], 0)
+print("Excluded features:", model.excluded_)
+np.allclose(model.coefs_[:,model.excluded_], 0)
 ```
 
 # Other Package Features

@@ -170,9 +170,9 @@ if (doCV) {{
 def sample1(n):
     return rng.uniform(0, 1, size=n)
 
-def sample2(n):
+def sample2(n, num_zero=4):
     V = sample1(n)
-    V[rng.choice(n, size=4)] = 0
+    V[rng.choice(n, size=num_zero)] = 0
     return V
 
 def get_data(n, p, sample_weight, offset):
