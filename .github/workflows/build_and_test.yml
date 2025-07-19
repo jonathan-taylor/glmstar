@@ -51,5 +51,6 @@ jobs:
       run: |
         pip install pytest 
         pytest tests/test*py
+	pytest tests/paths/test_gaussnet.py
 
 

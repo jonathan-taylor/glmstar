@@ -362,15 +362,16 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             response = response.reshape((-1,1))
 
         # compute vp
-        penalty_factor_, self.excluded_ = _check_penalty_factor(self.penalty_factor,
+        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor,
                                                                 n_features,
                                                                 exclude)
+        self.excluded_ = np.asarray(excluded_) - 1
 
         # compute jd
         # assume that there are no constant variables
 
-        if len(self.excluded_) > 0:
-            jd = np.hstack([len(self.excluded_), self.excluded_]).astype(np.int32)
+        if len(excluded_) > 0:
+            jd = np.hstack([len(excluded_), excluded_]).astype(np.int32)
         else:
             jd = np.array([0], np.int32)
             

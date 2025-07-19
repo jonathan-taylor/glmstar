@@ -136,9 +136,11 @@ class ElNet(BaseEstimator,
                                                          self.upper_limits,
                                                          n_features,
                                                          big=self.control.big)
-            penalty_factor_, self.exclude_ = _check_penalty_factor(self.penalty_factor,
-                                                                   n_features,
-                                                                   self.exclude)
+            penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor,
+                                                               n_features,
+                                                               self.exclude)
+            self.excluded_ = np.asarray(excluded_) - 1
+
             if hasattr(self, "_wrapper_args") and warm is not None:
                 args = self._wrapper_args
                 nulldev = self._nulldev
@@ -157,7 +159,7 @@ class ElNet(BaseEstimator,
                                                     alpha=self.alpha,
                                                     intercept=self.fit_intercept,
                                                     penalty_factor=penalty_factor_,
-                                                    exclude=self.exclude_,
+                                                    exclude=excluded_,
                                                     lower_limits=lower_limits_,
                                                     upper_limits=upper_limits_,
                                                     thresh=self.control.thresh,
@@ -407,7 +409,7 @@ def _check_penalty_factor(penalty_factor,
     vp = np.maximum(0, penalty_factor).reshape((-1,1))
     vp = (vp * n_features / vp.sum())
     exclude = list(np.asarray(exclude, int) + 1)
-    return vp, exclude
+    return vp, list(exclude)
 
 def _design_wrapper_args(design):
     """Create design wrapper arguments for C++ function.

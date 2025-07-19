@@ -482,8 +482,8 @@ def test_prefilter_excludes_features():
     model = PrefilterGaussNet()
     model.fit(X, y)
     # All excluded features should have all-zero coefficients for all lambdas
-    excluded = model.exclude
-    assert excluded, "No features were excluded by prefilter"
+    excluded = model.excluded_
+    assert excluded.shape, "No features were excluded by prefilter"
     coefs = model.coefs_
     assert np.allclose(coefs[:, excluded], 0)
 
@@ -503,7 +503,7 @@ def test_prefilter_and_explicit_exclude():
     # Explicitly exclude feature 0, and let prefilter exclude others
     model = PrefilterGaussNet(exclude=[0])
     model.fit(X, y)
-    excluded = model.exclude
+    excluded = model.excluded_
     assert 0 in excluded, "Explicitly excluded feature 0 not in exclude list"
     coefs = model.coefs_
     assert np.allclose(coefs[:, excluded], 0)
