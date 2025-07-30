@@ -50,7 +50,7 @@ X = np.random.randn(n_samples, n_features)
 
 # Create binary labels as strings 'A' and 'B'
 # Class 'A' for first half, 'B' for second half
-y = np.array(['A'] * (n_samples // 2) + ['C'] * (n_samples // 2))
+y = np.array(['A'] * (n_samples // 2) + ['B'] * (n_samples // 2))
 
 # Add some signal to make classification meaningful
 # Make features 0-4 predictive of class 'A'

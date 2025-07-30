@@ -24,7 +24,8 @@ from .test_gaussnet import (RGLMNet,
                             fit_intercept_pyt,
                             nsample_pyt,
                             nfeature_pyt,
-                            alignment_pyt)
+                            alignment_pyt,
+                            penalty_factor_pyt)
 
 @dataclass
 class RLogNet(RGLMNet):
@@ -79,6 +80,7 @@ def get_data(n, p, sample_weight, offset):
 offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.uniform(0, 1, size=n)])
 
 @pytest.mark.parametrize('modified_newton', [True, False])
+@penalty_factor_pyt
 @offset_pyt
 @sample_weight_pyt
 @standardize_pyt
@@ -86,6 +88,7 @@ offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.un
 @nsample_pyt
 @nfeature_pyt
 def test_lognet(modified_newton,
+                penalty_factor,
                 standardize,
                 fit_intercept,
                 n,
@@ -94,11 +97,15 @@ def test_lognet(modified_newton,
                 offset,
                 ):
 
+    if penalty_factor is not None:
+        penalty_factor = penalty_factor(p)
+
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
         
     L = LogNet(modified_newton=modified_newton,
                standardize=standardize,
                fit_intercept=fit_intercept,
+               penalty_factor=penalty_factor,
                **col_args)
 
     L.fit(X, D)
@@ -107,6 +114,7 @@ def test_lognet(modified_newton,
                         X,
                         Y,
                         modified_newton=modified_newton,
+                        penalty_factor=penalty_factor,
                         weights=weightsR,
                         standardize=standardize,
                         fit_intercept=fit_intercept,

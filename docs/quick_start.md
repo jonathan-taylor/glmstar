@@ -340,10 +340,10 @@ X_binomial, y_binomial, coef_binomial, intercept_binomial = make_dataset(LogNet,
                                                                          random_state=42)
 ```
 
-# Use the existing binomial data for testing
-X_train, X_test, y_train, y_test = train_test_split(X_binomial, y_binomial, test_size=0.5, random_state=42)
+Use the existing binomial data for testing
 
-# Fit logistic regression
+```{code-cell} ipython3
+X_train, X_test, y_train, y_test = train_test_split(X_binomial, y_binomial, test_size=0.5, random_state=42)
 fit_logistic = LogNet().fit(X_binomial, y_binomial)
 ```
 
@@ -493,7 +493,9 @@ X, y, coef_multigauss, intercept_multigauss = make_dataset(MultiGaussNet, n_samp
                                                            random_state=42)
 ```
 
-# Fit a regularized multi-response Gaussian model
+We now fit a regularized multi-response Gaussian model:
+
+```{code-cell} ipython3
 fit_multigaussian = MultiGaussNet().fit(X, y)
 ```
 
@@ -540,7 +542,6 @@ X_poisson, y_poisson, coef_poisson, intercept_poisson = make_dataset(FishNet, n_
                                                                      n_informative=5, 
                                                                      snr=3.0, 
                                                                      random_state=42)
-```
 ```
 
 Let's fit our model:
@@ -640,7 +641,7 @@ For classification problems, one can also ask for `class`.
 
 +++
 
-# Filtering variables
+# Excluding features
 
 Sometimes we want to filter variables before fitting the model. This can be done using the `exclude` argument. Below, we exclude the first, third and sixth variable
 
@@ -649,6 +650,41 @@ exclude_vars = [0,2,5] # 0-indexed
 fit_excluded = GaussNet(exclude=exclude_vars).fit(X_gaussian, y_gaussian)
 fit_excluded.coef_path_.plot()
 assert np.allclose(fit_excluded.coefs_[:,exclude_vars], 0)
+```
+
+## Dynamically prefiltering features
+
+You can also subclass any `GLMNet` class and override the `prefilter` method to dynamically exclude features.  
+Below, we exclude all features `j` for which $X_j'y < 0$:
+
+```{code-cell} ipython3
+class PrefilterGaussNet(GaussNet):
+    def prefilter(self, X, y):
+        # Exclude features where the sum of X[:, j] * y is negative
+        return np.nonzero(X.T @ y < 0)[0]
+```
+
+Let's now fit the model with prefiltering
+
+```{code-cell} ipython3
+model = PrefilterGaussNet()
+model.fit(X_gaussian, y_gaussian)
+print("Excluded features:", model.excluded_)
+```
+
+Let's check that the prefiltered features are indeed zeroed out:
+
+```{code-cell} ipython3
+np.allclose(model.coefs_[:,model.excluded_], 0)
+```
+
+The prefiltered features are combined with any specified by the `exclude` argument. 
+
+```{code-cell} ipython3
+model = PrefilterGaussNet(exclude=[0])
+model.fit(X_gaussian, y_gaussian)
+print("Excluded features:", model.excluded_)
+np.allclose(model.coefs_[:,model.excluded_], 0)
 ```
 
 # Other Package Features

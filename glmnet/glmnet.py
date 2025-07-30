@@ -1,3 +1,4 @@
+from copy import copy
 import logging
 import warnings
 from itertools import product
@@ -277,6 +278,8 @@ class GLMNet(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._finalize_family(response=y)
 
+        self.excluded_ = copy(self.exclude)
+        self.excluded_.extend(list(self.prefilter(X, y)))
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
@@ -304,7 +307,7 @@ class GLMNet(BaseEstimator,
                                offset_id=self.offset_id,
                                weight_id=self.weight_id,            
                                response_id=self.response_id,
-                               exclude=self.exclude
+                               exclude=self.excluded_
                                )
 
         self.reg_glm_est_.fit(X,
@@ -316,7 +319,7 @@ class GLMNet(BaseEstimator,
 
         state, keep_ = self._get_initial_state(X,
                                                y,
-                                               self.exclude)
+                                               self.excluded_)
 
         state.update(self.reg_glm_est_.design_,
                      self._family,
@@ -330,7 +333,7 @@ class GLMNet(BaseEstimator,
         score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
         pf = regularizer_.penalty_factor_
         score_ /= (pf + (pf <= 0))
-        score_[self.exclude] = 0
+        score_[self.excluded_] = 0
         self.lambda_max_ = np.fabs(score_).max() / max(self.alpha, 1e-3)
 
         if self.lambda_values is None:
@@ -826,13 +829,32 @@ class GLMNet(BaseEstimator,
                                offset_id=self.offset_id,
                                weight_id=self.weight_id,            
                                response_id=self.response_id,
-                               exclude=self.exclude
+                               exclude=self.excluded_
                                )
 
         coefs, intercepts = self.interpolate_coefs([lambda_val])
         cls = self.state_.__class__
         state = cls(coefs[0], intercepts[0])
         return estimator, state
+
+    def prefilter(self, X, y):
+        """
+        Method intended to be overwritten by subclasses to implement pre-filtering of features.
+        Allows dynamic computation of an excluded set of features based on X and y.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+
+        Returns
+        -------
+        filtered : list
+            List of feature indices to exclude.
+        """
+        return []
 
 
 @dataclass

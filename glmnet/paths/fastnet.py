@@ -1,3 +1,4 @@
+from copy import copy
 import logging
 import warnings
 
@@ -130,6 +131,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
+        self.excluded_ = copy(self.exclude)
+        self.excluded_.extend(list(self.prefilter(X, y)))
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -162,7 +165,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                                         response,
                                         sample_weight,
                                         offset=offset,
-                                        exclude=self.exclude)
+                                        exclude=self.excluded_)
 
         design_args = _design_wrapper_args(design)
         # 'xm' and 'xs' are used by the elnet / flex CPP code but not the paths
@@ -359,15 +362,16 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             response = response.reshape((-1,1))
 
         # compute vp
-        penalty_factor_, self.exclude_ = _check_penalty_factor(self.penalty_factor,
-                                                               n_features,
-                                                               exclude)
+        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor,
+                                                                n_features,
+                                                                exclude)
+        self.excluded_ = np.asarray(excluded_) - 1
 
         # compute jd
         # assume that there are no constant variables
 
-        if len(self.exclude_) > 0:
-            jd = np.hstack([len(self.exclude_), self.exclude_]).astype(np.int32)
+        if len(excluded_) > 0:
+            jd = np.hstack([len(excluded_), excluded_]).astype(np.int32)
         else:
             jd = np.array([0], np.int32)
             
@@ -430,6 +434,25 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  }
 
         return _args
+
+    def prefilter(self, X, y):
+        """
+        Method intended to be overwritten by subclasses to implement pre-filtering of features.
+        Allows dynamic computation of an excluded set of features based on X and y.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+
+        Returns
+        -------
+        filtered : list
+            List of feature indices to exclude.
+        """
+        return []
 
 
 @dataclass
