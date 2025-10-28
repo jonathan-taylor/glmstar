@@ -296,6 +296,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             coefs = np.zeros((nfits, n_features))
             coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
             intercepts = _fit['a0'][:nfits]
+        else:
+            # No features selected; return zeros
+            coefs = np.zeros((nfits, n_features))
+            intercepts = _fit['a0'][:nfits]
+            df = np.zeros(nfits, dtype=int)
 
         return {'coefs':coefs,
                 'intercepts':intercepts,
