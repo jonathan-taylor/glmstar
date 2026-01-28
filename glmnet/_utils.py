@@ -14,6 +14,44 @@ def _get_data(estimator,
               check=True,
               multi_output=True # always true below
               ):
+    """
+    Extracts response, offset, and weights from the input `y`.
+
+    This function handles various input formats for `y` (DataFrame or array)
+    and separates the response variable from any specified offset or weight columns.
+
+    Parameters
+    ----------
+    estimator : object
+        The estimator calling this function (for `check_X_y`).
+    X : array-like
+        The input data matrix.
+    y : array-like or pd.DataFrame
+        The target variable, which may contain response, offset, and weights.
+    offset_id : str or int, optional
+        Column identifier for the offset in `y`.
+    weight_id : str or int, optional
+        Column identifier for the weights in `y`.
+    response_id : str or int, optional
+        Column identifier for the response in `y`.
+    check : bool, default=True
+        Whether to perform `sklearn.utils.check_X_y` validation.
+    multi_output : bool, default=True
+        Whether to allow multi-output for `check_X_y`.
+
+    Returns
+    -------
+    X : array-like
+        The input data matrix (possibly validated).
+    y : array-like or pd.DataFrame
+        The original target variable.
+    response : np.ndarray
+        The extracted response variable.
+    offset : np.ndarray or None
+        The extracted offset term, or None if not provided.
+    weight : np.ndarray
+        The extracted weights, or an array of ones if not provided.
+    """
 
     weight = None
     if offset_id is None and weight_id is None:
@@ -87,6 +125,24 @@ def _get_data(estimator,
     return X, y, np.squeeze(np.asarray(response)), offset, weight
 
 def _jerr_elnetfit(n, maxit, k=None):
+    """
+    Interprets error codes from `elnet` (C++ or Fortran) routines.
+
+    Parameters
+    ----------
+    n : int
+        The error code returned by the `elnet` routine.
+    maxit : int
+        Maximum number of iterations set for the `elnet` routine.
+    k : int, optional
+        The index of the lambda value for which convergence failed.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the error code, a boolean indicating if it's a
+        fatal error, and a descriptive message.
+    """
     if n == 0:
         fatal = False
         msg = ''
@@ -106,6 +162,26 @@ def _jerr_elnetfit(n, maxit, k=None):
 def _parent_dataclass_from_child(cls,
                                  parent_dict,
                                  **modified_args):
+    """
+    Creates an instance of a dataclass from a dictionary, filtering keys.
+
+    This utility function is useful when initializing a dataclass with arguments
+    that might come from a larger dictionary, ensuring only relevant keys are used.
+
+    Parameters
+    ----------
+    cls : type
+        The dataclass type to instantiate.
+    parent_dict : dict
+        A dictionary containing potential arguments for the dataclass.
+    **modified_args
+        Additional arguments to update or override values from `parent_dict`.
+
+    Returns
+    -------
+    object
+        An instance of the specified dataclass.
+    """
     _fields = [f.name for f in fields(cls)]
     _cls_args = {k:parent_dict[k] for k in parent_dict.keys() if k in _fields}
     _cls_args.update(**modified_args)

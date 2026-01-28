@@ -14,6 +14,45 @@ def quasi_newton_step(regularizer,
                       state,
                       objective,
                       control):
+    """
+    Performs a single quasi-Newton step for the IRLS algorithm.
+
+    This function computes the pseudo-response and weights, and then
+    calls the regularizer's Newton step to update the model state.
+    It includes checks to ensure the step is a feasible descent.
+
+    Parameters
+    ----------
+    regularizer : object
+        The regularizer object, which must have a `newton_step` method.
+    family : object
+        The GLM family object.
+    design : object
+        The design matrix object.
+    y : array-like
+        The response variable.
+    offset : array-like
+        The offset term.
+    weights : array-like
+        The observation weights.
+    state : object
+        The current state of the model (e.g., coefficients).
+    objective : callable
+        The objective function to be minimized.
+    control : object
+        A control object with parameters for the optimization.
+
+    Returns
+    -------
+    state : object
+        The updated model state.
+    boundary : bool
+        True if the step was truncated at a boundary.
+    halved : bool
+        True if the step size was halved.
+    newton_weights : array-like
+        The weights used in the Newton step.
+    """
 
 
     oldstate = deepcopy(state)
@@ -105,6 +144,45 @@ def IRLS(regularizer,
          state,
          objective,
          control):
+    """
+    Iteratively Reweighted Least Squares (IRLS) algorithm.
+
+    This function implements the IRLS algorithm for fitting Generalized
+    Linear Models. It iteratively calls `quasi_newton_step` until
+    convergence or the maximum number of iterations is reached.
+
+    Parameters
+    ----------
+    regularizer : object
+        The regularizer object.
+    family : object
+        The GLM family object.
+    design : object
+        The design matrix object.
+    y : array-like
+        The response variable.
+    offset : array-like
+        The offset term.
+    weights : array-like
+        The observation weights.
+    state : object
+        The initial state of the model.
+    objective : callable
+        The objective function to be minimized.
+    control : object
+        A control object with parameters for the optimization.
+
+    Returns
+    -------
+    converged : bool
+        True if the algorithm converged.
+    boundary : bool
+        True if the algorithm stopped at a boundary.
+    state : object
+        The final model state.
+    newton_weights : array-like
+        The weights from the final Newton step.
+    """
 
     converged = False
 

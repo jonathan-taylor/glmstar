@@ -13,6 +13,36 @@ def bootstrap_GLM(X,
                   active_set=None, 
                   inactive_set=None,
                   rng=None, B=500):
+    """
+    Performs a bootstrap procedure for a Generalized Linear Model (GLM).
+
+    This function generates bootstrap samples of coefficients and gradients
+    by resampling with replacement from the data.
+
+    Parameters
+    ----------
+    X : array-like
+        The input data matrix.
+    Df : pd.DataFrame
+        DataFrame containing the response and possibly weights and offsets.
+    glm : GLM object, optional
+        A GLM object to use for fitting. If None, a default GLM is created.
+    active_set : list of int, optional
+        Indices of the active set of features.
+    inactive_set : list of int, optional
+        Indices of the inactive set of features.
+    rng : np.random.Generator, optional
+        A random number generator.
+    B : int, optional
+        The number of bootstrap samples to generate.
+
+    Returns
+    -------
+    coefs : np.ndarray
+        An array of bootstrap coefficients.
+    grads : np.ndarray
+        An array of bootstrap gradients for the inactive set.
+    """
     
     if glm is None:
         glm = GLM()
@@ -96,6 +126,36 @@ def parametric_GLM(X,
                    active_set=None, 
                    inactive_set=None,
                    rng=None, B=500):
+    """
+    Performs a parametric bootstrap for a Generalized Linear Model (GLM).
+
+    This function generates bootstrap samples by simulating new responses from
+    the fitted model.
+
+    Parameters
+    ----------
+    X : array-like
+        The input data matrix.
+    Df : pd.DataFrame
+        DataFrame containing the response and possibly weights and offsets.
+    glm : GLM object, optional
+        A GLM object to use for fitting. If None, a default GLM is created.
+    active_set : list of int, optional
+        Indices of the active set of features.
+    inactive_set : list of int, optional
+        Indices of the inactive set of features.
+    rng : np.random.Generator, optional
+        A random number generator.
+    B : int, optional
+        The number of bootstrap samples to generate.
+
+    Returns
+    -------
+    coefs : np.ndarray
+        An array of bootstrap coefficients.
+    grads : np.ndarray
+        An array of bootstrap gradients for the inactive set.
+    """
     
     if glm is None:
         glm = GLM()
