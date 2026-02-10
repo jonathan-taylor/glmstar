@@ -3,7 +3,7 @@ requires = ["setuptools>=61",
             "wheel",
             "pybind11",
             "numpy",
-            "scipy<1.16.0",
+            "scipy",
             "pandas",
             "matplotlib",
             "versioneer",
@@ -24,7 +24,7 @@ authors = [
 {name="Balasubramanian Narasimhan", email="naras@stanford.edu"}]
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 dependencies = ["numpy", # max version for numba
-               "scipy>=1.8,<1.16.0",
+               "scipy>=1.8",
                "pandas",
                "scikit-learn>=1.2",
                "joblib",
