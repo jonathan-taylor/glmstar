@@ -1,51 +1,61 @@
-[build-system]
-requires = ["setuptools>=42",
-            "wheel",
-            "pybind11",
-            "numpy",
-            "scipy<1.16.0",
-            "pandas",
-            "matplotlib",
-            "versioneer",
-	    "statsmodels",
-	    "mpmath",
-	    "coxdev"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "glmnet"
+dynamic = ["version"]
+authors = [
+  {name="Naras Balasubrimanian", email="naras@stanford.edu"},
+  {name="Trevor Hastie", email="hastie@stanford.edu"},
+  {name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},
+]
+description = "GlmNet for Python"
 readme = "README.md"
 requires-python = ">=3.9"
-description  = "GlmNet for Python"
-authors = [
-{name="Naras Balasubrimanian", email="naras@stanford.edu"},
-{name="Trevor Hastie", email="hastie@stanford.edu"},
-{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
-maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
-dependencies = ["numpy>=1.7.1", # max version for numba
-               "scipy>=1.8,<1.16.0",
-               "pandas>=0.20",
-               "scikit-learn>=1.2",
-               "joblib",
-               "statsmodels>=0.13",
-	       "coxdev",
-	       "pybind11",
-	       "tqdm",
-	       "mpmath"]
-classifiers = ["Development Status :: 3 - Alpha",
-               "Environment :: Console",
-               "Intended Audience :: Science/Research",
-               "Operating System :: OS Independent",
-               "Programming Language :: Python",
-               "Topic :: Scientific/Engineering"]
-dynamic = ['version']
-license = "BSD-3-Clause"
+keywords = ["statistical learning", "glm", "regularization", "lasso", "elastic net"]
+license = {text = "BSD-3-Clause"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering"
+]
+dependencies = [
+    "numpy>=1.7.1",
+    "scipy>=1.8,<1.16.0",
+    "pandas>=0.20",
+    "scikit-learn>=1.2",
+    "joblib",
+    "statsmodels>=0.13",
+    "coxdev",
+    "pybind11",
+    "tqdm",
+    "mpmath"
+]
 
-[tool.versioneer]
-VCS = "git"
-style = "pep440"
-versionfile_source = "glmnet/_version.py"
-versionfile_build = "glmnet/_version.py"
-tag_prefix = "v"
-parentdir_prefix = "glmnet-"
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "scipy",
+    "ninja",
+    "meson",
+    "meson-python",
+    "pybind11"
+]
+doc = [
+    "myst-parser",
+    "jupyter-book",
+    "pandas",
+    "matplotlib",
+    "rpy2"
+]
 
+[build-system]
+requires = ["meson-python>=0.13.1", "pybind11", "ninja", "patchelf; platform_system == 'Linux'", "setuptools_scm"]
+build-backend = "mesonpy"
+
+[tool.uv.extra-build-dependencies]
+glmnet = ["meson-python",
+          "pybind11",
+	  "setuptools_scm",
+	  "ninja"]
