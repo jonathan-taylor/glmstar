@@ -205,41 +205,8 @@ def get_data(n, p, sample_weight, offset):
     return X, Y, D, col_args, weightsR, offsetR
 
 
-sample_weight_pyt = pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
-df_max_pyt = pytest.mark.parametrize('df_max', [None, 5])
-exclude_pyt = pytest.mark.parametrize('exclude', [[], [1,2,3]])
-lower_limits_pyt = pytest.mark.parametrize('lower_limits', [-1, None])
-# covariance changes type.gaussian, behaves unpredictably even in R
-covariance_pyt = pytest.mark.parametrize('covariance', [None]) 
-standardize_pyt = pytest.mark.parametrize('standardize', [True, False])
-fit_intercept_pyt = pytest.mark.parametrize('fit_intercept', [True, False])
-nlambda_pyt = pytest.mark.parametrize('nlambda', [None, 20])
-lambda_min_ratio_pyt = pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
-nsample_pyt = pytest.mark.parametrize('n', [1000,50,500])
-nfeature_pyt = pytest.mark.parametrize('p', [10,100])
-limits_pyt = pytest.mark.parametrize('limits', [(-1, np.inf), (-np.inf, 1),
-                                                (-np.inf, 0), (0, np.inf),
-                                                (-np.inf, np.inf),
-                                                (-1, 1),
-                                                (0, 1)])
-penalty_factor_pyt = pytest.mark.parametrize('penalty_factor', [None,
-                                                                sample1,
-                                                                sample2])
-alignment_pyt = pytest.mark.parametrize('alignment', ['lambda', 'fraction'])
-offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 20*sample1(n)]) # should match n=100 below
 
-@sample_weight_pyt
-@df_max_pyt
-@exclude_pyt
-@lower_limits_pyt
-# covariance changes type.gaussian, behaves unpredictably even in R
-@covariance_pyt
-@standardize_pyt
-@fit_intercept_pyt 
-@nlambda_pyt
-@lambda_min_ratio_pyt
-@nsample_pyt
-@nfeature_pyt
+
 def test_gaussnet(covariance,
                   standardize,
                   fit_intercept,
@@ -288,9 +255,6 @@ def test_gaussnet(covariance,
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
 
 
-@limits_pyt
-@penalty_factor_pyt
-@sample_weight_pyt
 def test_limits(limits,
                 penalty_factor,
                 sample_weight,
@@ -349,9 +313,6 @@ def test_limits(limits,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@offset_pyt
-@penalty_factor_pyt
-@sample_weight_pyt
 def test_offset(offset,
                 penalty_factor,
                 sample_weight,
@@ -402,10 +363,6 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@offset_pyt
-@penalty_factor_pyt
-@sample_weight_pyt
-@alignment_pyt
 def test_CV(offset,
             penalty_factor,
             sample_weight,

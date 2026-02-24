@@ -19,13 +19,7 @@ np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import MultiClassNet
 
-from .test_gaussnet import (RGLMNet,
-                            sample_weight_pyt,
-                            standardize_pyt,
-                            fit_intercept_pyt,
-                            nsample_pyt,
-                            nfeature_pyt,
-                            alignment_pyt)
+from .test_gaussnet import RGLMNet
 
 def get_glmnet_soln(parser_cls,
                     X,
@@ -118,16 +112,8 @@ def get_data(n, p, q, sample_weight, offset):
 
     return X, R, Df, col_args, weightsR, offsetR
 
-offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.uniform(0, 1, size=n)])
-response_pyt = pytest.mark.parametrize('q', [3])
 
-@offset_pyt
-@sample_weight_pyt
-@standardize_pyt
-@fit_intercept_pyt
-@nsample_pyt
-@nfeature_pyt
-@response_pyt 
+
 def test_multiclassnet(standardize,
                        fit_intercept,
                        n,
@@ -157,22 +143,19 @@ def test_multiclassnet(standardize,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-5
 
-@offset_pyt
-@sample_weight_pyt
-@alignment_pyt
 def test_CV(offset,
             sample_weight,
             alignment,
-            penalty_factor=None,
-            df_max=None,
-            standardize=True,
-            fit_intercept=True,
-            exclude=[],
-            nlambda=None,
-            lambda_min_ratio=None,
-            n=103,
-            p=20,
-            q=3):
+            penalty_factor,
+            df_max,
+            standardize,
+            fit_intercept,
+            exclude,
+            nlambda,
+            lambda_min_ratio,
+            n,
+            p,
+            q):
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)

@@ -7,13 +7,8 @@ from glmnet.base import Design
 from glmnet.glm import GLMState
 rng = np.random.default_rng(0)
 
-n, p, q = 100, 5, 3
 
-@pytest.mark.parametrize('X', [rng.standard_normal((n, p)),
-                               scipy.sparse.csc_array(rng.standard_normal((n, p)))] )
-@pytest.mark.parametrize('weights', [np.ones(n), rng.uniform(1, 2, size=(n,))])
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
+
 def test_design(X, weights, standardize, intercept):
     """
     test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
@@ -87,14 +82,6 @@ def test_design(X, weights, standardize, intercept):
     assert np.allclose(design.T @ V_l, design_s.T @ V_l)
     
 
-@pytest.mark.parametrize('X', [rng.standard_normal((n, p)),
-                               scipy.sparse.csc_array(rng.standard_normal((n, p)))] )
-@pytest.mark.parametrize('weights', [np.ones(n), rng.uniform(1, 2, size=(n,))])
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
-@pytest.mark.parametrize('gls', [None,
-                                 np.diag(rng.uniform(1, 2, size=(n,))),
-                                 rng.uniform(1, 2, size=(n,n))])
 def test_quadratic_form(X, weights, standardize, intercept, gls):
     """
     test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
@@ -143,8 +130,6 @@ def test_quadratic_form(X, weights, standardize, intercept, gls):
     assert np.allclose(Q_s, Q) # sparse and dense agree
 
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
 def test_unscaler(intercept,
                   standardize):
 
@@ -154,8 +139,6 @@ def test_unscaler(intercept,
     MT = D.unscaler_.T @ np.identity(6) 
     assert np.allclose(MT, M.T)
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
 def test_scaler(intercept,
                   standardize):
 
@@ -165,8 +148,6 @@ def test_scaler(intercept,
     MT = D.scaler_.T @ np.identity(6) 
     assert np.allclose(MT, M.T)
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
 def test_scaler_unscaler_inv(intercept,
                              standardize):
 
@@ -176,8 +157,6 @@ def test_scaler_unscaler_inv(intercept,
     MI = D.scaler_ @ np.identity(6) 
     assert np.allclose(M @ MI, np.identity(6))
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('intercept', [True, False])
 def test_scaler_to_raw_conversion(intercept,
                                   standardize):
 

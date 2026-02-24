@@ -31,22 +31,8 @@ def nonuniform_(n):
 rng = np.random.default_rng(0)
 
 ifrpy = pytest.mark.skipif(not has_rpy2, reason='requires rpy2')
-standardize = pytest.mark.parametrize('standardize', [True, False])
-fit_intercept = pytest.mark.parametrize('fit_intercept', [True, False])
-sample_weight = pytest.mark.parametrize('sample_weight', [np.ones, nonuniform_])
-alpha = pytest.mark.parametrize('alpha', [0, 0.4, 1])
-path = pytest.mark.parametrize('path', [True, False])
-offset = pytest.mark.parametrize('offset', [True, False])
-upper_limits = pytest.mark.parametrize('upper_limits', [None, 0.1])
-lower_limits = pytest.mark.parametrize('lower_limits', [None, -0.1])
 
-@ifrpy
-@standardize
-@fit_intercept
-@sample_weight
-@alpha
-@path
-@offset
+
 def test_glmnet(standardize,
                 fit_intercept,
                 sample_weight,
@@ -131,12 +117,6 @@ def test_glmnet(standardize,
     print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
 
-@ifrpy
-@standardize
-@fit_intercept
-@sample_weight
-@upper_limits
-@lower_limits
 def test_glmnet_limits(standardize,
                        fit_intercept,
                        sample_weight,
@@ -174,14 +154,19 @@ def test_glmnet_limits(standardize,
         
     if upper_limits is None:
         upper_limits = np.inf
+    else:
+        upper_limits = upper_limits(p)
     if lower_limits is None:
         lower_limits = -np.inf
+    else:
+        lower_limits = lower_limits(p)
 
     with np_cv_rules.context():
         if path:
             Gfit = glmnetR.glmnet_path
         else:
             Gfit = glmnetR.glmnet
+
         G = Gfit(X,
                  y,
                  weights=sample_weight,
@@ -224,16 +209,12 @@ def test_glmnet_limits(standardize,
 
     fit_match = np.allclose(yhat_py, yhat_R, atol=1e-3, rtol=1e-3)
     intercept_match = np.fabs(G.intercept_ - intercept_R) < 1e-3
-    coef_match = np.fabs(coef_R - G.coef_).max() / np.linalg.norm(G.coef_) < 1e-3
+    coef_match = np.fabs(coef_R - G.coef_).max() / max(np.linalg.norm(G.coef_), 1) < 1e-3
 
     print(f'fit: {fit_match}, intercept: {intercept_match}, coef:{coef_match}')
     print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
     
-@ifrpy
-@standardize
-@fit_intercept
-@sample_weight
 def test_glmnet_offset(standardize,
                        fit_intercept,
                        sample_weight,
@@ -318,8 +299,6 @@ def test_glmnet_offset(standardize,
     print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
     
-@standardize
-@fit_intercept
 def test_cv(standardize,
             fit_intercept,
             n=1000,

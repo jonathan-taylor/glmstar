@@ -1,8 +1,13 @@
 """
 Test GaussNet comparison with R glmnet using rpy2.
 
-This test file converts the original IPython R magic cells to use rpy2
-for proper R integration in pytest.
+This module validates the GaussNet implementation (Gaussian/Least Squares regression with elastic net regularization)
+by comparing its results against the reference implementation in R's `glmnet` package.
+
+The tests cover:
+- Comparison of unregularized GLM (Gaussian family) with R's `stats::glm`.
+- Comparison of GaussNet (regularized Gaussian model) coefficients with R's `glmnet`.
+- Comparison of cross-validation results (Mean Squared Error and SD) with R's `cv.glmnet`.
 """
 
 import pytest
@@ -30,16 +35,25 @@ try:
 except ImportError:
     has_rpy2 = False
 
-# Pytest decorators
-ifrpy = pytest.mark.skipif(not has_rpy2, reason='requires rpy2')
-alpha = pytest.mark.parametrize('alpha', [0, 0.4, 1])
-use_offset = pytest.mark.parametrize('use_offset', [True, False])
-use_weights = pytest.mark.parametrize('use_weights', [True, False])
-alignment = pytest.mark.parametrize('alignment', ['fraction', 'lambda'])
+
 
 
 def numpy_to_r_matrix(X):
-    """Convert numpy array to R matrix with proper row/column major ordering."""
+    """
+    Convert a 2D numpy array to an R matrix.
+    
+    Ensures proper row/column major ordering during the conversion.
+    
+    Parameters
+    ----------
+    X : np.ndarray
+        The 2D numpy array to convert.
+        
+    Returns
+    -------
+    ro.r.matrix
+        The corresponding R matrix object.
+    """
     return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
@@ -58,9 +72,6 @@ def sample_data():
     return X, Y, O, W, D, Df
 
 
-@ifrpy
-@use_offset
-@use_weights
 def test_glm_comparison(sample_data, use_offset, use_weights):
     """Test GLM comparison with different alpha, offset, and weight combinations."""
     X, Y, O, W, D, Df = sample_data
@@ -103,10 +114,6 @@ def test_glm_comparison(sample_data, use_offset, use_weights):
     assert np.allclose(G.intercept_, r_coef[0], rtol=rtol, atol=atol)
 
 
-@ifrpy
-@alpha
-@use_offset
-@use_weights
 def test_glmnet_flex_comparison(sample_data, alpha, use_offset, use_weights):
     """Test GLMNet comparison with R glmnet."""
     X, Y, O, W, D, Df = sample_data
@@ -127,7 +134,7 @@ def test_glmnet_flex_comparison(sample_data, alpha, use_offset, use_weights):
         w_std = np.sqrt(((y - w_mean)**2 * sample_weight).sum() / sample_weight.sum())
         y /= w_std
         Y /= w_std
-        Df['response'].values[:] = y
+        Df['response'] = y
         
     GN = GLMNet(response_id='response', **glmnet_kwargs)
     GN.fit(X, Df)
@@ -155,10 +162,6 @@ def test_glmnet_flex_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(r_coef.T[30][1:], GN.coefs_[30], rtol=1e-3, atol=1e-3)
 
 
-@ifrpy
-@alpha
-@use_offset
-@use_weights
 def test_gaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     """Test GaussNet comparison with different alpha, offset, and weight combinations."""
     X, Y, O, W, D, Df = sample_data
@@ -191,11 +194,6 @@ def test_gaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(r_coef[0], GN.intercepts_)
 
 
-@ifrpy
-@alpha
-@alignment
-@use_offset
-@use_weights
 def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights):
     """Test cross-validation with different alpha, alignment, offset, weight, and grouped combinations."""
     X, Y, O, W, D, Df = sample_data

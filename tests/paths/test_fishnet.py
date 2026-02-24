@@ -17,13 +17,7 @@ np_cv_rules = default_converter + numpy2ri.converter
 from glmnet import FishNet
 
 from .test_gaussnet import (RGLMNet,
-                            get_glmnet_soln,
-                            sample_weight_pyt,
-                            standardize_pyt,
-                            fit_intercept_pyt,
-                            nsample_pyt,
-                            nfeature_pyt,
-                            alignment_pyt)
+                            get_glmnet_soln)
 
 @dataclass
 class RFishNet(RGLMNet):
@@ -64,14 +58,8 @@ def get_data(n, p, sample_weight, offset):
                 'offset_id':offset_id}
     return X, Y_R, D, col_args, weightsR, offsetR
 
-offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.uniform(0, 1, size=n)])
 
-@offset_pyt
-@sample_weight_pyt
-@standardize_pyt
-@fit_intercept_pyt
-@nsample_pyt
-@nfeature_pyt
+
 def test_fishnet(standardize,
                  fit_intercept,
                  n,
@@ -100,10 +88,6 @@ def test_fishnet(standardize,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
-@offset_pyt
-#@penalty_factor_pyt -- some fails with different penalty factors
-@sample_weight_pyt
-@alignment_pyt
 def test_CV(offset,
             sample_weight,
             alignment,

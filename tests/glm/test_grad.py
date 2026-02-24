@@ -7,11 +7,6 @@ from glmnet import (GLMNet,
 from glmnet.base import (ScaleOperator,
                          UnscaleOperator)
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('glmnet', [True, False])
-@pytest.mark.parametrize('scaled_input', [True, False])
-@pytest.mark.parametrize('scaled_output', [True, False])
 def test_compute_grad(standardize,
                       fit_intercept,
                       glmnet,

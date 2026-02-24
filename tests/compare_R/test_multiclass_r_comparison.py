@@ -49,9 +49,6 @@ def sample_data():
     return X, Y, O, W, R, Df, response_id, offset_id, nlambda
 
 
-@pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0][-1:])
-@pytest.mark.parametrize("use_offset", [True, False])
-@pytest.mark.parametrize("use_weights", [True, False])
 def test_multiclassnet_comparison(sample_data, alpha, use_offset, use_weights):
     """Test MultiClassNet comparison with various configurations."""
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
@@ -97,10 +94,7 @@ def test_multiclassnet_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(C[:, 0], GN2.intercepts_)
 
 
-@pytest.mark.parametrize("alpha", [0.0, 0.5, 1.0][-1:])
-@pytest.mark.parametrize("use_offset", [True, False])
-@pytest.mark.parametrize("use_weights", [True, False])
-@pytest.mark.parametrize("alignment", ['fraction', 'lambda'])
+
 def test_multiclassnet_cross_validation(sample_data, alpha, use_offset, use_weights, alignment):
     """Test MultiClassNet cross-validation with various configurations."""
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data

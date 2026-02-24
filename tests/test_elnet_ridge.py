@@ -4,8 +4,6 @@ import scipy.sparse
 
 from glmnet.elnet import ElNet
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
 def test_simple_ridge(standardize,
                       fit_intercept,
                       n=50, p=10):

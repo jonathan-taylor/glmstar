@@ -18,6 +18,7 @@ np_cv_rules = default_converter + numpy2ri.converter
 from glmnet import LogNet
 
 from .test_gaussnet import (RGLMNet,
+<<<<<<< Updated upstream
                             get_glmnet_soln,
                             sample_weight_pyt,
                             standardize_pyt,
@@ -26,6 +27,9 @@ from .test_gaussnet import (RGLMNet,
                             nfeature_pyt,
                             alignment_pyt,
                             penalty_factor_pyt)
+=======
+                            get_glmnet_soln)
+>>>>>>> Stashed changes
 
 @dataclass
 class RLogNet(RGLMNet):
@@ -77,8 +81,8 @@ def get_data(n, p, sample_weight, offset):
                 'offset_id':offset_id}
     return X, Y_R, D, col_args, weightsR, offsetR
 
-offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.uniform(0, 1, size=n)])
 
+<<<<<<< Updated upstream
 @pytest.mark.parametrize('modified_newton', [True, False])
 @penalty_factor_pyt
 @offset_pyt
@@ -87,6 +91,9 @@ offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.un
 @fit_intercept_pyt
 @nsample_pyt
 @nfeature_pyt
+=======
+
+>>>>>>> Stashed changes
 def test_lognet(modified_newton,
                 penalty_factor,
                 standardize,
@@ -124,10 +131,6 @@ def test_lognet(modified_newton,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
-@offset_pyt
-#@penalty_factor_pyt -- some fails with different penalty factors
-@sample_weight_pyt
-@alignment_pyt
 def test_CV(offset,
             sample_weight,
             alignment,

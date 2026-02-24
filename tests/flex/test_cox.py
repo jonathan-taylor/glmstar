@@ -11,12 +11,6 @@ from glmnet.cox import (RegCoxLM,
 from glmnet.data import make_survival
 
 from .test_gaussnet import (ifrpy,
-                            standardize,
-                            fit_intercept,
-                            sample_weight,
-                            alpha,
-                            path,
-                            offset,
                             has_rpy2)
 
 if has_rpy2:
@@ -35,12 +29,6 @@ if has_rpy2:
 rng = np.random.default_rng(0)
 
 
-@ifrpy
-@standardize
-@sample_weight
-@alpha
-@path
-@offset
 def test_glmnet(standardize,
                 sample_weight,
                 alpha,
@@ -55,7 +43,7 @@ def test_glmnet(standardize,
         sample_weight = sample_weight(n)
         
     status = rng.choice([0, 1], size=n)
-    start = rng.integers(0, 5, size=n)
+    start = rng.integers(0, 5, size=n).astype(float)
     event = start + rng.integers(1, 5, size=n)
     event_data = pd.DataFrame({'event':event,
                                'status':status,

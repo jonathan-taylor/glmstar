@@ -17,13 +17,7 @@ np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import MultiGaussNet
 
-from .test_gaussnet import (RGLMNet,
-                            sample_weight_pyt,
-                            standardize_pyt,
-                            fit_intercept_pyt,
-                            nsample_pyt,
-                            nfeature_pyt,
-                            alignment_pyt)
+from .test_gaussnet import RGLMNet
 
 def get_glmnet_soln(parser_cls,
                     X,
@@ -112,16 +106,8 @@ def get_data(n, p, q, sample_weight, offset):
 
     return X, Y, Df, col_args, weightsR, offsetR
 
-offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: rng.uniform(0, 1, size=n)])
-response_pyt = pytest.mark.parametrize('q', [3])
 
-@offset_pyt
-@sample_weight_pyt
-@standardize_pyt
-@fit_intercept_pyt
-@nsample_pyt
-@nfeature_pyt
-@response_pyt 
+
 def test_mrelnet(standardize,
                  fit_intercept,
                  n,
@@ -151,9 +137,6 @@ def test_mrelnet(standardize,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
-@offset_pyt
-@sample_weight_pyt
-@alignment_pyt
 def test_CV(offset,
             sample_weight,
             alignment,

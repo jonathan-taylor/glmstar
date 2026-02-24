@@ -6,11 +6,6 @@ import statsmodels.api as sm
 from glmnet.regularized_glm import RegGLM
 
 from .test_gaussnet import (ifrpy,
-                            standardize,
-                            fit_intercept,
-                            sample_weight,
-                            alpha,
-                            path,
                             has_rpy2)
 
 if has_rpy2:
@@ -27,12 +22,6 @@ if has_rpy2:
 rng = np.random.default_rng(0)
 
 
-@ifrpy
-@standardize
-@fit_intercept
-@sample_weight
-@alpha
-@path
 def test_glmnet(standardize,
                 fit_intercept,
                 sample_weight,
@@ -107,8 +96,6 @@ def test_glmnet(standardize,
 
     assert fit_match and intercept_match and coef_match
 
-@standardize
-@fit_intercept
 def test_cv(standardize,
             fit_intercept,
             n=1000,
