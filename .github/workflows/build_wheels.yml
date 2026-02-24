@@ -17,6 +17,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+        # Use the PAT to authorize the submodule clone
+          token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
           submodules: recursive
 
       - name: Build wheels
