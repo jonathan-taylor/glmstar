@@ -23,7 +23,9 @@ jobs:
       - name: Configure Submodule Auth
         run: |
           git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
-          git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "https://github.com/intro-stat-learning/"
+
+      - name: Manual Submodule Update
+        run: git submodule update --init --recursive
 
       - name: Manual Submodule Update
         run: git submodule update --init --recursive
