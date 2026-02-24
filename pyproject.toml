@@ -5,6 +5,7 @@ authors = [
   {name="Naras Balasubrimanian", email="naras@stanford.edu"},
   {name="Trevor Hastie", email="hastie@stanford.edu"},
   {name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},
+  {name="James Yang", email="jamesyang916@gmail.com"}
 ]
 description = "GlmNet for Python"
 readme = "README.md"
@@ -21,14 +22,13 @@ classifiers = [
     "Topic :: Scientific/Engineering"
 ]
 dependencies = [
-    "numpy>=1.7.1",
-    "scipy>=1.8,<1.16.0",
-    "pandas>=0.20",
+    "numpy",
+    "scipy",
+    "pandas",
     "scikit-learn>=1.2",
     "joblib",
     "statsmodels>=0.13",
-    "coxdev",
-    "pybind11",
+    "coxdev>=0.1.6",
     "tqdm",
     "mpmath"
 ]
@@ -40,7 +40,8 @@ dev = [
     "ninja",
     "meson",
     "meson-python",
-    "pybind11"
+    "pybind11",
+    "setuptools_scm"
 ]
 doc = [
     "myst-parser",
@@ -49,6 +50,11 @@ doc = [
     "matplotlib",
     "rpy2"
 ]
+test = ["pytest",
+        "rpy2",
+        "pandas",
+	"matplotlib"
+	]
 
 [build-system]
 requires = ["meson-python>=0.13.1", "pybind11", "ninja", "patchelf; platform_system == 'Linux'", "setuptools_scm"]

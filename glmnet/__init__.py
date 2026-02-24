@@ -1,24 +1,20 @@
-from .glm import (GLM,
-                  GLMControl,
-                  compute_grad,
-                  GLMState)
-from .regularized_glm import (RegGLM,
-                              RegGLMControl)
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("glmnet")
+except PackageNotFoundError:
+    # package is not installed, perhaps we are in a git repo
+    try:
+        from setuptools_scm import get_version
+        __version__ = get_version(root='..', relative_to=__file__)
+    except (ImportError, LookupError):
+        __version__ = "unknown"
+
 from .glmnet import GLMNet
-from .elnet import ElNet
-
-# fast paths
-
-from .paths import (LogNet,
-                    FishNet,
-                    GaussNet,
-                    MultiGaussNet,
-                    MultiClassNet)
-
-# Cox models
-
-from .cox import CoxLM, RegCoxLM, CoxNet
-
-from . import _version
-__version__ = _version.get_versions()['version']
-
+from .glm import GLM
+from .cox import CoxNet
+from .paths.gaussnet import GaussNet
+from .paths.lognet import LogNet
+from .paths.fishnet import FishNet
+from .paths.multigaussnet import MultiGaussNet
+from .paths.multiclassnet import MultiClassNet
