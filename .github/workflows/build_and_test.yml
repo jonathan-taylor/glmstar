@@ -5,7 +5,16 @@ on: [push]
 jobs:
   build-mac:
     runs-on: macos-latest
+
     steps:
+
+      - name: Check Secret Presence
+        run: |
+          if [ -z "${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}" ]; then
+            echo "ERROR: The secret GLMNETPP_SUBMODULE_TOKEN is not visible to this runner."
+            exit 1
+          fi
+
       - name: Checkout Parent Repo
         uses: actions/checkout@v4
         with:
