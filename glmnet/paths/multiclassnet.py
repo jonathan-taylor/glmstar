@@ -90,7 +90,7 @@ class MultiClassNet(MultiFastNetMixin):
             exp_value = np.exp(value)
             value = exp_value / exp_value.sum(-1)[:,:,None]
         elif prediction_type == 'class':
-            int_class = np.argmax(value, 1)
+            int_class = np.argmax(value, -1)
             value = self.categories_[int_class]
         return value
         
@@ -142,7 +142,33 @@ class MultiClassNet(MultiFastNetMixin):
         encoder = OneHotEncoder(sparse_output=False)
         y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
         self.categories_ = encoder.categories_[0]
+
         return X, y, y_onehot, offset, weight
+
+    def predict_proba(self,
+                      X,
+                      interpolation_grid=None):
+        """
+        Probability estimates for a LogNet model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Vector to be scored, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
+
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+
+        Returns
+        -------
+        T : array-like of shape (n_samples, n_classes)
+            Returns the probability of the sample for each class in the model,
+            where classes are ordered as they are in ``self.classes_``.
+        """
+        return self.predict(X,
+                            interpolation_grid=interpolation_grid,
+                            prediction_type='response')
 
     def _extract_fits(self,
                       X_shape,

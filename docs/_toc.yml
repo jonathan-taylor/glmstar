@@ -3,10 +3,18 @@
 
 format: jb-book
 root: index
-chapters:
-  - file: vignettes/glmnet.md
-  - file: examples/Test_design.md
-  - file: examples/cross_validation.md
-  - file: examples/diabetes_logistic.md
-  - file: examples/elnet_compare.md
-  - file: api_reference.md
+parts:
+- caption: Getting Started
+  chapters:
+  - file: quick_start.md
+  - file: coxnet.md
+- caption: GLMNet paths
+  chapters:
+  - file: paths/GLMNet.md
+  - file: paths/GaussNet.md
+  - file: paths/LogNet.md
+  - file: paths/FishNet.md
+  - file: paths/CoxNet.md
+  - file: paths/MultiClassNet.md
+  - file: paths/MultiGaussNet.md
+

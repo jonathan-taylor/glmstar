@@ -105,9 +105,9 @@ py::dict spfishnet_exp(
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
-    Eigen::VectorXd y,          // TODO: map?
+    Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
     const Eigen::Ref<Eigen::VectorXd> w,
-    Eigen::VectorXd g,          // TODO: map? 
+    Eigen::Ref<Eigen::VectorXd> g,          // TODO: map? 
     const Eigen::Ref<Eigen::VectorXi> jd,
     const Eigen::Ref<Eigen::VectorXd> vp,
     Eigen::MatrixXd cl,         // TODO: map?
@@ -270,7 +270,7 @@ PYBIND11_MODULE(_fishnet, m) {
 	  py::arg("thr"),
 	  py::arg("isd"),
 	  py::arg("intr"),
-	  py::arg("kopt"),
+	  py::arg("maxit"),
 	  py::arg("pb"),
 	  py::arg("lmu"),
 	  py::arg("a0"),

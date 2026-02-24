@@ -408,8 +408,10 @@ class BinomFamilySpec(GLMFamilySpec):
             return self.base.link.inverse(linpred)
         elif prediction_type == 'class':
             pi_hat = self.base.link.inverse(linpred)
-            _integer_classes = (pi_hat > 0.5).astype(int)
-            return _integer_classes
+            _classes = (pi_hat > 0.5).astype(int)
+            if hasattr(self, "classes_"):
+                _classes = self.classes_[_classes]
+            return _classes
         else:
             raise ValueError("prediction should be one of 'response', 'link' or 'class'")
 

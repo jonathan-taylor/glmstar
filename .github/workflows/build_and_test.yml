@@ -29,3 +29,29 @@ jobs:
       run: |
         pip install pytest
         pytest tests/test*py
+
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 5
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install .
+
+    - name: Test pyglmnet
+      run: |
+        pip install pytest 
+        pytest tests/test*py
+
+
+

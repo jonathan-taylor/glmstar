@@ -714,7 +714,7 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        if self._family.is_gaussian:
+        if self._family.is_gaussian and dispersion is None:
             # usual estimate of sigma^2
             self.dispersion_ = self.deviance_ / (nobs - nvar - self.fit_intercept) 
             self.df_resid_ = nobs - nvar - self.fit_intercept

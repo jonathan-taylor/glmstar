@@ -1,4 +1,4 @@
-# pyglmnet
+# glmstar
 
 A Python implementation of the glmnet algorithm for fitting generalized linear models via penalized maximum likelihood. This package provides fast and efficient regularization paths for linear, logistic, multinomial, Poisson, and Cox regression models.
 
@@ -183,8 +183,8 @@ This project is licensed under the BSD-3-Clause License - see the [LICENSE.txt](
 
 ## Authors
 
-- **Naras Balasubrimanian** (naras@stanford.edu)
 - **Trevor Hastie** (hastie@stanford.edu)  
+- **Balasubramanian Narasimhan** (naras@stanford.edu)
 - **Jonathan Taylor** (jonathan.taylor@stanford.edu)
 
 ## Contributing

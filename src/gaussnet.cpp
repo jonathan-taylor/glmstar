@@ -104,11 +104,11 @@ py::dict spgaussnet_exp(
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
-    Eigen::Ref<Eigen::VectorXd> y, // TODO: map?
-    Eigen::Ref<Eigen::VectorXd> w, // TODO: map?
+    Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
+    Eigen::Ref<Eigen::VectorXd> w,          // TODO: figure out if we should allow updating (safe choice is to copy)
     const Eigen::Ref<Eigen::VectorXi> jd,
     const Eigen::Ref<Eigen::VectorXd> vp,
-    Eigen::Ref<Eigen::MatrixXd> cl, // TODO: map?
+    Eigen::MatrixXd cl,         // TODO: map?
     int ne,
     int nx,
     int nlam,
@@ -265,6 +265,7 @@ PYBIND11_MODULE(_gaussnet, m) {
 	  py::arg("thr"),
 	  py::arg("isd"),
 	  py::arg("intr"),
+	  py::arg("maxit"),
 	  py::arg("pb"),
 	  py::arg("lmu"),
 	  py::arg("a0"),
@@ -272,7 +273,6 @@ PYBIND11_MODULE(_gaussnet, m) {
 	  py::arg("ia"),
 	  py::arg("nin"),
 	  py::arg("rsq"),
-	  py::arg("dev"),
 	  py::arg("alm"),
 	  py::arg("nlp"),
 	  py::arg("jerr"),

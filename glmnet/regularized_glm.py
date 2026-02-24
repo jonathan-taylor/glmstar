@@ -128,19 +128,15 @@ class ElNetRegularizer(Penalty):
         control: RegGLMControl
             Control parameters.
         """
-        self.lower_limits = np.asarray(self.lower_limits)
-        if self.lower_limits.shape == (): # a single float 
-            self.lower_limits = np.ones(nvars) * self.lower_limits
-        
-        self.upper_limits = np.asarray(self.upper_limits)
-        if self.upper_limits.shape == (): # a single float 
-            self.upper_limits = np.ones(nvars) * self.upper_limits
-        
-        if self.penalty_factor is None:
-            self.penalty_factor = np.ones(nvars)
 
-        self.penalty_factor *= nvars / self.penalty_factor.sum() 
-            
+        if self.penalty_factor is None:
+            penalty_factor_ = np.ones(nvars)
+        else:
+            penalty_factor_ = self.penalty_factor
+
+        penalty_factor_ *= nvars / penalty_factor_.sum() 
+        self.penalty_factor_ = penalty_factor_
+        
         self.elnet_estimator = ElNet(lambda_val=self.lambda_val,
                                      alpha=self.alpha,
                                      control=control,
@@ -332,7 +328,7 @@ class RegGLM(GLM,
         Parameters
         ----------
         X: Union[np.ndarray, scipy.sparse, DesignSpec]
-            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            Input matrix, of shape `(n_samples, n_features)`; each row is an observation
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
@@ -363,7 +359,7 @@ class RegGLM(GLM,
         Parameters
         ----------
         X: Union[np.ndarray, scipy.sparse, DesignSpec]
-            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            Input matrix, of shape `(n_samples, n_features)`; each row is an observation
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
@@ -456,7 +452,7 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         Parameters
         ----------
         X: Union[np.ndarray, scipy.sparse, DesignSpec]
-            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            Input matrix, of shape `(n_samples, n_features)`; each row is an observation
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
@@ -500,7 +496,7 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         Parameters
         ----------
         X: Union[np.ndarray, scipy.sparse, DesignSpec]
-            Input matrix, of shape `(nobs, nvars)`; each row is an observation
+            Input matrix, of shape `(n_samples, n_features)`; each row is an observation
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.

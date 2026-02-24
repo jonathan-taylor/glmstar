@@ -6,7 +6,9 @@ from sklearn.model_selection import cross_validate
 import statsmodels.api as sm
 
 from glmnet.cox import (RegCoxLM,
-                        CoxFamilySpec)
+                        CoxFamilySpec,
+                        CoxNet)
+from glmnet.data import make_survival
 
 from .test_gaussnet import (ifrpy,
                             standardize,
@@ -143,6 +145,49 @@ def test_glmnet(standardize,
     print(f'fit: {fit_match}, intercept: {intercept_match}, coef:{coef_match}')
 
     assert fit_match and intercept_match and coef_match
+
+
+def test_stratified_cox_agrees_with_unstratified():
+    """
+    When strata_id is None or all values are the same, stratified and unstratified Cox should agree.
+    """
+    n, p = 100, 5
+    X, y, coef = make_survival(n_samples=n, n_features=p, random_state=42)
+    y['strata'] = 0  # Single stratum
+
+    # Unstratified
+    fam_unstrat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id=None)
+    fit_unstrat = CoxNet(family=fam_unstrat).fit(X, y)
+    # Stratified, but only one stratum
+    fam_strat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id='strata')
+    fit_strat = CoxNet(family=fam_strat).fit(X, y)
+
+    # Compare coefficient paths
+    assert np.allclose(fit_unstrat.coefs_, fit_strat.coefs_, atol=1e-8)
+    assert np.allclose(fit_unstrat.intercepts_, fit_strat.intercepts_, atol=1e-8)
+
+    # Now test with strata_id=None (should be same as above)
+    fam_none = CoxFamilySpec(y, event_id='event', status_id='status', strata_id=None)
+    fit_none = CoxNet(family=fam_none).fit(X, y)
+    assert np.allclose(fit_unstrat.coefs_, fit_none.coefs_, atol=1e-8)
+
+
+def test_stratified_cox_differs_with_multiple_strata():
+    """
+    When strata_id has multiple unique values, stratified and unstratified Cox should differ (unless by chance).
+    """
+    n, p = 100, 5
+    X, y, coef = make_survival(n_samples=n, n_features=p, random_state=42)
+    # Create 3 strata
+    y['strata'] = np.repeat(np.arange(3), n // 3 + 1)[:n]
+
+    fam_unstrat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id=None)
+    fit_unstrat = CoxNet(family=fam_unstrat).fit(X, y)
+    fam_strat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id='strata')
+    fit_strat = CoxNet(family=fam_strat).fit(X, y)
+
+    # The coefficient paths should generally differ
+    assert not np.allclose(fit_unstrat.coefs_[:20], fit_strat.coefs_[:20], atol=1e-6)
 
 
 

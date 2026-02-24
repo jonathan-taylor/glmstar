@@ -186,3 +186,118 @@ def _parent_dataclass_from_child(cls,
     _cls_args = {k:parent_dict[k] for k in parent_dict.keys() if k in _fields}
     _cls_args.update(**modified_args)
     return cls(**_cls_args)
+
+# ===================================================================
+# ARGUMENT DICTIONARY EXTRACTED FROM C++ WRAPPER FILES
+# ===================================================================
+
+# Using the dictionary structure you suggested for better organization
+ALL_CPP_ARGS = {
+    # From: elnet_point.cpp
+    "elnet_point": [
+        'alm0', 'almc', 'alpha', 'm', 'no', 'ni', 'x', 'r', 'xv', 'v',
+        'intr', 'ju', 'vp', 'cl', 'nx', 'thr', 'maxit', 'a', 'aint', 'g',
+        'ia', 'iy', 'iz', 'mm', 'nino', 'rsqc', 'nlp', 'jerr'
+    ],
+    "spelnet_point": [
+        'alm0', 'almc', 'alpha', 'm', 'no', 'ni', 'x_data_array',
+        'x_indices_array', 'x_indptr_array', 'xm', 'xs', 'r', 'xv', 'v',
+        'intr', 'ju', 'vp', 'cl', 'nx', 'thr', 'maxit', 'a', 'aint', 'g',
+        'ia', 'iy', 'iz', 'mm', 'nino', 'rsqc', 'nlp', 'jerr'
+    ],
+
+    # From: lognet.cpp
+    "lognet": [
+        'parm', 'ni', 'no', 'x', 'y', 'g', 'jd', 'vp', 'cl', 'ne', 'nx',
+        'nlam', 'flmin', 'ulam', 'thr', 'isd', 'intr', 'maxit', 'kopt', 'pb',
+        'lmu', 'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+    "splognet": [
+        'parm', 'ni', 'no', 'x_data_array', 'x_indices_array',
+        'x_indptr_array', 'y', 'g', 'jd', 'vp', 'cl', 'ne', 'nx', 'nlam',
+        'flmin', 'ulam', 'thr', 'isd', 'intr', 'maxit', 'kopt', 'pb', 'lmu',
+        'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+
+    # From: gaussnet.cpp
+    "gaussnet": [
+        'ka', 'parm', 'ni', 'no', 'x', 'y', 'w', 'jd', 'vp', 'cl', 'ne',
+        'nx', 'nlam', 'flmin', 'ulam', 'thr', 'isd', 'intr', 'maxit', 'pb',
+        'lmu', 'a0', 'ca', 'ia', 'nin', 'rsq', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+    "spgaussnet": [
+        'ka', 'parm', 'ni', 'no', 'x_data_array', 'x_indices_array',
+        'x_indptr_array', 'y', 'w', 'jd', 'vp', 'cl', 'ne', 'nx', 'nlam',
+        'flmin', 'ulam', 'thr', 'isd', 'intr', 'pb', 'lmu', 'a0', 'ca',
+        'ia', 'nin', 'rsq', 'maxit', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+    
+    # From: multigaussnet.cpp
+    "multigaussnet": [
+        'parm', 'ni', 'no', 'x', 'y', 'w', 'jd', 'vp', 'cl', 'ne', 'nx',
+        'nlam', 'flmin', 'ulam', 'thr', 'isd', 'jsd', 'intr', 'maxit', 'pb',
+        'lmu', 'a0', 'ca', 'ia', 'nin', 'rsq', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+    "spmultigaussnet": [
+        'parm', 'ni', 'no', 'x_data_array', 'x_indices_array',
+        'x_indptr_array', 'y', 'w', 'jd', 'vp', 'cl', 'ne', 'nx', 'nlam',
+        'flmin', 'ulam', 'thr', 'isd', 'jsd', 'intr', 'maxit', 'pb', 'lmu',
+        'a0', 'ca', 'ia', 'nin', 'rsq', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+
+    # From: fishnet.cpp
+    "fishnet": [
+        'parm', 'ni', 'no', 'x', 'y', 'w', 'g', 'jd', 'vp', 'cl', 'ne',
+        'nx', 'nlam', 'flmin', 'ulam', 'thr', 'isd', 'intr', 'maxit', 'pb',
+        'lmu', 'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+    "spfishnet": [
+        'parm', 'ni', 'no', 'x_data_array', 'x_indices_array',
+        'x_indptr_array', 'y', 'w', 'g', 'jd', 'vp', 'cl', 'ne', 'nx',
+        'nlam', 'flmin', 'ulam', 'thr', 'isd', 'intr', 'maxit', 'pb', 'lmu',
+        'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ]
+}
+
+
+# ===================================================================
+# VALIDATION FUNCTION (Unchanged, it works with the new structure)
+# ===================================================================
+
+def _validate_cpp_args(
+    args_dict: dict,
+    function_name: str
+) -> bool:
+    """
+    Compares a dictionary of arguments against a list of expected names.
+    """
+    expected_set = set(ALL_CPP_ARGS[function_name])
+    actual_set = set(args_dict.keys())
+
+    missing_args = expected_set - actual_set
+    extra_args = actual_set - expected_set
+
+    msg = ''
+    if missing_args:
+        msg = f"ERROR: The following arguments for {function_name} are MISSING: {sorted(list(missing_args))}, "
+    if extra_args:
+        msg += f"ERROR: The following EXTRA arguments for {function_name} were found: {sorted(list(extra_args))}"
+    if msg:
+        return msg
+

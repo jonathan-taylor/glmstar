@@ -89,7 +89,7 @@ class LogNet(FastNetMixin):
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         encoder = LabelEncoder()
         labels = np.asfortranarray(encoder.fit_transform(response))
-        self.classes_ = encoder.classes_
+        self.classes_ = self._family.classes_ = encoder.classes_
         if len(encoder.classes_) > 2:
             raise ValueError("BinomialGLM expecting a binary classification problem.")
         return X, y, labels, offset, weight
@@ -135,7 +135,7 @@ class LogNet(FastNetMixin):
         offset = np.column_stack([offset,-offset])
         offset = np.asfortranarray(offset)
 
-        nobs, nvars = design.X.shape
+        n_samples, n_features = design.X.shape
 
         # add 'kopt' 
         _args['kopt'] = int(self.modified_newton)
@@ -150,7 +150,7 @@ class LogNet(FastNetMixin):
         # fix intercept and coefs
 
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
-        _args['ca'] = np.zeros((nvars*self.nlambda*nc, 1))
+        _args['ca'] = np.zeros((n_features*self.nlambda*nc, 1))
 
         # reshape y
         encoder = OneHotEncoder(sparse_output=False)
@@ -165,3 +165,33 @@ class LogNet(FastNetMixin):
         del(_args['w'])
         
         return _args
+
+    def predict_proba(self,
+                      X,
+                      interpolation_grid=None):
+        """
+        Probability estimates for a LogNet model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Vector to be scored, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
+
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+
+        Returns
+        -------
+        T : array-like of shape (n_samples, n_classes)
+            Returns the probability of the sample for each class in the model,
+            where classes are ordered as they are in ``self.classes_``.
+        """
+        prob_1 = self.predict(X,
+                              interpolation_grid=interpolation_grid,
+                              prediction_type='response')
+        result = np.empty(prob_1.shape + (2,))
+        result[:,:,1] = prob_1
+        result[:,:,0] = 1 - prob_1
+
+        return result

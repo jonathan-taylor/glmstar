@@ -10,23 +10,6 @@ from sklearn.metrics import (mean_squared_error,
 
 @dataclass(frozen=True)
 class Scorer(object):
-    """Scorer for evaluating model performance.
-    
-    Parameters
-    ----------
-    name : str
-        Name of the scorer.
-    score : callable, optional
-        Scoring function that takes (y_true, y_pred, sample_weight) and returns a score.
-    maximize : bool, default=True
-        Whether higher scores are better.
-    use_full_data : bool, default=False
-        Whether to use full data instead of split data.
-    grouped : bool, default=True
-        Whether the scorer operates on grouped data.
-    normalize_weights : bool, default=True
-        Whether to normalize sample weights.
-    """
 
     name: str
     score: callable=None
@@ -40,24 +23,6 @@ class Scorer(object):
                  response,
                  predictions,
                  sample_weight):
-        """Compute score for a given split.
-        
-        Parameters
-        ----------
-        split : array-like
-            Indices for the current split.
-        response : array-like
-            True response values.
-        predictions : array-like
-            Predicted values.
-        sample_weight : array-like
-            Sample weights.
-            
-        Returns
-        -------
-        tuple
-            Tuple of (score, weight_sum).
-        """
 
         W = np.asarray(sample_weight)[split]
         W_sum = W.sum()
@@ -74,23 +39,7 @@ mae_scorer = Scorer(name='Mean Absolute Error',
                     score=mean_absolute_error,
                     maximize=False)
 
-def _accuracy_score(y, yhat, sample_weight):
-    """Compute accuracy score for binary classification.
-    
-    Parameters
-    ----------
-    y : array-like
-        True binary labels.
-    yhat : array-like
-        Predicted probabilities.
-    sample_weight : array-like, optional
-        Sample weights.
-        
-    Returns
-    -------
-    float
-        Accuracy score.
-    """
+def _accuracy_score(y, yhat, sample_weight): # for binary data classifying at p=0.5, eta=0
     return accuracy_score(y,
                           yhat>0.5,
                           sample_weight=sample_weight,
@@ -107,10 +56,6 @@ aucpr_scorer = Scorer('AUC-PR',
                       maximize=True)
 
 class UngroupedScorer(Scorer):
-    """Scorer for ungrouped data.
-    
-    This scorer operates on individual observations rather than grouped data.
-    """
 
     grouped: bool=False
     score: callable=None
@@ -120,24 +65,6 @@ class UngroupedScorer(Scorer):
                  response,
                  predictions,
                  sample_weight):
-        """Compute score for ungrouped data.
-        
-        Parameters
-        ----------
-        split : array-like
-            Indices for the current split.
-        response : array-like
-            True response values.
-        predictions : array-like
-            Predicted values.
-        sample_weight : array-like
-            Sample weights.
-            
-        Returns
-        -------
-        tuple
-            Tuple of (score, weights).
-        """
         return self.score(response[split], predictions[split]), sample_weight[split]
 
 ungrouped_mse_scorer = UngroupedScorer(name="Mean Squared Error (Ungrouped)",

@@ -105,8 +105,8 @@ py::dict splognet(
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
-    Eigen::MatrixXd y,          // TODO: map?
-    Eigen::MatrixXd g,          // TODO: map? 
+    Eigen::Ref<Eigen::MatrixXd> y,          // TODO: map?
+    Eigen::Ref<Eigen::MatrixXd> g,          // TODO: map? 
     const Eigen::Ref<Eigen::VectorXi> jd,
     const Eigen::Ref<Eigen::VectorXd> vp,
     Eigen::MatrixXd cl,         // TODO: map?

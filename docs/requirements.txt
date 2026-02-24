@@ -8,3 +8,5 @@ jupytext
 jupyter-book
 sphinx
 myst-parser
+matplotlib
+

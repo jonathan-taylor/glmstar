@@ -27,6 +27,26 @@ from ._bootstrap import parametric_GLM
 
 @dataclass
 class TruncatedGaussian(object):
+    """
+    Represents a truncated Gaussian distribution for post-selection inference.
+
+    Attributes
+    ----------
+    estimate : float
+        The observed value or estimate.
+    sigma : float
+        Standard deviation of the underlying Gaussian.
+    smoothing_sigma : float
+        Standard deviation for the smoothing noise.
+    lower_bound : float
+        Lower truncation bound.
+    upper_bound : float
+        Upper truncation bound.
+    noisy_estimate : float
+        Noisy version of the estimate (for randomized selection).
+    factor : float
+        Scaling factor for the distribution (default 1).
+    """
     
     estimate: float
     sigma: float
@@ -34,7 +54,6 @@ class TruncatedGaussian(object):
     lower_bound: float
     upper_bound: float
     noisy_estimate: float
-    slice_dir: np.ndarray
     factor: float = 1.
 
     def weight(self,
@@ -45,6 +64,26 @@ class TruncatedGaussian(object):
     
 @dataclass
 class WeightedGaussianFamily(object):
+    """
+    Represents a family of weighted Gaussian distributions for selective inference.
+
+    Attributes
+    ----------
+    estimate : float
+        The observed value or estimate.
+    sigma : float
+        Standard deviation of the underlying Gaussian.
+    weight_fns : list of callables
+        List of weight functions to apply to the distribution.
+    num_sd : float, optional
+        Number of standard deviations to use for grid (default 10).
+    num_grid : int, optional
+        Number of grid points (default 4000).
+    use_sample : bool, optional
+        Whether to use a sample-based approximation (default False).
+    seed : int, optional
+        Random seed for reproducibility (default 0).
+    """
 
     estimate: float
     sigma: float
@@ -135,6 +174,24 @@ class WeightedGaussianFamily(object):
 
 @dataclass
 class AffineConstraint(object):
+    """
+    Represents an affine constraint of the form Az <= b for selective inference.
+
+    Attributes
+    ----------
+    linear : np.ndarray
+        The matrix A in the constraint Az <= b.
+    offset : np.ndarray
+        The offset vector b in the constraint.
+    observed : np.ndarray
+        The observed data vector z.
+    solver : Callable
+        Function to solve the linear system.
+    scale : float
+        Scaling factor for the constraint.
+    bias : np.ndarray
+        Bias vector for the constraint.
+    """
 
     linear: np.ndarray
     offset: np.ndarray
@@ -274,14 +331,14 @@ class AffineConstraint(object):
             unbiased_estimate = estimate # ignored because slice_dir is 0 and bounds are \pm inf
             factor = 1
             
-        return TruncatedGaussian(estimate=estimate,
-                                 sigma=np.sqrt(variance),
-                                 smoothing_sigma=np.sqrt(smoothing_variance) * factor,
-                                 lower_bound=lower_bound,
-                                 upper_bound=upper_bound,
-                                 noisy_estimate=unbiased_estimate,
-                                 slice_dir=unbiased_slice_dir,
-                                 factor=factor)
+        tg =  TruncatedGaussian(estimate=estimate,
+                                sigma=np.sqrt(variance),
+                                smoothing_sigma=np.sqrt(smoothing_variance) * factor,
+                                lower_bound=lower_bound,
+                                upper_bound=upper_bound,
+                                noisy_estimate=unbiased_estimate,
+                                factor=factor)
+        return tg
 
 
 def lasso_inference(glmnet_obj,
@@ -289,13 +346,48 @@ def lasso_inference(glmnet_obj,
                     selection_data,
                     full_data,
                     proportion, # proportion used in selection
-                    level=.9,
+                    level=0.9,
                     dispersion=None,
                     seed=0,
                     num_sd=10,
                     num_grid=4000,
                     use_sample=False,
                     inactive=False):
+    """
+    Perform post-selection inference for the LASSO using the GLMNet object.
+
+    Parameters
+    ----------
+    glmnet_obj : GLMNet
+        The fitted GLMNet object.
+    lambda_val : float
+        The regularization parameter value.
+    selection_data : tuple
+        (X_sel, Df_sel) data used for selection.
+    full_data : tuple
+        (X, Df) full data for inference.
+    proportion : float
+        Proportion of data used for selection.
+    level : float, optional
+        Confidence level for intervals (default 0.9).
+    dispersion : float, optional
+        Dispersion parameter (default None).
+    seed : int, optional
+        Random seed (default 0).
+    num_sd : float, optional
+        Number of standard deviations for grid (default 10).
+    num_grid : int, optional
+        Number of grid points (default 4000).
+    use_sample : bool, optional
+        Whether to use sample-based approximation (default False).
+    inactive : bool, optional
+        Whether to include inference for inactive variables (default False).
+
+    Returns
+    -------
+    pd.DataFrame or None
+        DataFrame with inference results for the active set, or None if no active set.
+    """
 
     fixed_lambda, warm_state = glmnet_obj.get_fixed_lambda(lambda_val)
     X_sel, Df_sel = selection_data
@@ -334,6 +426,28 @@ def lasso_inference(glmnet_obj,
 
 @dataclass
 class GLMNetInference(object):
+    """
+    Encapsulates post-selection inference for a fitted GLMNet model.
+
+    Attributes
+    ----------
+    glmnet_obj : GLMNet
+        The fitted GLMNet object.
+    data : tuple
+        (X, Df) data used for inference.
+    lambda_val : float
+        The regularization parameter value.
+    state : GLMState
+        The state of the fitted model.
+    score : np.ndarray
+        The score vector for inference.
+    proportion : float
+        Proportion of data used for selection.
+    dispersion : float, optional
+        Dispersion parameter.
+    inactive : bool, optional
+        Whether to include inference for inactive variables.
+    """
 
     glmnet_obj: GLMNet
     data: tuple
@@ -469,11 +583,12 @@ class GLMNetInference(object):
 
             # up to the scalar alpha, this should be the precision of the noise added
             active_solver = lambda v: (P_active + DIAG_active) @ v / unreg_GLM.dispersion_
+
             active_bias = -Q_active @ (penfac * lambda_val * signs) * weight_full.sum()
             self.active_con = AffineConstraint(linear=linear,
                                                offset=offset,
                                                observed=stacked,
-                                               scale=(1-proportion)/proportion,
+                                               scale=(1-proportion)/proportion, # change 06/30/25 -- where does this scale go?
                                                solver=active_solver,
                                                # the bias subtracted from the unpenalized MLE -- needed to get
                                                # a (marginally) unbiased estimate of each target of interest
@@ -724,6 +839,7 @@ class GLMNetInference(object):
                                              chol_cov=chol_cov,
                                              perturbation=perturbation,
                                              penalty_factor=penalty_factor,
+                                             level=level,
                                              rng=rng)
         if compute_fission:
             active = GNI.active_set_ 
@@ -767,9 +883,6 @@ class GLMNetInference(object):
 
         new_state = GLMState(coef=GNI_raw.state.coef[1:],
                              intercept=GNI_raw.state.coef[0])
-        # print(new_state._stack)
-        # print(beta_perp,'perp')
-        # print(param)
         
         GNI = GLMNetInference(glmnet_obj=glmnet_obj,
                               data=(X, Df),
@@ -1597,6 +1710,7 @@ def _score_inference(score,
                      cov_score,
                      lambda_val,
                      proportion=0.8,
+                     level=0.9,
                      chol_cov=None,
                      perturbation=None,
                      penalty_factor=None,
@@ -1794,7 +1908,7 @@ def _simple_score_inference(beta,
     _sd = np.sqrt(np.diag(C_a))
     _Z = beta_sel / _sd
     _df = pd.DataFrame({'pval':2 * normal_dbn.sf(np.fabs(_Z))},
-                             index=active)
+                        index=active)
     _df['upper'] = beta_sel + q * _sd
     _df['lower'] = beta_sel - q * _sd
     _df['estimate'] = beta_sel
