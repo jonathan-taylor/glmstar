@@ -3,6 +3,7 @@ name: Build and run python tests
 on: [push]
 
 jobs:
+
   build-mac:
     runs-on: macos-latest
 

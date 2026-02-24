@@ -34,6 +34,7 @@ jobs: # This workflow contains a single
       # Install
       - name: Install dependencies 
         run: |
+          sudo apt-get install r-base
           pip install -r docs/requirements.txt
           pip install .
 
@@ -69,6 +70,7 @@ jobs: # This workflow contains a single
         name: glmstar_docs
         path: .
     - uses: actions/configure-pages@v5
+
     - uses: actions/upload-pages-artifact@v3
       with:
         path: .
