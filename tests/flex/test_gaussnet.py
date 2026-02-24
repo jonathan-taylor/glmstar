@@ -6,22 +6,11 @@ from sklearn.model_selection import cross_validate
 
 from glmnet.regularized_glm import RegGLM
 
-try:
-    import rpy2
-    has_rpy2 = True
-
-except ImportError:
-    has_rpy2 = False
-
-if has_rpy2:
-    from rpy2.robjects.packages import importr
-    from rpy2.robjects import numpy2ri
-    from rpy2.robjects import default_converter
-
-    np_cv_rules = default_converter + numpy2ri.converter
-
-    glmnetR = importr('glmnet')
-    baseR = importr('base')
+from .common import (has_rpy2,
+                     ifrpy,
+                     glmnetR,
+                     baseR,
+                     np_cv_rules)
 
 def nonuniform_(n):
     W = rng.uniform(0, 1, size=(n,))
@@ -30,9 +19,7 @@ def nonuniform_(n):
 
 rng = np.random.default_rng(0)
 
-ifrpy = pytest.mark.skipif(not has_rpy2, reason='requires rpy2')
-
-
+@ifrpy
 def test_glmnet(standardize,
                 fit_intercept,
                 sample_weight,
@@ -113,10 +100,9 @@ def test_glmnet(standardize,
     intercept_match = np.fabs(G.intercept_ - intercept_R) < 1e-3
     coef_match = np.fabs(coef_R - G.coef_).max() / np.linalg.norm(G.coef_) < 1e-3
 
-    print(f'fit: {fit_match}, intercept: {intercept_match}, coef:{coef_match}')
-    print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
 
+@ifrpy
 def test_glmnet_limits(standardize,
                        fit_intercept,
                        sample_weight,
@@ -215,6 +201,7 @@ def test_glmnet_limits(standardize,
     print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
     
+@ifrpy
 def test_glmnet_offset(standardize,
                        fit_intercept,
                        sample_weight,

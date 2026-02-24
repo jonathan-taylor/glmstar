@@ -10,25 +10,17 @@ from glmnet.cox import (RegCoxLM,
                         CoxNet)
 from glmnet.data import make_survival
 
-from .test_gaussnet import (ifrpy,
-                            has_rpy2)
-
-if has_rpy2:
-    from rpy2.robjects.packages import importr
-    from rpy2.robjects import numpy2ri
-    from rpy2.robjects import default_converter
-    import rpy2.robjects as rpy
-    
-    np_cv_rules = default_converter + numpy2ri.converter
-
-    glmnetR = importr('glmnet')
-    baseR = importr('base')
-    statR = importr('stats')
-    importr('survival')
+from .common import (ifrpy,
+                     has_rpy2,
+                     glmnetR,
+                     baseR,
+                     statR,
+                     np_cv_rules,
+                     rpy)
     
 rng = np.random.default_rng(0)
 
-
+@ifrpy
 def test_glmnet(standardize,
                 sample_weight,
                 alpha,
@@ -135,6 +127,7 @@ def test_glmnet(standardize,
     assert fit_match and intercept_match and coef_match
 
 
+@ifrpy
 def test_stratified_cox_agrees_with_unstratified():
     """
     When strata_id is None or all values are the same, stratified and unstratified Cox should agree.
@@ -160,6 +153,7 @@ def test_stratified_cox_agrees_with_unstratified():
     assert np.allclose(fit_unstrat.coefs_, fit_none.coefs_, atol=1e-8)
 
 
+@ifrpy
 def test_stratified_cox_differs_with_multiple_strata():
     """
     When strata_id has multiple unique values, stratified and unstratified Cox should differ (unless by chance).

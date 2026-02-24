@@ -10,21 +10,18 @@ from glmnet.regularized_glm import RegGLM
 from .test_gaussnet import (ifrpy,
                             has_rpy2)
 
-if has_rpy2:
-    from rpy2.robjects.packages import importr
-    from rpy2.robjects import numpy2ri
-    from rpy2.robjects import default_converter
-    import rpy2.robjects as rpy
-    
-    np_cv_rules = default_converter + numpy2ri.converter
-
-    glmnetR = importr('glmnet')
-    baseR = importr('base')
-    statR = importr('stats')
+from .common import (ifrpy,
+                     has_rpy2,
+                     glmnetR,
+                     baseR,
+                     statR,
+                     np_cv_rules,
+                     rpy)
 
 rng = np.random.default_rng(0)
 
 
+@ifrpy
 def test_glmnet(standardize,
                 fit_intercept,
                 sample_weight,
