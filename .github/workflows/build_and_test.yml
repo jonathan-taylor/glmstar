@@ -1,56 +1,78 @@
 name: Build and run python tests
 
-# Controls when the workflow will run
 on: [push]
 
 jobs:
-
   build-mac:
     runs-on: macos-latest
-    strategy:
-      max-parallel: 5
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-        pip install .
+      - name: Check Secret Presence
+        run: |
+          if [ -z "${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}" ]; then
+            echo "ERROR: The secret GLMNETPP_SUBMODULE_TOKEN is not visible to this runner."
+            exit 1
+          fi
 
-    - name: Test pyglmnet
-      run: |
-        pip install pytest 
-        pytest tests/test*py
+      - name: Checkout Parent Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
+
+      - name: Configure Submodule Auth
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
+
+      - name: Manual Submodule Update
+        run: git submodule update --init --recursive
+
+      - name: Manual Submodule Update
+        run: git submodule update --init --recursive
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5 # Updated to v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install .
+
+      - name: Test pyglmnet
+        run: |
+          pip install pytest 
+          pytest tests/test*py
 
   build-linux:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 5
-
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-        pip install .
+      - name: Checkout Parent Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
 
-    - name: Test pyglmnet
-      run: |
-        pip install pytest 
-        pytest tests/test*py
+      - name: Configure Submodule Auth
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
 
+      - name: Manual Submodule Update
+        run: git submodule update --init --recursive
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install .
+
+      - name: Test pyglmnet
+        run: |
+          pip install pytest 
+          pytest tests/test*py
 
 
