@@ -200,6 +200,10 @@ class CoxFamilySpec(object):
                 tie_breaking=self.tie_breaking
             )
 
+        self._coxdev = CoxDeviance(np.asarray(event, float),
+                                   status.astype(np.int32),
+                                   start=np.asarray(start, float),
+                                   tie_breaking=self.tie_breaking)
 
     # GLMFamilySpec API
     def link(self, mu):
@@ -208,7 +212,7 @@ class CoxFamilySpec(object):
     def deviance(self, 
                  y,
                  mu,
-                 sample_weight):
+                 sample_weight=None):
 
         link_parameter = mu
         self._result = self._coxdev(link_parameter,
@@ -243,7 +247,7 @@ class CoxFamilySpec(object):
                                  state,
                                  y,
                                  offset,
-                                 sample_weight):
+                                 sample_weight=None):
 
         link_parameter = state.link_parameter
         linear_predictor = state.linear_predictor
