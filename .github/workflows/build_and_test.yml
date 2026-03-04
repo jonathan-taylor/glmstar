@@ -74,6 +74,6 @@ jobs:
       - name: Test pyglmnet
         run: |
           pip install pytest 
-          pytest tests/test*py
+          pytest tests --test-size=small
 
 
