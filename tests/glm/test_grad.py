@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 
 from glmnet import (GLMNet,
-                    compute_grad,
                     GLM)
+from glmnet.glm import compute_grad
 from glmnet.base import (ScaleOperator,
                          UnscaleOperator)
 

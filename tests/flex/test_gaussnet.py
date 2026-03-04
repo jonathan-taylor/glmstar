@@ -140,11 +140,11 @@ def test_glmnet_limits(standardize,
         
     if upper_limits is None:
         upper_limits = np.inf
-    else:
+    elif callable(upper_limits):
         upper_limits = upper_limits(p)
     if lower_limits is None:
         lower_limits = -np.inf
-    else:
+    elif callable(lower_limits):
         lower_limits = lower_limits(p)
 
     with np_cv_rules.context():
