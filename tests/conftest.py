@@ -32,6 +32,12 @@ def pytest_generate_tests(metafunc):
     fspath = str(metafunc.definition.fspath)
     is_subdir = any(d in fspath for d in ['/glm/', '/compare_R/', '/flex/', '/paths/'])
 
+    if 'standardize' in metafunc.fixturenames:
+        metafunc.parametrize("standardize", [True, False])
+
+    if 'fit_intercept' in metafunc.fixturenames:
+        metafunc.parametrize("fit_intercept", [True, False])
+
     if 'sample_weight' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
             metafunc.parametrize("sample_weight", [np.ones])
@@ -53,19 +59,19 @@ def pytest_generate_tests(metafunc):
         if metafunc.config.getoption("test_size") == "small":
             metafunc.parametrize("lower_limits", [None])
         else:
-            metafunc.parametrize("lower_limits", [None, np.zeros])
+            metafunc.parametrize("lower_limits", [None, 0])
 
     if 'upper_limits' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
             metafunc.parametrize("upper_limits", [None])
         else:
-            metafunc.parametrize("upper_limits", [None, np.zeros])
+            metafunc.parametrize("upper_limits", [None, 0])
 
     if 'covariance' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
-            metafunc.parametrize("covariance", [None])
+            metafunc.parametrize("covariance", [False])
         else:
-            metafunc.parametrize("covariance", [None, np.eye])
+            metafunc.parametrize("covariance", [True, False])
 
     if 'nlambda' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
@@ -93,9 +99,9 @@ def pytest_generate_tests(metafunc):
 
     if 'limits' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
-            metafunc.parametrize("limits", [(-1, 1), None])
+            metafunc.parametrize("limits", [(-1, 1), (-np.inf, np.inf)])
         else:
-            metafunc.parametrize("limits", [(-1, 1), None, (-np.inf, 1), (-1, np.inf), (0, np.inf)])
+            metafunc.parametrize("limits", [(-1, 1), (-np.inf, np.inf), (-np.inf, 1), (-1, np.inf), (0, np.inf)])
 
     if 'penalty_factor' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
@@ -181,7 +187,12 @@ def pytest_generate_tests(metafunc):
         if metafunc.config.getoption("test_size") == "small":
             metafunc.parametrize("gls", [None])
         else:
-            metafunc.parametrize("gls", [None, np.linalg.pinv])
+            def wish(n,p):
+                X = rng.standard_normal((n, p))
+                return X @ X.T
+            def diag(n, p):
+                return np.linspace(1, 2, n)
+            metafunc.parametrize("gls", [None, wish, diag])
     if 'lambda_val' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
             metafunc.parametrize("lambda_val", [1e-4])

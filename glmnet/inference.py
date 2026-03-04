@@ -18,7 +18,7 @@ from scipy.stats import norm as normal_dbn
 from sklearn.base import clone
 
 import mpmath as mp
-mp.dps = 80
+mp.mp.dps = 80
 
 from .base import _get_design
 from .glmnet import GLMNet, GLMState

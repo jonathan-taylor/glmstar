@@ -3,7 +3,8 @@ import numpy as np
 import scipy.sparse
 import statsmodels.api as sm
 
-from glmnet.base import Design
+from glmnet.base import (Design,
+                         DiagonalOperator)
 from glmnet.glm import GLMState
 rng = np.random.default_rng(0)
 
@@ -58,6 +59,8 @@ def test_design(X, weights, standardize, intercept):
 
     X_eff = np.concatenate([np.ones((n, 1)), X_np], axis=1)
 
+    q = 5
+
     V_r = rng.standard_normal((p+1, q))
     V_l = rng.standard_normal((n, q))
 
@@ -87,17 +90,23 @@ def test_quadratic_form(X, weights, standardize, intercept, gls):
     test the linear / adjoint maps of Design from an np.ndarray and a scipy.sparse.csc_array
     """
     
-    if gls is not None and gls.ndim == 2:
-        gls = (gls + gls.T) / 2
+    n, p = X.shape
 
+    if gls is not None:
+        G = gls(n, p)
+        if G.ndim == 1:
+            G = DiagonalOperator(G)
+    else:
+        G = None
+        
     X_s = scipy.sparse.csc_array(X)
     W = weights
     design = Design(X, W, standardize=standardize)
     design_s = Design(X_s, W, standardize=standardize)
 
     columns = [0,1,3]
-    Q_s = design_s.quadratic_form(G=gls, columns=columns, transformed=standardize)
-    Q = design.quadratic_form(G=gls, columns=columns, transformed=standardize)
+    Q_s = design_s.quadratic_form(G=G, columns=columns, transformed=standardize)
+    Q = design.quadratic_form(G=G, columns=columns, transformed=standardize)
 
     X_eff = scipy.sparse.csc_array(X).toarray()
 
@@ -117,12 +126,10 @@ def test_quadratic_form(X, weights, standardize, intercept, gls):
         columns += 1
         columns = np.hstack([[0], columns])
 
-    if gls is None:
+    if G is None:
         Q_eff = X_eff.T @ X_eff
-    elif gls.ndim == 1:
-        Q_eff = X_eff.T @ (gls[:, None] * X_eff)
     else:
-        Q_eff = X_eff.T @ gls @ X_eff
+        Q_eff = X_eff.T @ (G @ X_eff)
     if columns is not None:
         Q_eff = Q_eff[:, columns]
     assert np.allclose(Q, Q_eff)  # calculation is done correctly

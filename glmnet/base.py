@@ -4,7 +4,8 @@ from dataclasses import dataclass, field, InitVar
 
 import numpy as np
 import scipy.sparse
-from scipy.sparse.linalg import LinearOperator
+from scipy.sparse.linalg import (LinearOperator,
+                                 aslinearoperator)
 
 
 @dataclass
@@ -203,9 +204,14 @@ class Design(LinearOperator):
             G_sum = n
 
         else:
-            GX = G @ X_R
+            if isinstance(G, LinearOperator):
+                GX = G @ aslinearoperator(X_R)
+                XX_block = aslinearoperator(self.X.T) @ GX
+                XX_block = XX_block @ np.eye(XX_block.shape[1])
+            else:
+                GX = G @ X_R
+                XX_block = self.X.T @ GX
             G1 = G @ np.ones(G.shape[0])
-            XX_block = self.X.T @ GX
             X1_block = self.X.T @ G1
             G_sum = G1.sum()
 
@@ -496,6 +502,7 @@ class DiagonalOperator(LinearOperator):
         Diagonal elements of the matrix.
     """
     weights: np.ndarray
+    dtype: float | None = float
 
     def __post_init__(self):
         """Initialize the operator after creation."""

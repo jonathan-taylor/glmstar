@@ -18,18 +18,7 @@ np_cv_rules = default_converter + numpy2ri.converter
 from glmnet import LogNet
 
 from .test_gaussnet import (RGLMNet,
-<<<<<<< Updated upstream
-                            get_glmnet_soln,
-                            sample_weight_pyt,
-                            standardize_pyt,
-                            fit_intercept_pyt,
-                            nsample_pyt,
-                            nfeature_pyt,
-                            alignment_pyt,
-                            penalty_factor_pyt)
-=======
                             get_glmnet_soln)
->>>>>>> Stashed changes
 
 @dataclass
 class RLogNet(RGLMNet):
@@ -82,18 +71,6 @@ def get_data(n, p, sample_weight, offset):
     return X, Y_R, D, col_args, weightsR, offsetR
 
 
-<<<<<<< Updated upstream
-@pytest.mark.parametrize('modified_newton', [True, False])
-@penalty_factor_pyt
-@offset_pyt
-@sample_weight_pyt
-@standardize_pyt
-@fit_intercept_pyt
-@nsample_pyt
-@nfeature_pyt
-=======
-
->>>>>>> Stashed changes
 def test_lognet(modified_newton,
                 penalty_factor,
                 standardize,
