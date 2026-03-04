@@ -10,7 +10,7 @@ from scipy.stats import norm as normal_dbn
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
 
-from coxdev import StratifiedCoxDeviance # , CoxDeviance
+from coxdev import CoxDeviance
     
 from .glm import (GLMFamilySpec,
                   GLMState,
@@ -183,7 +183,7 @@ class CoxFamilySpec(object):
         
         if self.start_id is not None:
             start = event_data[self.start_id]
-            self._coxdev = StratifiedCoxDeviance(
+            self._coxdev = CoxDeviance(
                 np.asarray(event, float),
                 status,
                 start=np.asarray(start, float),
@@ -192,18 +192,13 @@ class CoxFamilySpec(object):
             )
         else:
             start = None
-            self._coxdev = StratifiedCoxDeviance(
+            self._coxdev = CoxDeviance(
                 np.asarray(event, float),
                 status,
                 start=None,
                 strata=strata,
                 tie_breaking=self.tie_breaking
             )
-
-        self._coxdev = CoxDeviance(np.asarray(event, float),
-                                   status.astype(np.int32),
-                                   start=np.asarray(start, float),
-                                   tie_breaking=self.tie_breaking)
 
     # GLMFamilySpec API
     def link(self, mu):

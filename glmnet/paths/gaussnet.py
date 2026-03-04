@@ -120,6 +120,8 @@ class GaussNet(FastNetMixin):
         _args['rsq'] = _args['dev']
         del(_args['dev'])
 
+        # having problems with a read-only weight possibly
+        _args['w'] = _args['w'].copy()
         # doesn't use nulldev
         del(_args['nulldev'])
         return _args

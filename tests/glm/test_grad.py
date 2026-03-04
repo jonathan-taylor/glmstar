@@ -2,16 +2,11 @@ import numpy as np
 import pytest
 
 from glmnet import (GLMNet,
-                    compute_grad,
                     GLM)
+from glmnet.glm import compute_grad
 from glmnet.base import (ScaleOperator,
                          UnscaleOperator)
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('glmnet', [True, False])
-@pytest.mark.parametrize('scaled_input', [True, False])
-@pytest.mark.parametrize('scaled_output', [True, False])
 def test_compute_grad(standardize,
                       fit_intercept,
                       glmnet,
