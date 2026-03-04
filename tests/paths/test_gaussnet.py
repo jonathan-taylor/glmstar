@@ -215,19 +215,22 @@ def test_gaussnet(covariance,
                   nlambda,
                   lambda_min_ratio,
                   sample_weight,
-                  df_max,
-                  n,
-                  p):
+                  df_max):
+
+
+    n, p = 500, 50
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, None)
 
     if lower_limits is not None:
         lower_limits = np.ones(p) * lower_limits
+
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
                  fit_intercept=fit_intercept,
-                 lambda_min_ratio=lambda_min_ratio,
                  exclude=exclude,
+                 lower_limits=lower_limits,
+                 lambda_min_ratio=lambda_min_ratio,
                  df_max=df_max, **col_args)
 
     if nlambda is not None:
@@ -242,8 +245,8 @@ def test_gaussnet(covariance,
                         covariance=covariance,
                         standardize=standardize,
                         fit_intercept=fit_intercept,
-                        lower_limits=lower_limits,
                         exclude=exclude,
+                        lower_limits=lower_limits,
                         weights=weightsR,
                         offset=offsetR,
                         nlambda=nlambda,
@@ -425,19 +428,21 @@ def test_CV(offset,
     assert np.allclose(CVSD, CVSD_)
 
 
-def test_prefilter_excludes_features():
+def test_prefilter_excludes_features(n, p):
     from glmnet.paths.gaussnet import GaussNet
 
     class PrefilterGaussNet(GaussNet):
         def prefilter(self, X, y):
             # Exclude features where the sum of X[:, j] * y is negative
+            print(np.nonzero(X.T @ y > 0)[0].shape)
             return np.nonzero(X.T @ y > 0)[0]
 
-    X = rng.standard_normal((100, 10))
-    y = rng.standard_normal(100)
+    X = rng.standard_normal((n, p))
+    y = rng.standard_normal(n)
     X[:,:2] *= np.sign(X.T @ y)[:2][None,:]
     model = PrefilterGaussNet()
     model.fit(X, y)
+
     # All excluded features should have all-zero coefficients for all lambdas
     excluded = model.excluded_
     assert excluded.shape, "No features were excluded by prefilter"

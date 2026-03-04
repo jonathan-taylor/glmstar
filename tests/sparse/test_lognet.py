@@ -5,8 +5,6 @@ import scipy.sparse
 from glmnet import LogNet
 from glmnet.data import make_dataset
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
 def test_dense_vs_sparse_path_lognet(standardize, fit_intercept, n=100, p=10):
     """
     Compare path fits for dense vs. sparse X for LogNet.

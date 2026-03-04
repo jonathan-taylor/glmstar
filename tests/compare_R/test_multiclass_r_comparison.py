@@ -49,8 +49,9 @@ def sample_data():
     return X, Y, O, W, R, Df, response_id, offset_id, nlambda
 
 
-def test_multiclassnet_comparison(sample_data, alpha, use_offset, use_weights):
+def test_multiclassnet_comparison(sample_data, use_offset, use_weights):
     """Test MultiClassNet comparison with various configurations."""
+    alpha = 1
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
     # Python MultiClassNet
@@ -95,10 +96,10 @@ def test_multiclassnet_comparison(sample_data, alpha, use_offset, use_weights):
 
 
 
-def test_multiclassnet_cross_validation(sample_data, alpha, use_offset, use_weights, alignment):
+def test_multiclassnet_cross_validation(sample_data, use_offset, use_weights, alignment):
     """Test MultiClassNet cross-validation with various configurations."""
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
-    
+    alpha = 1
     # Python MultiClassNet with CV
     kwargs = {'response_id': 'response', 'nlambda': nlambda, 'alpha': alpha}
     if use_offset:

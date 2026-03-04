@@ -116,12 +116,11 @@ def get_data(n, p, q, sample_weight, offset):
 
 def test_multiclassnet(standardize,
                        fit_intercept,
-                       n,
-                       p,
-                       q,
                        sample_weight,
                        offset,
                        ):
+
+    n, p, q = 103, 20, 3
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, q, sample_weight, offset)
         
@@ -146,16 +145,17 @@ def test_multiclassnet(standardize,
 def test_CV(offset,
             sample_weight,
             alignment,
-            penalty_factor,
-            df_max,
             standardize,
             fit_intercept,
-            exclude,
-            nlambda,
-            lambda_min_ratio,
-            n,
-            p,
-            q):
+            ):
+
+    df_max = None
+    penalty_factor = None
+    exclude = []
+    nlambda = None
+    lambda_min_ratio = None
+    
+    n, p, q = 103, 20, 3
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)

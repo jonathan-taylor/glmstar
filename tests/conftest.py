@@ -32,8 +32,20 @@ def pytest_generate_tests(metafunc):
     fspath = str(metafunc.definition.fspath)
     is_subdir = any(d in fspath for d in ['/glm/', '/compare_R/', '/flex/', '/paths/'])
 
+    if 'offset' in metafunc.fixturenames:
+        metafunc.parametrize("offset", [None, lambda n: rng.standard_normal(n)])
+
     if 'standardize' in metafunc.fixturenames:
         metafunc.parametrize("standardize", [True, False])
+
+    if 'penalty_facs' in metafunc.fixturenames:
+        metafunc.parametrize("penalty_facs", [True, False])
+
+    if 'use_offset' in metafunc.fixturenames:
+        metafunc.parametrize("use_offset", [True, False])
+
+    if 'use_weights' in metafunc.fixturenames:
+        metafunc.parametrize("use_weights", [True, False])
 
     if 'fit_intercept' in metafunc.fixturenames:
         metafunc.parametrize("fit_intercept", [True, False])
@@ -57,15 +69,15 @@ def pytest_generate_tests(metafunc):
 
     if 'lower_limits' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
-            metafunc.parametrize("lower_limits", [None])
+            metafunc.parametrize("lower_limits", [-np.inf])
         else:
-            metafunc.parametrize("lower_limits", [None, 0])
+            metafunc.parametrize("lower_limits", [-np.inf, 0])
 
     if 'upper_limits' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
-            metafunc.parametrize("upper_limits", [None])
+            metafunc.parametrize("upper_limits", [np.inf])
         else:
-            metafunc.parametrize("upper_limits", [None, 0])
+            metafunc.parametrize("upper_limits", [np.inf, 0])
 
     if 'covariance' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
@@ -124,9 +136,9 @@ def pytest_generate_tests(metafunc):
 
     if 'alpha' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":
-            metafunc.parametrize("alpha", [0.5])
+            metafunc.parametrize("alpha", [1.])
         else:
-            metafunc.parametrize("alpha", [0.1, 0.5, 0.9])
+            metafunc.parametrize("alpha", [0.1, 0.5, 1.])
 
     if 'path' in metafunc.fixturenames:
         if metafunc.config.getoption("test_size") == "small":

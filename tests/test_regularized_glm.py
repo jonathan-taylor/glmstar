@@ -17,10 +17,10 @@ def test_compare_regglm_elnet(standardize,
                               fit_intercept,
                               sample_weight,
                               lambda_val,
-                              alpha,
-                              n,
-                              p):
+                              alpha):
 
+    n, p = 200, 40
+    
     sample_weight = sample_weight(n)
     
     X = rng.normal(size=(n,p))
