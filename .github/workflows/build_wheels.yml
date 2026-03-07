@@ -55,14 +55,14 @@ jobs:
             exit 1
           fi
 
+      - name: Configure Submodule Auth
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
+
       - name: Checkout Parent Repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
-
-      - name: Configure Submodule Auth
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
 
       - name: Manual Submodule Update
         run: git submodule update --init --recursive
