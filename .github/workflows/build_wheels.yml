@@ -63,6 +63,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
+        submodules: true
 
       - name: Manual Submodule Update
         run: git submodule update --init --recursive
