@@ -35,13 +35,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install .[dev]
           pip install .
 
       - name: Test pyglmnet
         run: |
           pip install pytest 
-          pytest tests/test*py
+          pytest tests --test-size=small
 
   build-linux:
     runs-on: ubuntu-latest
@@ -65,7 +65,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install .[dev]
           pip install .
 
       - name: Test pyglmnet
