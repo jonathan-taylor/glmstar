@@ -204,15 +204,32 @@ class Design(LinearOperator):
             G_sum = n
 
         else:
-            if isinstance(G, LinearOperator):
+            if isinstance(G, DiagonalOperator):
+                if scipy.sparse.issparse(X_R):
+                    GX = scipy.sparse.diags(G.weights) @ X_R
+                else:
+                    GX = X_R * G.weights[:, None]
+                XX_block = self.X.T @ GX
+                if scipy.sparse.issparse(XX_block):
+                    XX_block = XX_block.toarray()
+                G1 = G.weights
+            elif isinstance(G, LinearOperator):
                 GX = G @ aslinearoperator(X_R)
                 XX_block = aslinearoperator(self.X.T) @ GX
                 XX_block = XX_block @ np.eye(XX_block.shape[1])
+                G1 = G @ np.ones(G.shape[0])
             else:
                 GX = G @ X_R
                 XX_block = self.X.T @ GX
-            G1 = G @ np.ones(G.shape[0])
+                if scipy.sparse.issparse(XX_block):
+                    XX_block = XX_block.toarray()
+                G1 = G @ np.ones(G.shape[0])
+
             X1_block = self.X.T @ G1
+            if scipy.sparse.issparse(X1_block) and hasattr(X1_block, 'toarray'):
+                X1_block = X1_block.toarray().ravel()
+            else:
+                X1_block = np.asarray(X1_block).ravel()
             G_sum = G1.sum()
 
         xm, xs = self.centers_, self.scaling_
