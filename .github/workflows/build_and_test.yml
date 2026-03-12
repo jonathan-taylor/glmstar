@@ -35,7 +35,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install .[dev]
+          pip install .[dev,test]
           pip install .
 
       - name: Test pyglmnet
