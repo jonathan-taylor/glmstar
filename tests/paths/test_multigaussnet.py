@@ -7,22 +7,17 @@ import pytest
 
 from sklearn.model_selection import KFold
 
-import rpy2.robjects as rpy
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-from rpy2.robjects import default_converter
-
 rng = np.random.default_rng(0)
-np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import MultiGaussNet
 
-from .test_gaussnet import RGLMNet
-
-def get_glmnet_soln(parser_cls,
+def get_glmnet_soln(Rinfo,
+                    parser_cls,
                     X,
                     Y,
                     **args):
+    rpy = Rinfo["rpy"]
+    np_cv_rules = Rinfo["np_cv_rules"]
 
     parser = parser_cls(**args)
     args, cvargs = parser.parse()
@@ -61,10 +56,12 @@ if (doCV) {{
     else:
         return C.T, CVM, CVSD
 
-@dataclass
-class RMultiGaussNet(RGLMNet):
-
-    family: str= '"mgaussian"'
+def get_RMultiGaussNet(Rinfo):
+    RGLMNet = Rinfo["RGLMNet"]
+    @dataclass
+    class RMultiGaussNet(RGLMNet):
+        family: str= '"mgaussian"'
+    return RMultiGaussNet
     
 
 def get_data(n, p, q, sample_weight, offset):
@@ -108,7 +105,7 @@ def get_data(n, p, q, sample_weight, offset):
 
 
 
-def test_mrelnet(standardize,
+def test_mrelnet(Rinfo, standardize,
                  fit_intercept,
                  n,
                  p,
@@ -116,6 +113,9 @@ def test_mrelnet(standardize,
                  sample_weight,
                  offset,
                  ):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, q, sample_weight, offset)
         
@@ -125,7 +125,7 @@ def test_mrelnet(standardize,
 
     L.fit(X, D)
 
-    C = get_glmnet_soln(RMultiGaussNet,
+    C = get_glmnet_soln(Rinfo, get_RMultiGaussNet(Rinfo),
                         X,
                         Y,
                         weights=weightsR,
@@ -137,7 +137,7 @@ def test_mrelnet(standardize,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
-def test_CV(offset,
+def test_CV(Rinfo, offset,
             sample_weight,
             alignment,
             penalty_factor=None,
@@ -150,6 +150,9 @@ def test_CV(offset,
             n=103,
             p=20,
             q=3):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)
@@ -178,7 +181,7 @@ def test_CV(offset,
                             cv=cv)
     CVM_ = L.score_path_.scores['Mean Squared Error']
     CVSD_ = L.score_path_.scores['SD(Mean Squared Error)']
-    C, CVM, CVSD = get_glmnet_soln(RMultiGaussNet,
+    C, CVM, CVSD = get_glmnet_soln(Rinfo, get_RMultiGaussNet(Rinfo),
                                    X,
                                    Y.copy(),
                                    standardize=standardize,

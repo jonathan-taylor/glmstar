@@ -16,19 +16,11 @@ import statsmodels.api as sm
 from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 
-# rpy2 imports
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import FloatVector, IntVector
-from rpy2.robjects import numpy2ri
 
-# Import R packages
-glmnet = importr('glmnet')
-stats = importr('stats')
-
-
-def numpy_to_r_matrix(X):
+def numpy_to_r_matrix(Rinfo, X):
     """Convert numpy array to R matrix with proper row/column major ordering."""
+    ro = Rinfo['rpy']
+    FloatVector = Rinfo['FloatVector']
     return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
@@ -55,8 +47,20 @@ def sample_data():
     return X, Df, probit, Y, O, W
 
 
-def test_glm_comparison(sample_data):
+def test_glm_comparison(Rinfo, sample_data):
     """Test GLM comparison with R glm."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLM
@@ -95,8 +99,20 @@ def test_glm_comparison(sample_data):
     assert np.allclose(G2.intercept_, r_coef[0], rtol=1e-4, atol=1e-4)
 
 
-def test_glm_no_weights_no_offset(sample_data):
+def test_glm_no_weights_no_offset(Rinfo, sample_data):
     """Test GLM without weights or offset."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLM
@@ -125,8 +141,20 @@ def test_glm_no_weights_no_offset(sample_data):
     assert np.allclose(G4.intercept_, r_coef[0], rtol=1e-4, atol=1e-4)
 
 
-def test_glm_with_weights(sample_data):
+def test_glm_with_weights(Rinfo, sample_data):
     """Test GLM with weights."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLM
@@ -160,8 +188,20 @@ def test_glm_with_weights(sample_data):
     assert np.allclose(G5.intercept_, r_coef[0], rtol=1e-4, atol=1e-4)
 
 
-def test_glm_with_offset(sample_data):
+def test_glm_with_offset(Rinfo, sample_data):
     """Test GLM with offset."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLM
@@ -195,8 +235,20 @@ def test_glm_with_offset(sample_data):
     assert np.allclose(G6.intercept_, r_coef[0], rtol=1e-4, atol=1e-4)
 
 
-def test_glmnet_comparison(sample_data):
+def test_glmnet_comparison(Rinfo, sample_data):
     """Test GLMNet comparison with R glmnet."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLMNet
@@ -215,7 +267,7 @@ def test_glmnet_comparison(sample_data):
     # Create probit family in R
     r_probit_family = stats.binomial(link='probit')
     
-    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(Rinfo, X), 
                         FloatVector(Y_numeric), 
                         offset=FloatVector(O_numeric), 
                         weights=FloatVector(W_numeric), 
@@ -230,8 +282,20 @@ def test_glmnet_comparison(sample_data):
     assert np.allclose(r_coef.T[10][1:], GN.coefs_[10], rtol=1e-4, atol=1e-4)
 
 
-def test_glmnet_no_offset(sample_data):
+def test_glmnet_no_offset(Rinfo, sample_data):
     """Test GLMNet without offset."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLMNet
@@ -249,7 +313,7 @@ def test_glmnet_no_offset(sample_data):
     # Create probit family in R
     r_probit_family = stats.binomial(link='probit')
     
-    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(X), 
+    r_gn2 = glmnet.glmnet(numpy_to_r_matrix(Rinfo, X), 
                           FloatVector(Y_numeric), 
                           weights=FloatVector(W_numeric), 
                           family=r_probit_family)
@@ -265,8 +329,20 @@ def test_glmnet_no_offset(sample_data):
     assert np.allclose(r_lambda[:50], GN2.lambda_values_[:50])
 
 
-def test_cross_validation_fraction_alignment(sample_data):
+def test_cross_validation_fraction_alignment(Rinfo, sample_data):
     """Test cross-validation with fraction alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLMNet with CV
@@ -294,7 +370,7 @@ def test_cross_validation_fraction_alignment(sample_data):
     r_probit_family = stats.binomial(link='probit')
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              foldid=r_foldid,
@@ -310,8 +386,20 @@ def test_cross_validation_fraction_alignment(sample_data):
     assert np.allclose(GN3.score_path_.scores['SD(Binomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_lambda_alignment(sample_data):
+def test_cross_validation_lambda_alignment(Rinfo, sample_data):
     """Test cross-validation with lambda alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLMNet with CV
@@ -339,7 +427,7 @@ def test_cross_validation_lambda_alignment(sample_data):
     r_probit_family = stats.binomial(link='probit')
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              foldid=r_foldid,
@@ -355,8 +443,20 @@ def test_cross_validation_lambda_alignment(sample_data):
     assert np.allclose(GN3.score_path_.scores['SD(Binomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_with_weights_fraction(sample_data):
+def test_cross_validation_with_weights_fraction(Rinfo, sample_data):
     """Test cross-validation with weights using fraction alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLMNet with CV
@@ -385,7 +485,7 @@ def test_cross_validation_with_weights_fraction(sample_data):
     r_probit_family = stats.binomial(link='probit')
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              weights=FloatVector(W_numeric),
@@ -402,8 +502,20 @@ def test_cross_validation_with_weights_fraction(sample_data):
     assert np.allclose(GN4.score_path_.scores['SD(Binomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_with_weights_lambda(sample_data):
+def test_cross_validation_with_weights_lambda(Rinfo, sample_data):
     """Test cross-validation with weights using lambda alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Df, probit, Y, O, W = sample_data
     
     # Python GLMNet with CV
@@ -432,7 +544,7 @@ def test_cross_validation_with_weights_lambda(sample_data):
     r_probit_family = stats.binomial(link='probit')
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
                              FloatVector(Y_numeric), 
                              offset=FloatVector(O_numeric),
                              weights=FloatVector(W_numeric),

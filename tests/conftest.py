@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import pytest
 import numpy as np
 import os
+from copy import copy
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -221,21 +222,35 @@ def pytest_generate_tests(metafunc):
 # R-specific fixture
 
 @pytest.fixture(scope='session')
-def Rdata():
+def Rinfo():
     val = {}
     try:
         import rpy2.robjects as rpy
-
+        val['rpy'] = rpy
+        val['has_rpy2'] = True
     except ImportError:
         pytest.skip('rpy2 is not importable')
-        return {}
+        val['has_rpy2'] = False
+        return val
     
     from rpy2.robjects.packages import importr
-    from rpy2.robjects import numpy2ri
+    from rpy2.robjects import numpy2ri, pandas2ri
     from rpy2.robjects import default_converter
+    from rpy2.robjects.vectors import FloatVector, IntVector
+    from rpy2.robjects import Formula
+    from rpy2.robjects import DataFrame
 
-    val['np_cv_rules'] = default_converter + numpy2ri.converter
-    np_cv_ruls = val['np_cv_rules']
+    val['rpy'] = rpy
+    val['importr'] = importr
+    val['numpy2ri'] = numpy2ri
+    val['default_converter'] = default_converter
+    val['FloatVector'] = FloatVector
+    val['IntVector'] = IntVector
+    val['Formula'] = Formula
+    val['DataFrame'] = DataFrame
+
+    val['np_cv_rules'] = default_converter + numpy2ri.converter + pandas2ri.converter
+    np_cv_rules = val['np_cv_rules']
     
     val['glmnetR'] = importr('glmnet')
     val['baseR'] = importr('base')

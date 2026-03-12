@@ -20,18 +20,10 @@ import statsmodels.api as sm
 from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 
-# rpy2 imports
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import FloatVector, IntVector
-from rpy2.robjects import numpy2ri
 
-# Import R packages
-survival = importr('survival')
-glmnet = importr('glmnet')
-
-
-def numpy_to_r_matrix(X):
+def numpy_to_r_matrix(Rinfo, X):
+    ro = Rinfo["rpy"]
+    FloatVector = Rinfo["FloatVector"]
     """
     Convert a 2D numpy array to an R matrix.
     
@@ -47,6 +39,9 @@ def numpy_to_r_matrix(X):
     ro.r.matrix
         The corresponding R matrix object.
     """
+def numpy_to_r_matrix(Rinfo, X):
+    ro = Rinfo['rpy']
+    FloatVector = Rinfo['FloatVector']
     return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
@@ -73,8 +68,20 @@ def sample_data():
     return X, event_data, breslow, efron, W
 
 
-def test_coxlm_breslow_comparison(sample_data):
+def test_coxlm_breslow_comparison(Rinfo, sample_data):
     """Test CoxLM comparison with Breslow tie breaking."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxLM
@@ -112,8 +119,20 @@ def test_coxlm_breslow_comparison(sample_data):
     assert np.allclose(G2.coef_, r_coef, rtol=1e-4, atol=1e-4)
 
 
-def test_coxlm_efron_comparison(sample_data):
+def test_coxlm_efron_comparison(Rinfo, sample_data):
     """Test CoxLM comparison with Efron tie breaking."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxLM
@@ -150,8 +169,20 @@ def test_coxlm_efron_comparison(sample_data):
     
     assert np.allclose(G3.coef_, r_coef, rtol=1e-4, atol=1e-4)
 
-def test_coxnet_comparison(sample_data):
+def test_coxnet_comparison(Rinfo, sample_data):
     """Test CoxNet comparison with R glmnet."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxNet
@@ -168,7 +199,7 @@ def test_coxnet_comparison(sample_data):
     r_surv = survival.Surv(FloatVector(start_numeric), FloatVector(event_numeric), 
                           FloatVector(status_numeric))
     
-    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), 
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(Rinfo, X), 
                         r_surv, weights=FloatVector(W_numeric), family='cox')
     r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
     
@@ -180,8 +211,20 @@ def test_coxnet_comparison(sample_data):
 
 
 @pytest.mark.skip(reason="Cox CV score needs to be correctly implemented")
-def test_cross_validation_fraction_alignment_grouped(sample_data):
-    """Test cross-validation with fraction alignment (grouped)."""
+def test_cross_validation_fraction_alignment_grouped(Rinfo, sample_data):
+    """Test cross-validation with fraction alignment (Rinfo, grouped)."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxNet with CV
@@ -209,7 +252,7 @@ def test_cross_validation_fraction_alignment_grouped(sample_data):
                           FloatVector(status_numeric))
     
     # Create the subset matrix X[,1:8] in R
-    r_X_subset = numpy_to_r_matrix(X[:, :8])
+    r_X_subset = numpy_to_r_matrix(Rinfo, X[:, :8])
     
     r_foldid = IntVector(foldid.astype(int))
     r_gcv = glmnet.cv_glmnet(r_X_subset, r_surv, weights=FloatVector(W_numeric), 
@@ -224,8 +267,20 @@ def test_cross_validation_fraction_alignment_grouped(sample_data):
 
 
 @pytest.mark.skip(reason="Cox CV score needs to be correctly implemented")
-def test_cross_validation_lambda_alignment_grouped(sample_data):
-    """Test cross-validation with lambda alignment (grouped)."""
+def test_cross_validation_lambda_alignment_grouped(Rinfo, sample_data):
+    """Test cross-validation with lambda alignment (Rinfo, grouped)."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxNet with CV
@@ -253,7 +308,7 @@ def test_cross_validation_lambda_alignment_grouped(sample_data):
                           FloatVector(status_numeric))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X[:, :8]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X[:, :8]), 
                              r_surv, weights=FloatVector(W_numeric), family='cox', 
                              foldid=r_foldid, alignment='lambda', grouped=True)
     
@@ -266,8 +321,20 @@ def test_cross_validation_lambda_alignment_grouped(sample_data):
 
 
 @pytest.mark.skip(reason="Cox CV score needs to be correctly implemented")
-def test_cross_validation_fraction_alignment_ungrouped(sample_data):
-    """Test cross-validation with fraction alignment (ungrouped)."""
+def test_cross_validation_fraction_alignment_ungrouped(Rinfo, sample_data):
+    """Test cross-validation with fraction alignment (Rinfo, ungrouped)."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxNet with CV
@@ -295,7 +362,7 @@ def test_cross_validation_fraction_alignment_ungrouped(sample_data):
                           FloatVector(status_numeric))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X[:, :8]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X[:, :8]), 
                              r_surv, weights=FloatVector(W_numeric), family='cox', 
                              foldid=r_foldid, alignment='fraction', grouped=False)
     
@@ -308,8 +375,20 @@ def test_cross_validation_fraction_alignment_ungrouped(sample_data):
 
 
 @pytest.mark.skip(reason="Cox CV score needs to be correctly implemented")
-def test_cross_validation_lambda_alignment_ungrouped(sample_data):
-    """Test cross-validation with lambda alignment (ungrouped)."""
+def test_cross_validation_lambda_alignment_ungrouped(Rinfo, sample_data):
+    """Test cross-validation with lambda alignment (Rinfo, ungrouped)."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
     # Python CoxNet with CV
@@ -337,7 +416,7 @@ def test_cross_validation_lambda_alignment_ungrouped(sample_data):
                           FloatVector(status_numeric))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X[:, :8]), 
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X[:, :8]), 
                              r_surv, weights=FloatVector(W_numeric), family='cox', 
                              foldid=r_foldid, alignment='lambda', grouped=False)
     

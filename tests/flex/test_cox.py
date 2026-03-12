@@ -10,24 +10,29 @@ from glmnet.cox import (RegCoxLM,
                         CoxNet)
 from glmnet.data import make_survival
 
-from .common import (ifrpy,
-                     has_rpy2,
-                     glmnetR,
-                     baseR,
-                     statR,
-                     np_cv_rules,
-                     rpy)
     
 rng = np.random.default_rng(0)
 
-@ifrpy
-def test_glmnet(standardize,
+def test_glmnet(Rinfo, standardize,
                 sample_weight,
                 alpha,
                 path,
                 offset,
                 n=831,
                 p=8):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
 
     if sample_weight is None:
         sample_weight = np.ones(n)
@@ -127,11 +132,23 @@ def test_glmnet(standardize,
     assert fit_match and intercept_match and coef_match
 
 
-@ifrpy
-def test_stratified_cox_agrees_with_unstratified():
+def test_stratified_cox_agrees_with_unstratified(Rinfo):
     """
     When strata_id is None or all values are the same, stratified and unstratified Cox should agree.
     """
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
     n, p = 100, 5
     X, y, coef = make_survival(n_samples=n, n_features=p, random_state=42)
     y['strata'] = 0  # Single stratum
@@ -153,11 +170,23 @@ def test_stratified_cox_agrees_with_unstratified():
     assert np.allclose(fit_unstrat.coefs_, fit_none.coefs_, atol=1e-8)
 
 
-@ifrpy
-def test_stratified_cox_differs_with_multiple_strata():
+def test_stratified_cox_differs_with_multiple_strata(Rinfo):
     """
-    When strata_id has multiple unique values, stratified and unstratified Cox should differ (unless by chance).
+    When strata_id has multiple unique values, stratified and unstratified Cox should differ (Rinfo, unless by chance).
     """
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
     n, p = 100, 5
     X, y, coef = make_survival(n_samples=n, n_features=p, random_state=42)
     # Create 3 strata

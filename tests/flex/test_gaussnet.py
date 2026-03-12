@@ -6,11 +6,6 @@ from sklearn.model_selection import cross_validate
 
 from glmnet.regularized_glm import RegGLM
 
-from .common import (has_rpy2,
-                     ifrpy,
-                     glmnetR,
-                     baseR,
-                     np_cv_rules)
 
 def nonuniform_(n):
     W = rng.uniform(0, 1, size=(n,))
@@ -19,8 +14,7 @@ def nonuniform_(n):
 
 rng = np.random.default_rng(0)
 
-@ifrpy
-def test_glmnet(standardize,
+def test_glmnet(Rinfo, standardize,
                 fit_intercept,
                 sample_weight,
                 alpha,
@@ -31,6 +25,19 @@ def test_glmnet(standardize,
     '''
     compare to glmnet:::glmnet
     '''
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
     n, p = 1000, 50
 
     if sample_weight is None:
@@ -102,8 +109,7 @@ def test_glmnet(standardize,
 
     assert fit_match and intercept_match and coef_match
 
-@ifrpy
-def test_glmnet_limits(standardize,
+def test_glmnet_limits(Rinfo, standardize,
                        fit_intercept,
                        sample_weight,
                        upper_limits,
@@ -115,6 +121,19 @@ def test_glmnet_limits(standardize,
     '''
     compare to glmnet:::glmnet
     '''
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
     n, p = 1000, 50
 
     if sample_weight is None:
@@ -201,8 +220,7 @@ def test_glmnet_limits(standardize,
     print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
     
-@ifrpy
-def test_glmnet_offset(standardize,
+def test_glmnet_offset(Rinfo, standardize,
                        fit_intercept,
                        sample_weight,
                        alpha=0.2,
@@ -212,6 +230,19 @@ def test_glmnet_offset(standardize,
     '''
     compare to glmnet:::glmnet
     '''
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    baseR = importr('base')
+    survival = importr('survival')
+    np_cv_rules = Rinfo['np_cv_rules']
     n, p = 1000, 50
 
     if sample_weight is None:
@@ -286,10 +317,23 @@ def test_glmnet_offset(standardize,
     print('intercepts:', intercept_R, G.intercept_)
     assert fit_match and intercept_match and coef_match
     
-def test_cv(standardize,
+def test_cv(Rinfo, standardize,
             fit_intercept,
             n=1000,
             p=50):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
 
     X = rng.standard_normal((n, p))
     X[:,4] *= 1.5

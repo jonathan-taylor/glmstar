@@ -6,23 +6,19 @@ import pytest
 
 from sklearn.model_selection import KFold
 
-import rpy2.robjects as rpy
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-from rpy2.robjects import default_converter
 
 rng = np.random.default_rng(0)
-np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import FishNet
 
-from .test_gaussnet import (RGLMNet,
-                            get_glmnet_soln)
+from .test_gaussnet import get_glmnet_soln
 
-@dataclass
-class RFishNet(RGLMNet):
-
-    family: str= '"poisson"'
+def get_RFishNet(Rinfo):
+    RGLMNet = Rinfo["RGLMNet"]
+    @dataclass
+    class RFishNet(RGLMNet):
+        family: str= '"poisson"'
+    return RFishNet
     
 
 def get_data(n, p, sample_weight, offset):
@@ -60,13 +56,16 @@ def get_data(n, p, sample_weight, offset):
 
 
 
-def test_fishnet(standardize,
+def test_fishnet(Rinfo, standardize,
                  fit_intercept,
                  n,
                  p,
                  sample_weight,
                  offset,
                  ):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, offset)
         
@@ -76,7 +75,7 @@ def test_fishnet(standardize,
 
     L.fit(X, D)
 
-    C = get_glmnet_soln(RFishNet,
+    C = get_glmnet_soln(Rinfo, get_RFishNet(Rinfo),
                         X,
                         Y,
                         weights=weightsR,
@@ -88,7 +87,7 @@ def test_fishnet(standardize,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
-def test_CV(offset,
+def test_CV(Rinfo, offset,
             sample_weight,
             alignment,
             penalty_factor=None,
@@ -100,6 +99,9 @@ def test_CV(offset,
             lambda_min_ratio=None,
             n=103,
             p=20):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)
@@ -128,7 +130,7 @@ def test_CV(offset,
                             cv=cv)
     CVM_ = L.score_path_.scores['Poisson Deviance']
     CVSD_ = L.score_path_.scores['SD(Poisson Deviance)']
-    C, CVM, CVSD = get_glmnet_soln(RFishNet,
+    C, CVM, CVSD = get_glmnet_soln(Rinfo, get_RFishNet(Rinfo),
                                    X,
                                    Y.copy(),
                                    standardize=standardize,
