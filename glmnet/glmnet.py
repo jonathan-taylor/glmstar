@@ -206,10 +206,12 @@ class GLMNet(BaseEstimator,
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
-        y: np.ndarray
-            Response variable.
+        y: Union[np.ndarray, pd.DataFrame]
+            Target variables. It is highly recommended to pass a `pandas.DataFrame` 
+            when utilizing `offset_id`, `weight_id`, or `response_id` so that
+            these vectors can be extracted by column name robustly.
         check: bool
-            Run the `_check` method to validate `(X,y)`.
+            Run the `sklearn.utils.check_X_y` method to validate `(X, response)`.
             
         Returns
         -------

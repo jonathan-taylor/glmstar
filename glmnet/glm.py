@@ -542,10 +542,12 @@ class GLMBase(BaseEstimator,
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
-        y: np.ndarray
-            Response variable.
+        y: Union[np.ndarray, pd.DataFrame]
+            Target variables. It is highly recommended to pass a `pandas.DataFrame` 
+            when utilizing `offset_id`, `weight_id`, or `response_id` so that
+            these vectors can be extracted by column name robustly.
         check: bool
-            Run the `_check` method to validate `(X,y)`.
+            Run the `sklearn.utils.check_X_y` method to validate `(X, response)`.
             
         Returns
         -------
@@ -1055,8 +1057,14 @@ class BinomialGLM(ClassifierMixin, GLM):
     family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
     def get_data_arrays(self, X, y, check=True):
-        """
-        Get data arrays for fitting.
+        """Prepare and validate data arrays for binomial regression.
+
+        For binomial regression, the response can be specified as a 1D array of labels,
+        or as a 2D array of shape (n_samples, 2) containing pairs of (trials, successes).
+        If provided as (trials, successes), `sample_weight` will be multiplied by the 
+        number of trials, and the response will be transformed into proportions. This
+        assumption is documented because users might mistakenly use trials as weights
+        without accounting for them in the data shape.
 
         Parameters
         ----------
@@ -1076,11 +1084,28 @@ class BinomialGLM(ClassifierMixin, GLM):
             (X, y, labels, offset, weight)
         """
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
-        encoder = LabelEncoder()
-        labels = np.asfortranarray(encoder.fit_transform(response))
-        self.classes_ = encoder.classes_
-        if len(encoder.classes_) > 2:
-            raise ValueError("BinomialGLM expecting a binary classification problem.")
+        
+        if response.ndim == 2 and response.shape[1] == 2:
+            trials = response[:, 0]
+            successes = response[:, 1]
+            if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
+                raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
+            
+            weight = weight * trials
+            labels = successes / trials
+            self.classes_ = np.array([0, 1])
+            if hasattr(self, '_family'):
+                self._family.classes_ = self.classes_
+        else:
+            if response.ndim == 2 and response.shape[1] == 1:
+                response = response.ravel()
+            encoder = LabelEncoder()
+            labels = np.asfortranarray(encoder.fit_transform(response))
+            self.classes_ = encoder.classes_
+            if hasattr(self, '_family'):
+                self._family.classes_ = self.classes_
+            if len(encoder.classes_) > 2:
+                raise ValueError("BinomialGLM expecting a binary classification problem.")
         return X, y, labels, offset, weight
 
     def _finalize_family(self,

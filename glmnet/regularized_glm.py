@@ -433,10 +433,61 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         """
         Post-initialization checks for binomial family.
         """
+        if not hasattr(self, '_family'):
+            self._family = self.family
         if not self._family.is_binomial:
             msg = f'{self.__class__.__name__} expects a Binomial family.'
             warnings.warn(msg)
             if self.control.logging: logging.warn(msg)
+
+    def get_data_arrays(self, X, y, check=True):
+        """Prepare and validate data arrays for binomial regression.
+
+        For binomial regression, the response can be specified as a 1D array of labels,
+        or as a 2D array of shape (n_samples, 2) containing pairs of (trials, successes).
+        If provided as (trials, successes), `sample_weight` will be multiplied by the 
+        number of trials, and the response will be transformed into proportions. This
+        assumption is documented because users might mistakenly use trials as weights
+        without accounting for them in the data shape.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+        check : bool, default=True
+            Whether to check input validity.
+
+        Returns
+        -------
+        tuple
+            Tuple of (X, y, labels, offset, weight).
+        """
+        X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
+        
+        if response.ndim == 2 and response.shape[1] == 2:
+            trials = response[:, 0]
+            successes = response[:, 1]
+            if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
+                raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
+            
+            weight = weight * trials
+            labels = successes / trials
+            self.classes_ = np.array([0, 1])
+            if hasattr(self, '_family'):
+                self._family.classes_ = self.classes_
+        else:
+            if response.ndim == 2 and response.shape[1] == 1:
+                response = response.ravel()
+            encoder = LabelEncoder()
+            labels = np.asfortranarray(encoder.fit_transform(response))
+            self.classes_ = encoder.classes_
+            if hasattr(self, '_family'):
+                self._family.classes_ = self.classes_
+            if len(encoder.classes_) > 2:
+                raise ValueError("BinomialRegGLM expecting a binary classification problem.")
+        return X, y, labels, offset, weight
 
     def fit(self,
             X,
@@ -475,18 +526,10 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         self: object
             BinomialRegGLM class instance.
         """
-        label_encoder = LabelEncoder().fit(y)
-        if len(label_encoder.classes_) > 2:
-            raise ValueError("BinomialRegGLM expecting a binary classification problem.")
-        self.classes_ = label_encoder.classes_
-
-        y_binary = label_encoder.transform(y)
-
         return super().fit(X,
-                           y_binary,
+                           y,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
-                           dispersion=dispersion,
                            check=check)
 
     def predict(self, X, prediction_type='class'):
