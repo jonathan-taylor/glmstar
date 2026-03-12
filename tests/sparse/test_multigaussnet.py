@@ -5,8 +5,6 @@ import scipy.sparse
 from glmnet import MultiGaussNet
 from glmnet.data import make_dataset
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
 def test_dense_vs_sparse_path_multigaussnet(standardize, fit_intercept, n=100, p=10, n_targets=3):
     """
     Compare path fits for dense vs. sparse X for MultiGaussNet.

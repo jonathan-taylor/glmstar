@@ -1,8 +1,14 @@
 """
 Test CoxNet comparison with R glmnet using rpy2.
 
-This test file converts the original IPython R magic cells to use rpy2
-for proper R integration in pytest.
+This module provides a suite of tests to verify the correctness of the CoxNet implementation
+by comparing its output against the reference implementation in the R `glmnet` package.
+It uses `rpy2` to interface with R and execute the corresponding R functions.
+
+The tests cover:
+- Comparison of CoxLM (unregularized Cox model) with R's `survival::coxph`.
+- Comparison of CoxNet (regularized Cox model) coefficients with R's `glmnet`.
+- Comparison of cross-validation results (deviance and SD) with R's `cv.glmnet`.
 """
 
 import pytest
@@ -26,7 +32,21 @@ glmnet = importr('glmnet')
 
 
 def numpy_to_r_matrix(X):
-    """Convert numpy array to R matrix with proper row/column major ordering."""
+    """
+    Convert a 2D numpy array to an R matrix.
+    
+    Ensures proper row/column major ordering during the conversion.
+    
+    Parameters
+    ----------
+    X : np.ndarray
+        The 2D numpy array to convert.
+        
+    Returns
+    -------
+    ro.r.matrix
+        The corresponding R matrix object.
+    """
     return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 

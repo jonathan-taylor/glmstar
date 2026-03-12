@@ -95,5 +95,8 @@ class FishNet(FastNetMixin):
                                       exclude=exclude)
 
         _args['g'] = np.asfortranarray(offset.reshape((-1,1)).copy())
+
+        _args['w'] = _args['w'].copy()
+        
         return _args
 

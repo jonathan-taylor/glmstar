@@ -1,5 +1,0 @@
-.bazelrc
-bazel-bin
-bazel-glmnetpp
-bazel-out
-bazel-testlogs

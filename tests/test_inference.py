@@ -558,12 +558,12 @@ def sample_randomX(n,
         
     return df
 
-@pytest.mark.parametrize('standardize', [True])  # Reduced from [True, False]
-@pytest.mark.parametrize('penalty_facs', [False])  # Reduced from [True, False]
-@pytest.mark.parametrize('fit_intercept', [True])  # Reduced from [True, False]
-#@pytest.mark.parametrize('upper_limits', [np.inf, 0.1])
-@pytest.mark.parametrize('p', [20])  # Reduced from 50 for faster tests
-@pytest.mark.parametrize('n', [100])  # Reduced from 200 for faster tests
+# @pytest.mark.parametrize('standardize', [True])  # Reduced from [True, False]
+# @pytest.mark.parametrize('penalty_facs', [False])  # Reduced from [True, False]
+# @pytest.mark.parametrize('fit_intercept', [True])  # Reduced from [True, False]
+# #@pytest.mark.parametrize('upper_limits', [np.inf, 0.1])
+# @pytest.mark.parametrize('p', [20])  # Reduced from 50 for faster tests
+# @pytest.mark.parametrize('n', [100])  # Reduced from 200 for faster tests
 def test_randomX(n,
                  p,
                  standardize,

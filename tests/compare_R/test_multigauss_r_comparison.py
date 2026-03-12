@@ -27,13 +27,6 @@ try:
 except ImportError:
     has_rpy2 = False
 
-# Pytest decorators
-ifrpy = pytest.mark.skipif(not has_rpy2, reason='requires rpy2')
-alpha = pytest.mark.parametrize('alpha', [0, 0.4, 1])
-use_offset = pytest.mark.parametrize('use_offset', [True, False])
-use_weights = pytest.mark.parametrize('use_weights', [True, False])
-alignment = pytest.mark.parametrize('alignment', ['fraction', 'lambda'])
-
 
 def numpy_to_r_matrix(X):
     """Convert numpy array to R matrix with proper row/column major ordering."""
@@ -57,10 +50,6 @@ def sample_data():
     return X, Y, O, W, Df, response_id, offset_id, nlambda
 
 
-@ifrpy
-@alpha
-@use_offset
-@use_weights
 def test_multigaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     """Test MultiGaussNet comparison with different alpha, offset, and weight combinations."""
     X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
@@ -98,11 +87,6 @@ def test_multigaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(C[:, 0], GN.intercepts_)
 
 
-@ifrpy
-@alpha
-@alignment
-@use_offset
-@use_weights
 def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights):
     """Test cross-validation with different alpha, alignment, offset, and weight combinations."""
     X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data

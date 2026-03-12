@@ -6,10 +6,6 @@ from glmnet import GLM
 
 rng = np.random.default_rng(0)
 
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('ridge_coef', [0, 1])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.poisson(1, size=n) + 1])
 def test_gaussian(ridge_coef,
                   fit_intercept,
                   standardize,

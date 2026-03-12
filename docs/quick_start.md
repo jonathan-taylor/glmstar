@@ -36,6 +36,8 @@ Below is a quick demonstration of the main functions and outputs using the Pytho
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.datasets import (make_regression, 
+                              make_classification)
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
 from glmnet.data import make_dataset

@@ -205,41 +205,8 @@ def get_data(n, p, sample_weight, offset):
     return X, Y, D, col_args, weightsR, offsetR
 
 
-sample_weight_pyt = pytest.mark.parametrize('sample_weight', [None, np.ones, sample1, sample2])
-df_max_pyt = pytest.mark.parametrize('df_max', [None, 5])
-exclude_pyt = pytest.mark.parametrize('exclude', [[], [1,2,3]])
-lower_limits_pyt = pytest.mark.parametrize('lower_limits', [-1, None])
-# covariance changes type.gaussian, behaves unpredictably even in R
-covariance_pyt = pytest.mark.parametrize('covariance', [None]) 
-standardize_pyt = pytest.mark.parametrize('standardize', [True, False])
-fit_intercept_pyt = pytest.mark.parametrize('fit_intercept', [True, False])
-nlambda_pyt = pytest.mark.parametrize('nlambda', [None, 20])
-lambda_min_ratio_pyt = pytest.mark.parametrize('lambda_min_ratio', [None,0.02])
-nsample_pyt = pytest.mark.parametrize('n', [1000,50,500])
-nfeature_pyt = pytest.mark.parametrize('p', [10,100])
-limits_pyt = pytest.mark.parametrize('limits', [(-1, np.inf), (-np.inf, 1),
-                                                (-np.inf, 0), (0, np.inf),
-                                                (-np.inf, np.inf),
-                                                (-1, 1),
-                                                (0, 1)])
-penalty_factor_pyt = pytest.mark.parametrize('penalty_factor', [None,
-                                                                sample1,
-                                                                sample2])
-alignment_pyt = pytest.mark.parametrize('alignment', ['lambda', 'fraction'])
-offset_pyt = pytest.mark.parametrize('offset', [None, np.zeros, lambda n: 20*sample1(n)]) # should match n=100 below
 
-@sample_weight_pyt
-@df_max_pyt
-@exclude_pyt
-@lower_limits_pyt
-# covariance changes type.gaussian, behaves unpredictably even in R
-@covariance_pyt
-@standardize_pyt
-@fit_intercept_pyt 
-@nlambda_pyt
-@lambda_min_ratio_pyt
-@nsample_pyt
-@nfeature_pyt
+
 def test_gaussnet(covariance,
                   standardize,
                   fit_intercept,
@@ -248,19 +215,22 @@ def test_gaussnet(covariance,
                   nlambda,
                   lambda_min_ratio,
                   sample_weight,
-                  df_max,
-                  n,
-                  p):
+                  df_max):
+
+
+    n, p = 500, 50
 
     X, Y, D, col_args, weightsR, offsetR = get_data(n, p, sample_weight, None)
 
     if lower_limits is not None:
         lower_limits = np.ones(p) * lower_limits
+
     L = GaussNet(covariance=covariance,
                  standardize=standardize,
                  fit_intercept=fit_intercept,
-                 lambda_min_ratio=lambda_min_ratio,
                  exclude=exclude,
+                 lower_limits=lower_limits,
+                 lambda_min_ratio=lambda_min_ratio,
                  df_max=df_max, **col_args)
 
     if nlambda is not None:
@@ -275,8 +245,8 @@ def test_gaussnet(covariance,
                         covariance=covariance,
                         standardize=standardize,
                         fit_intercept=fit_intercept,
-                        lower_limits=lower_limits,
                         exclude=exclude,
+                        lower_limits=lower_limits,
                         weights=weightsR,
                         offset=offsetR,
                         nlambda=nlambda,
@@ -288,9 +258,6 @@ def test_gaussnet(covariance,
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
 
 
-@limits_pyt
-@penalty_factor_pyt
-@sample_weight_pyt
 def test_limits(limits,
                 penalty_factor,
                 sample_weight,
@@ -349,9 +316,6 @@ def test_limits(limits,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@offset_pyt
-@penalty_factor_pyt
-@sample_weight_pyt
 def test_offset(offset,
                 penalty_factor,
                 sample_weight,
@@ -402,10 +366,6 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-@offset_pyt
-@penalty_factor_pyt
-@sample_weight_pyt
-@alignment_pyt
 def test_CV(offset,
             penalty_factor,
             sample_weight,
@@ -468,19 +428,21 @@ def test_CV(offset,
     assert np.allclose(CVSD, CVSD_)
 
 
-def test_prefilter_excludes_features():
+def test_prefilter_excludes_features(n, p):
     from glmnet.paths.gaussnet import GaussNet
 
     class PrefilterGaussNet(GaussNet):
         def prefilter(self, X, y):
             # Exclude features where the sum of X[:, j] * y is negative
+            print(np.nonzero(X.T @ y > 0)[0].shape)
             return np.nonzero(X.T @ y > 0)[0]
 
-    X = rng.standard_normal((100, 10))
-    y = rng.standard_normal(100)
+    X = rng.standard_normal((n, p))
+    y = rng.standard_normal(n)
     X[:,:2] *= np.sign(X.T @ y)[:2][None,:]
     model = PrefilterGaussNet()
     model.fit(X, y)
+
     # All excluded features should have all-zero coefficients for all lambdas
     excluded = model.excluded_
     assert excluded.shape, "No features were excluded by prefilter"

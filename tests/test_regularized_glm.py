@@ -11,19 +11,16 @@ from glmnet.elnet import ElNet
 from glmnet.regularized_glm import RegGLM
 
 rng = np.random.default_rng(0)
-n, p = 30, 10
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('lambda_val', [np.sqrt(n)])
-@pytest.mark.parametrize('alpha', [0.5, 1])
+
 def test_compare_regglm_elnet(standardize,
                               fit_intercept,
                               sample_weight,
                               lambda_val,
                               alpha):
 
+    n, p = 200, 40
+    
     sample_weight = sample_weight(n)
     
     X = rng.normal(size=(n,p))
@@ -53,6 +50,7 @@ def test_compare_regglm_elnet(standardize,
     if not np.allclose(elnet.intercept_, reg_glm.intercept_, rtol=1e-4):
         raise ValueError('intercepts not close')
     if not np.linalg.norm(elnet.coef_ - reg_glm.coef_) / np.linalg.norm(reg_glm.coef_) < 1e-4:
+        print(np.linalg.norm(elnet.coef_ - reg_glm.coef_) / np.linalg.norm(reg_glm.coef_))
         raise ValueError('coefs not close')
 
     elnet_dict = asdict(elnet)
@@ -84,14 +82,12 @@ def test_compare_regglm_elnet(standardize,
     # if failures:
     #     raise ValueError(';'.join(failures))
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
 def test_compare_sparse_elnet(standardize,
                               fit_intercept,
                               sample_weight,
-                              lambda_val):
+                              lambda_val,
+                              n,
+                              p):
 
     sample_weight = sample_weight(n)
     X = rng.normal(size=(n,p))
@@ -117,14 +113,12 @@ def test_compare_sparse_elnet(standardize,
     if not np.allclose(elnet.coef_, elnet_s.coef_):
         raise ValueError('coefs not close')
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
 def test_compare_sparse_glmnet(standardize,
                                fit_intercept,
                                sample_weight,
-                               lambda_val):
+                               lambda_val,
+                               n,
+                               p):
 
     rng = np.random.default_rng(0)
 
@@ -155,16 +149,13 @@ def test_compare_sparse_glmnet(standardize,
     if not np.allclose(glmnet.coef_, glmnet_s.coef_):
         raise ValueError('coefs not close')
     
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('lambda_val', [0, 0.5 / np.sqrt(n)])
 def test_logistic(standardize,
                   fit_intercept,
                   sample_weight,
-                  lambda_val):
+                  lambda_val,
+                  n,
+                  p):
 
-    n, p = 100, 10
     sample_weight = sample_weight(n)
 
     X = rng.normal(size=(n,p))
@@ -182,16 +173,13 @@ def test_logistic(standardize,
                weights)
     print(glmnet.coef_)
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, lambda n: rng.uniform(0, 1, size=(n,))])
-@pytest.mark.parametrize('lambda_val', [0, np.sqrt(n)])
 def test_probit(standardize,
                 fit_intercept,
                 sample_weight,
-                lambda_val):
+                lambda_val,
+                n,
+                p):
 
-    n, p = 100, 10
     sample_weight = sample_weight(n)
 
     X = rng.normal(size=(n,p))

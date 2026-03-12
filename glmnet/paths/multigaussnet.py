@@ -150,6 +150,9 @@ class MultiGaussNet(MultiFastNetMixin):
 
         _args['jsd'] = int(self.standardize_response)
         _args['rsq'] = _args['dev']
+
+        _args['w'] = _args['w'].copy() # pandas returns a non-writeable ref
+        
         del(_args['dev'])
         del(_args['nulldev'])
 

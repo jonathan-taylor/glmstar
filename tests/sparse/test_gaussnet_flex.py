@@ -11,9 +11,6 @@ def nonuniform_(n):
     W[:n//2] *= 2
     return W
 
-@pytest.mark.parametrize('standardize', [True, False])
-@pytest.mark.parametrize('fit_intercept', [True, False])
-@pytest.mark.parametrize('sample_weight', [np.ones, nonuniform_])
 def test_dense_vs_sparse_gaussnet_flex(standardize, fit_intercept, sample_weight, n=200, p=20):
     """
     Compare RegGLM fits for dense vs. sparse X (Gaussian family), as in the original flex test.

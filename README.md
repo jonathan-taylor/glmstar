@@ -41,10 +41,18 @@ export EIGEN_LIBRARY_PATH=/path/to/eigen
 
 ```bash
 # Install in development mode
-pip install -e .
+pip install .[dev]
+pip install -e . --no-isolation-build
 
 # Or install directly
 pip install .
+```
+
+### Run the tests
+
+```bash
+pip install .[test]
+pytest tests --test-size=small
 ```
 
 ## Quick Start
