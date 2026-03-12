@@ -47,7 +47,16 @@ doc = [
     "jupyter-book",
     "pandas",
     "matplotlib",
-    "rpy2"
+    "rpy2",
+    "texext",
+    "numpydoc",
+    "myst_nb",
+    "sphinx-book-theme",
+    "sphinx_rtd_theme",
+    "jupytext",
+    "jupyter-book",
+    "sphinx",
+    "myst-parser"
 ]
 test = ["pytest",
         "rpy2",
