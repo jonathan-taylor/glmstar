@@ -14,19 +14,11 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import OneHotEncoder
 import statsmodels.api as sm
 
-# rpy2 imports
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import FloatVector, IntVector
-from rpy2.robjects import numpy2ri
 
-# Import R packages
-glmnet = importr('glmnet')
-
-
-def numpy_to_r_matrix(X):
-    """Convert numpy array to R matrix with proper row/column major ordering."""
-    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+def numpy_to_r_matrix(Rinfo, X):
+    rpy = Rinfo['rpy']
+    FloatVector = Rinfo['FloatVector']
+    return rpy.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
 @pytest.fixture
@@ -49,8 +41,20 @@ def sample_data():
     return X, Y, O, W, R, Df, response_id, offset_id, nlambda
 
 
-def test_multiclassnet_comparison(sample_data, use_offset, use_weights):
+def test_multiclassnet_comparison(Rinfo, sample_data, use_offset, use_weights):
     """Test MultiClassNet comparison with various configurations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     alpha = 1
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
@@ -66,10 +70,10 @@ def test_multiclassnet_comparison(sample_data, use_offset, use_weights):
     
     # R glmnet
     # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
+    response_factor = rpy.r.factor(rpy.StrVector(Df['response']))
     
     r_kwargs = {
-        'x': numpy_to_r_matrix(X),
+        'x': numpy_to_r_matrix(Rinfo, X),
         'y': response_factor,
         'family': 'multinomial',
         'nlambda': nlambda,
@@ -77,17 +81,17 @@ def test_multiclassnet_comparison(sample_data, use_offset, use_weights):
     }
     
     if use_offset:
-        r_kwargs['offset'] = numpy_to_r_matrix(O)
+        r_kwargs['offset'] = numpy_to_r_matrix(Rinfo, O)
     if use_weights:
         r_kwargs['weights'] = FloatVector(W.astype(float))
     
     r_gn2 = glmnet.glmnet(**r_kwargs)
-    r_coef = ro.r.coef(r_gn2)
+    r_coef = rpy.r.coef(r_gn2)
     
     # Extract coefficients for each class
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('A')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('B')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('C')))
+    C1 = np.array(rpy.r['as.matrix'](r_coef.rx2('A')))
+    C2 = np.array(rpy.r['as.matrix'](r_coef.rx2('B')))
+    C3 = np.array(rpy.r['as.matrix'](r_coef.rx2('C')))
     
     C = np.array([C1, C2, C3]).T
     
@@ -95,9 +99,20 @@ def test_multiclassnet_comparison(sample_data, use_offset, use_weights):
     assert np.allclose(C[:, 0], GN2.intercepts_)
 
 
-
-def test_multiclassnet_cross_validation(sample_data, use_offset, use_weights, alignment):
+def test_multiclassnet_cross_validation(Rinfo, sample_data, use_offset, use_weights, alignment):
     """Test MultiClassNet cross-validation with various configurations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     alpha = 1
     # Python MultiClassNet with CV
@@ -121,11 +136,11 @@ def test_multiclassnet_cross_validation(sample_data, use_offset, use_weights, al
     
     # R cv.glmnet
     # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
+    response_factor = rpy.r.factor(rpy.StrVector(Df['response']))
     
     r_foldid = IntVector(foldid.astype(int))
     r_kwargs = {
-        'x': numpy_to_r_matrix(X),
+        'x': numpy_to_r_matrix(Rinfo, X),
         'y': response_factor,
         'foldid': r_foldid,
         'family': 'multinomial',
@@ -135,7 +150,7 @@ def test_multiclassnet_cross_validation(sample_data, use_offset, use_weights, al
     }
     
     if use_offset:
-        r_kwargs['offset'] = numpy_to_r_matrix(O)
+        r_kwargs['offset'] = numpy_to_r_matrix(Rinfo, O)
     if use_weights:
         r_kwargs['weights'] = FloatVector(W.astype(float))
     
@@ -148,8 +163,20 @@ def test_multiclassnet_cross_validation(sample_data, use_offset, use_weights, al
     assert np.allclose(GN3.score_path_.scores['Multinomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_fraction_alignment(sample_data):
+def test_cross_validation_fraction_alignment(Rinfo, sample_data):
     """Test cross-validation with fraction alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
     # Python MultiClassNet with CV
@@ -167,11 +194,11 @@ def test_cross_validation_fraction_alignment(sample_data):
     
     # R cv.glmnet
     # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
+    response_factor = rpy.r.factor(rpy.StrVector(Df['response']))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             response_factor, offset=numpy_to_r_matrix(O), foldid=r_foldid,
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
+                             response_factor, offset=numpy_to_r_matrix(Rinfo, O), foldid=r_foldid,
                              family='multinomial', alignment='fraction', nlambda=nlambda, grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
@@ -182,8 +209,20 @@ def test_cross_validation_fraction_alignment(sample_data):
     assert np.allclose(GN3.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_lambda_alignment(sample_data):
+def test_cross_validation_lambda_alignment(Rinfo, sample_data):
     """Test cross-validation with lambda alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
     # Python MultiClassNet with CV
@@ -201,11 +240,11 @@ def test_cross_validation_lambda_alignment(sample_data):
     
     # R cv.glmnet
     # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
+    response_factor = rpy.r.factor(rpy.StrVector(Df['response']))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             response_factor, offset=numpy_to_r_matrix(O), foldid=r_foldid,
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
+                             response_factor, offset=numpy_to_r_matrix(Rinfo, O), foldid=r_foldid,
                              family='multinomial', alignment='lambda', nlambda=nlambda, grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
@@ -216,8 +255,20 @@ def test_cross_validation_lambda_alignment(sample_data):
     assert np.allclose(GN3.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_with_weights_fraction(sample_data):
+def test_cross_validation_with_weights_fraction(Rinfo, sample_data):
     """Test cross-validation with weights using fraction alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
     # Python MultiClassNet with CV
@@ -236,11 +287,11 @@ def test_cross_validation_with_weights_fraction(sample_data):
     # R cv.glmnet
     W_numeric = W.astype(float)
     # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
+    response_factor = rpy.r.factor(rpy.StrVector(Df['response']))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             response_factor, offset=numpy_to_r_matrix(O), weights=FloatVector(W_numeric),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
+                             response_factor, offset=numpy_to_r_matrix(Rinfo, O), weights=FloatVector(W_numeric),
                              foldid=r_foldid, family='multinomial', alignment='fraction', nlambda=nlambda, grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
@@ -251,8 +302,20 @@ def test_cross_validation_with_weights_fraction(sample_data):
     assert np.allclose(GN4.score_path_.scores['SD(Multinomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
 
 
-def test_cross_validation_with_weights_lambda(sample_data):
+def test_cross_validation_with_weights_lambda(Rinfo, sample_data):
     """Test cross-validation with weights using lambda alignment."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, R, Df, response_id, offset_id, nlambda = sample_data
     
     # Python MultiClassNet with CV
@@ -271,11 +334,11 @@ def test_cross_validation_with_weights_lambda(sample_data):
     # R cv.glmnet
     W_numeric = W.astype(float)
     # Convert response to factor for multinomial regression
-    response_factor = ro.r.factor(ro.StrVector(Df['response']))
+    response_factor = rpy.r.factor(rpy.StrVector(Df['response']))
     
     r_foldid = IntVector(foldid.astype(int))
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X),
-                             response_factor, offset=numpy_to_r_matrix(O), weights=FloatVector(W_numeric),
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X),
+                             response_factor, offset=numpy_to_r_matrix(Rinfo, O), weights=FloatVector(W_numeric),
                              foldid=r_foldid, family='multinomial', alignment='lambda', nlambda=nlambda, grouped=True)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))

@@ -18,27 +18,13 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
 import statsmodels.api as sm
 
-# rpy2 imports
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import FloatVector, IntVector
-from rpy2.robjects import numpy2ri
-
-# Import R packages
-stats = importr('stats')
-glmnet = importr('glmnet')
 
 # Check if rpy2 is available
-try:
-    import rpy2
-    has_rpy2 = True
-except ImportError:
-    has_rpy2 = False
 
 
-
-
-def numpy_to_r_matrix(X):
+def numpy_to_r_matrix(Rinfo, X):
+    rpy = Rinfo["rpy"]
+    FloatVector = Rinfo["FloatVector"]
     """
     Convert a 2D numpy array to an R matrix.
     
@@ -51,10 +37,13 @@ def numpy_to_r_matrix(X):
         
     Returns
     -------
-    ro.r.matrix
+    rpy.r.matrix
         The corresponding R matrix object.
     """
-    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+def numpy_to_r_matrix(Rinfo, X):
+    rpy = Rinfo['rpy']
+    FloatVector = Rinfo['FloatVector']
+    return rpy.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
 @pytest.fixture
@@ -72,8 +61,20 @@ def sample_data():
     return X, Y, O, W, D, Df
 
 
-def test_glm_comparison(sample_data, use_offset, use_weights):
+def test_glm_comparison(Rinfo, sample_data, use_offset, use_weights):
     """Test GLM comparison with different alpha, offset, and weight combinations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, D, Df = sample_data
     
     # Configure Python GLM
@@ -102,9 +103,9 @@ def test_glm_comparison(sample_data, use_offset, use_weights):
     for i in range(X.shape[1]):
         r_data_dict[f'X{i+1}'] = FloatVector(X[:, i])
     
-    r_data = ro.r['data.frame'](**r_data_dict)
+    r_data = rpy.r['data.frame'](**r_data_dict)
     formula_str = 'Y ~ ' + ' + '.join([f'X{i+1}' for i in range(X.shape[1])])
-    r_model = stats.glm(ro.Formula(formula_str), data=r_data, **r_kwargs)
+    r_model = stats.glm(rpy.Formula(formula_str), data=r_data, **r_kwargs)
     r_coef = np.array(stats.coef(r_model))
     
     # Compare results
@@ -114,8 +115,20 @@ def test_glm_comparison(sample_data, use_offset, use_weights):
     assert np.allclose(G.intercept_, r_coef[0], rtol=rtol, atol=atol)
 
 
-def test_glmnet_flex_comparison(sample_data, alpha, use_offset, use_weights):
+def test_glmnet_flex_comparison(Rinfo, sample_data, alpha, use_offset, use_weights):
     """Test GLMNet comparison with R glmnet."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, D, Df = sample_data
     
     # Configure Python GLMNet
@@ -147,12 +160,12 @@ def test_glmnet_flex_comparison(sample_data, alpha, use_offset, use_weights):
         W_numeric = W.astype(float)
         r_kwargs['weights'] = FloatVector(W_numeric)
     
-    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), FloatVector(Y), **r_kwargs)
-    r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(Rinfo, X), FloatVector(Y), **r_kwargs)
+    r_coef = np.array(rpy.r['as.matrix'](rpy.r.coef(r_gn)))
     
 
     # Print lambda values from R object
-    r_lambda = np.array(ro.r['as.numeric'](r_gn.rx2('lambda')))
+    r_lambda = np.array(rpy.r['as.numeric'](r_gn.rx2('lambda')))
     
     # Compare results (using index 30 as in original)
     if r_coef.ndim == 1:
@@ -162,8 +175,20 @@ def test_glmnet_flex_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(r_coef.T[30][1:], GN.coefs_[30], rtol=1e-3, atol=1e-3)
 
 
-def test_gaussnet_comparison(sample_data, alpha, use_offset, use_weights):
+def test_gaussnet_comparison(Rinfo, sample_data, alpha, use_offset, use_weights):
     """Test GaussNet comparison with different alpha, offset, and weight combinations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, D, Df = sample_data
     
     # Configure Python GaussNet
@@ -184,8 +209,8 @@ def test_gaussnet_comparison(sample_data, alpha, use_offset, use_weights):
         W_numeric = W.astype(float)
         r_kwargs['weights'] = FloatVector(W_numeric)
     
-    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), FloatVector(Y), **r_kwargs)
-    r_coef = np.array(ro.r['as.matrix'](ro.r.coef(r_gn)))
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(Rinfo, X), FloatVector(Y), **r_kwargs)
+    r_coef = np.array(rpy.r['as.matrix'](rpy.r.coef(r_gn)))
     
     if r_coef.ndim == 1:
         r_coef = r_coef.reshape(1, -1)
@@ -194,8 +219,20 @@ def test_gaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(r_coef[0], GN.intercepts_)
 
 
-def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights):
+def test_cross_validation(Rinfo, sample_data, alpha, alignment, use_offset, use_weights):
     """Test cross-validation with different alpha, alignment, offset, weight, and grouped combinations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, D, Df = sample_data
     
     # Configure Python GaussNet with CV
@@ -231,7 +268,7 @@ def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights
         W_numeric = W.astype(float)
         r_kwargs['weights'] = FloatVector(W_numeric)
     
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), FloatVector(Y), **r_kwargs)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X), FloatVector(Y), **r_kwargs)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))

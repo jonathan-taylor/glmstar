@@ -14,23 +14,12 @@ from sklearn.preprocessing import LabelEncoder
 import statsmodels.api as sm
 
 # rpy2 imports
-try:
-    import rpy2.robjects as ro
-    from rpy2.robjects.packages import importr
-    from rpy2.robjects.vectors import FloatVector, IntVector
-    from rpy2.robjects import numpy2ri
-    
-    # Import R packages
-    glmnet = importr('glmnet')
-    
-    has_rpy2 = True
-except ImportError:
-    has_rpy2 = False
 
 
-def numpy_to_r_matrix(X):
-    """Convert numpy array to R matrix with proper row/column major ordering."""
-    return ro.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
+def numpy_to_r_matrix(Rinfo, X):
+    rpy = Rinfo['rpy']
+    FloatVector = Rinfo['FloatVector']
+    return rpy.r.matrix(FloatVector(X.T.flatten()), nrow=X.shape[0], ncol=X.shape[1])
 
 
 @pytest.fixture
@@ -50,8 +39,20 @@ def sample_data():
     return X, Y, O, W, Df, response_id, offset_id, nlambda
 
 
-def test_multigaussnet_comparison(sample_data, alpha, use_offset, use_weights):
+def test_multigaussnet_comparison(Rinfo, sample_data, alpha, use_offset, use_weights):
     """Test MultiGaussNet comparison with different alpha, offset, and weight combinations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
     
     # Configure Python MultiGaussNet
@@ -67,18 +68,18 @@ def test_multigaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     # Configure R glmnet
     r_kwargs = {'family': 'mgaussian', 'alpha': alpha, 'nlambda': nlambda}
     if use_offset:
-        r_kwargs['offset'] = numpy_to_r_matrix(O)
+        r_kwargs['offset'] = numpy_to_r_matrix(Rinfo, O)
     if use_weights:
         W_numeric = W.astype(float)
         r_kwargs['weights'] = FloatVector(W_numeric)
     
-    r_gn = glmnet.glmnet(numpy_to_r_matrix(X), numpy_to_r_matrix(Y), **r_kwargs)
-    r_coef = ro.r.coef(r_gn)
+    r_gn = glmnet.glmnet(numpy_to_r_matrix(Rinfo, X), numpy_to_r_matrix(Rinfo, Y), **r_kwargs)
+    r_coef = rpy.r.coef(r_gn)
     
     # Extract coefficients for each response
-    C1 = np.array(ro.r['as.matrix'](r_coef.rx2('y1')))
-    C2 = np.array(ro.r['as.matrix'](r_coef.rx2('y2')))
-    C3 = np.array(ro.r['as.matrix'](r_coef.rx2('y3')))
+    C1 = np.array(rpy.r['as.matrix'](r_coef.rx2('y1')))
+    C2 = np.array(rpy.r['as.matrix'](r_coef.rx2('y2')))
+    C3 = np.array(rpy.r['as.matrix'](r_coef.rx2('y3')))
     
     C = np.array([C1, C2, C3]).T
     
@@ -87,8 +88,20 @@ def test_multigaussnet_comparison(sample_data, alpha, use_offset, use_weights):
     assert np.allclose(C[:, 0], GN.intercepts_)
 
 
-def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights):
+def test_cross_validation(Rinfo, sample_data, alpha, alignment, use_offset, use_weights):
     """Test cross-validation with different alpha, alignment, offset, and weight combinations."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnet = importr('glmnet')
+    stats = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
     X, Y, O, W, Df, response_id, offset_id, nlambda = sample_data
     
     # Configure Python MultiGaussNet with CV
@@ -119,12 +132,12 @@ def test_cross_validation(sample_data, alpha, alignment, use_offset, use_weights
         'alpha': alpha
     }
     if use_offset:
-        r_kwargs['offset'] = numpy_to_r_matrix(O)
+        r_kwargs['offset'] = numpy_to_r_matrix(Rinfo, O)
     if use_weights:
         W_numeric = W.astype(float)
         r_kwargs['weights'] = FloatVector(W_numeric)
     
-    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(X), numpy_to_r_matrix(Y), **r_kwargs)
+    r_gcv = glmnet.cv_glmnet(numpy_to_r_matrix(Rinfo, X), numpy_to_r_matrix(Rinfo, Y), **r_kwargs)
     
     r_cvm = np.array(r_gcv.rx2('cvm'))
     r_cvsd = np.array(r_gcv.rx2('cvsd'))

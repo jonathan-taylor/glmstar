@@ -81,6 +81,9 @@ class FastNetControl(object):
 class FastNetMixin(GLMNet): # base class for C++ path methods
     """Mixin for fast path solvers using C++ backend.
 
+    This mixin provides the core logic for estimators that use the fast
+    C++ implementations of coordinate descent for the elastic net path.
+
     Parameters
     ----------
     lambda_min_ratio : float, optional
@@ -91,6 +94,19 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         Maximum degrees of freedom.
     control : FastNetControl, optional
         Control parameters for the solver.
+
+    Attributes
+    ----------
+    coefs_ : ndarray
+        Fitted coefficients across the path.
+    intercepts_ : ndarray
+        Fitted intercepts across the path.
+    lambda_values_ : ndarray
+        The sequence of lambda values used.
+    lambda_max_ : float
+        The maximum lambda value in the sequence.
+    summary_ : pd.DataFrame
+        Summary of the fit including Degrees of Freedom and Fraction Deviance Explained.
     """
 
     lambda_min_ratio: Optional[float] = None
@@ -459,6 +475,20 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
     """
     Mixin for fast path solvers with multiple response variables.
+
+    Provides common functionality for models predicting multiple responses
+    such as multi-response Gaussian regression and multinomial classification.
+
+    Parameters
+    ----------
+    lambda_min_ratio : float, optional
+        Minimum lambda ratio.
+    nlambda : int, default=100
+        Number of lambda values.
+    df_max : int, optional
+        Maximum degrees of freedom.
+    control : FastNetControl, optional
+        Control parameters for the solver.
     """
 
     def predict(self,

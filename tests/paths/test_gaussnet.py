@@ -9,129 +9,28 @@ rng = np.random.default_rng(0)
 
 from sklearn.model_selection import KFold
 
-import rpy2.robjects as rpy
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-from rpy2.robjects import default_converter
-
-np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import GaussNet
-
-@dataclass
-class RGLMNet(object):
-
-    family: str='"gaussian"'
-    covariance: bool=False
-    standardize: bool=True
-    fit_intercept: bool=True
-    exclude: list = field(default_factory=list)
-    df_max: int=None
-    nlambda: int=None
-    lambda_min_ratio: float=None
-    lower_limits: float=None
-    upper_limits: float=None
-    penalty_factor: float=None
-    offset: float=None
-    weights: float=None
-    foldid: int=None
-    grouped: bool=True
-    alignment: str='lambda'
-
-    def __post_init__(self):
-
-        with np_cv_rules.context():
-
-            args = {}
-            args['family'] = self.family
-
-            if self.df_max is not None:
-                rpy.r.assign('dfmax', self.df_max)
-                args['dfmax'] = 'dfmax'
-
-            if self.weights is not None:
-                rpy.r.assign('weights', self.weights)
-                rpy.r('weights=as.numeric(weights)')
-                args['weights'] = 'weights'
-
-            if self.offset is not None:
-                rpy.r.assign('offset', self.offset)
-                args['offset'] = 'offset'
-
-            if self.lambda_min_ratio is not None:
-                rpy.r.assign('lambda.min.ratio', self.lambda_min_ratio)
-                args['lambda.min.ratio'] = 'lambda.min.ratio'
-
-            if self.lower_limits is not None:
-                rpy.r.assign('lower.limits', self.lower_limits)
-                args['lower.limits'] = 'lower.limits'
-            if self.upper_limits is not None:
-                rpy.r.assign('upper.limits', self.upper_limits)
-                args['upper.limits'] = 'upper.limits'
-
-            if self.penalty_factor is not None:
-                rpy.r.assign('penalty.factor', self.penalty_factor)
-                args['penalty.factor'] = 'penalty.factor'
-
-            if self.nlambda is not None:
-                rpy.r.assign('nlambda', self.nlambda)
-                args['nlambda'] = 'nlambda'
-
-            if self.standardize:
-                rpy.r.assign('standardize', True)
-            else:
-                rpy.r.assign('standardize', False)
-            args['standardize'] = 'standardize'
-
-            if self.fit_intercept:
-                rpy.r.assign('intercept', True)
-            else:
-                rpy.r.assign('intercept', False)
-            args['intercept'] = 'intercept'
-
-            if len(self.exclude) > 1:
-                rpy.r.assign('exclude', np.array(self.exclude) + 1)
-            else:
-                rpy.r.assign('exclude', np.array(self.exclude))
-            args['exclude'] = 'exclude'
-
-            self.args = args
-            self.cvargs = copy(self.args)
-
-            rpy.r.assign('doCV', self.foldid is not None)
-
-            if self.foldid is not None:
-                rpy.r.assign('foldid', self.foldid)
-                rpy.r('foldid = as.integer(foldid)')
-                self.cvargs['foldid'] = 'foldid'
-
-            rpy.r.assign('grouped', self.grouped)
-            self.cvargs['grouped'] = 'grouped'
-
-            self.cvargs['alignment'] = f'"{self.alignment}"'
-            
-    def parse(self):
-        args = ','.join([f'{k}={v}' for k, v in self.args.items()])
-        cvargs = ','.join([f'{k}={v}' for k, v in self.cvargs.items()])
-        return args, cvargs
-
-@dataclass
-class RGaussNet(RGLMNet):
-
-    covariance: bool = False
-
-    def __post_init__(self):
-
-        super().__post_init__()
-        if self.covariance:
-            self.args['type.gaussian'] = '"covariance"'
+def get_RGaussNet(Rinfo):
+    RGLMNet = Rinfo["RGLMNet"]
+    @dataclass
+    class RGaussNet(RGLMNet):
+        covariance: bool = False
+        def __post_init__(self):
+            super().__post_init__()
+            if self.covariance:
+                self.args["type.gaussian"] = '"covariance"'
+    return RGaussNet
 
 
 
-def get_glmnet_soln(parser_cls,
+def get_glmnet_soln(Rinfo,
+                    parser_cls,
                     X,
                     Y,
                     **args):
+    rpy = Rinfo["rpy"]
+    np_cv_rules = Rinfo["np_cv_rules"]
 
     parser = parser_cls(**args)
     args, cvargs = parser.parse()
@@ -207,7 +106,7 @@ def get_data(n, p, sample_weight, offset):
 
 
 
-def test_gaussnet(covariance,
+def test_gaussnet(Rinfo, covariance,
                   standardize,
                   fit_intercept,
                   exclude,
@@ -216,6 +115,9 @@ def test_gaussnet(covariance,
                   lambda_min_ratio,
                   sample_weight,
                   df_max):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
 
     n, p = 500, 50
@@ -239,7 +141,7 @@ def test_gaussnet(covariance,
     L.fit(X,
           D)
 
-    C = get_glmnet_soln(RGaussNet,
+    C = get_glmnet_soln(Rinfo, get_RGaussNet(Rinfo),
                         X,
                         Y,
                         covariance=covariance,
@@ -258,7 +160,7 @@ def test_gaussnet(covariance,
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-10
 
 
-def test_limits(limits,
+def test_limits(Rinfo, limits,
                 penalty_factor,
                 sample_weight,
                 df_max=None,
@@ -270,6 +172,9 @@ def test_limits(limits,
                 lambda_min_ratio=None,
                 n=100,
                 p=50):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     lower_limits, upper_limits = limits
     if lower_limits is not None:
@@ -296,7 +201,7 @@ def test_limits(limits,
     L.fit(X,
           D)
 
-    C = get_glmnet_soln(RGaussNet,
+    C = get_glmnet_soln(Rinfo, get_RGaussNet(Rinfo),
                         X,
                         Y,
                         covariance=covariance,
@@ -316,7 +221,7 @@ def test_limits(limits,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-def test_offset(offset,
+def test_offset(Rinfo, offset,
                 penalty_factor,
                 sample_weight,
                 df_max=None,
@@ -328,6 +233,9 @@ def test_offset(offset,
                 lambda_min_ratio=None,
                 n=100,
                 p=50):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)
@@ -347,7 +255,7 @@ def test_offset(offset,
     L.fit(X,
           D)
 
-    C = get_glmnet_soln(RGaussNet,
+    C = get_glmnet_soln(Rinfo, get_RGaussNet(Rinfo),
                         X,
                         Y.copy(),
                         covariance=covariance,
@@ -366,7 +274,7 @@ def test_offset(offset,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < tol
 
-def test_CV(offset,
+def test_CV(Rinfo, offset,
             penalty_factor,
             sample_weight,
             alignment,
@@ -379,6 +287,9 @@ def test_CV(offset,
             lambda_min_ratio=None,
             n=103,
             p=50):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)
@@ -408,7 +319,7 @@ def test_CV(offset,
                             cv=cv)
     CVM_ = L.score_path_.scores['Mean Squared Error']
     CVSD_ = L.score_path_.scores['SD(Mean Squared Error)']
-    C, CVM, CVSD = get_glmnet_soln(RGaussNet,
+    C, CVM, CVSD = get_glmnet_soln(Rinfo, get_RGaussNet(Rinfo),
                                    X,
                                    Y.copy(),
                                    covariance=covariance,
@@ -428,7 +339,10 @@ def test_CV(offset,
     assert np.allclose(CVSD, CVSD_)
 
 
-def test_prefilter_excludes_features(n, p):
+def test_prefilter_excludes_features(Rinfo, n, p):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
     from glmnet.paths.gaussnet import GaussNet
 
     class PrefilterGaussNet(GaussNet):
@@ -450,7 +364,10 @@ def test_prefilter_excludes_features(n, p):
     assert np.allclose(coefs[:, excluded], 0)
 
 
-def test_prefilter_and_explicit_exclude():
+def test_prefilter_and_explicit_exclude(Rinfo):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
     from glmnet.paths.gaussnet import GaussNet
 
     class PrefilterGaussNet(GaussNet):

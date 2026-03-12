@@ -28,11 +28,11 @@ def _get_data(estimator,
         The input data matrix.
     y : array-like or pd.DataFrame
         The target variable, which may contain response, offset, and weights.
-    offset_id : str or int, optional
+    offset_id : str, int, or list, optional
         Column identifier for the offset in `y`.
-    weight_id : str or int, optional
+    weight_id : str, int, or list, optional
         Column identifier for the weights in `y`.
-    response_id : str or int, optional
+    response_id : str, int, or list, optional
         Column identifier for the response in `y`.
     check : bool, default=True
         Whether to perform `sklearn.utils.check_X_y` validation.
@@ -52,77 +52,58 @@ def _get_data(estimator,
     weight : np.ndarray
         The extracted weights, or an array of ones if not provided.
     """
+    is_df = isinstance(y, pd.DataFrame)
 
+    def _as_list(val):
+        """Helper to ensure column identifiers are lists for dropping/indexing."""
+        if isinstance(val, (list, tuple, np.ndarray)):
+            return list(val)
+        return [val]
+
+    # Extract Offset
+    offset = None
+    if offset_id is not None:
+        offset = np.asarray(y.loc[:, offset_id] if is_df else y[:, offset_id])
+
+    # Extract Weight
     weight = None
-    if offset_id is None and weight_id is None:
-        # col could be 0 so check for None
-        if response_id is not None:
-            if isinstance(y, pd.DataFrame):
-                response = y.loc[:,response_id]
-            else:
-                response = y[:,response_id]
-        else:
-            response = y
-        if check:
-            X, _ = check_X_y(X, response,
-                             accept_sparse=['csc'],
-                             multi_output=True,
-                             estimator=estimator)
-        offset, weight = None, None
-    else:
-        if isinstance(y, pd.DataFrame):
-            response = y
-            if offset_id is not None:
-                offset = np.asarray(y.loc[:,offset_id])
-                if type(offset_id) in [str, int]:
-                    response = response.drop(columns=[offset_id])
-                else:
-                    response = response.drop(columns=offset_id)
-            else:
-                offset = None
-            if weight_id is not None:
-                weight = np.asarray(y.loc[:,weight_id])
-                if type(weight_id) in [str, int]:
-                    response = response.drop(columns=[weight_id])
-                else:
-                    response = response.drop(columns=weight_id)
-            else:
-                weight = None
-        else:
-            keep = np.ones(y.shape[1], bool)
-            if offset_id is not None:
-                offset = y[:,offset_id]
-                keep[offset_id] = 0
-            else:
-                offset = None
-            if weight_id is not None:
-                weight = y[:,weight_id]
-                keep[weight_id] = 0
-            else:
-                weight = None
+    if weight_id is not None:
+        weight = np.asarray(y.loc[:, weight_id] if is_df else y[:, weight_id])
 
-        if check:
-            X, _ = check_X_y(X, y,
-                             accept_sparse=['csc'],
-                             multi_output=True,
-                             estimator=estimator)
-
-    # col could be 0 so check for None
+    # Extract Response
     if response_id is not None:
-        if isinstance(y, pd.DataFrame):
-            response = y.loc[:,response_id]
-        else:
-            response = y[:,response_id]
+        response = np.asarray(y.loc[:, response_id] if is_df else y[:, response_id])
     else:
-        # we already removed columns of the data frame
-        if not isinstance(y, pd.DataFrame):
-            if offset_id is not None or weight_id is not None: 
-                response = y[:,keep]
-            else:
+        if is_df:
+            drop_cols = []
+            if offset_id is not None:
+                drop_cols.extend(_as_list(offset_id))
+            if weight_id is not None:
+                drop_cols.extend(_as_list(weight_id))
+            response = np.asarray(y.drop(columns=drop_cols) if drop_cols else y)
+        else:
+            if y.ndim == 1:
                 response = np.asarray(y)
+            else:
+                keep = np.ones(y.shape[1], dtype=bool)
+                if offset_id is not None:
+                    keep[_as_list(offset_id)] = False
+                if weight_id is not None:
+                    keep[_as_list(weight_id)] = False
+                response = np.asarray(y[:, keep])
+
+    # Default Weights
     if weight is None:
         weight = np.ones(y.shape[0])
-    return X, y, np.squeeze(np.asarray(response)), offset, weight
+
+    # Validate against Response
+    if check:
+        X, _ = check_X_y(X, response,
+                         accept_sparse=['csc'],
+                         multi_output=multi_output,
+                         estimator=estimator)
+
+    return X, y, np.squeeze(response), offset, weight
 
 def _jerr_elnetfit(n, maxit, k=None):
     """

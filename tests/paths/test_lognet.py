@@ -7,34 +7,28 @@ import pytest
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold
 
-import rpy2.robjects as rpy
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-from rpy2.robjects import default_converter
 
 rng = np.random.default_rng(0)
-np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import LogNet
 
-from .test_gaussnet import (RGLMNet,
-                            get_glmnet_soln)
+from .test_gaussnet import get_glmnet_soln
 
-@dataclass
-class RLogNet(RGLMNet):
-
-    modified_newton: bool = False
-    family: str= '"binomial"'
-    
-    def __post_init__(self):
-
-        super().__post_init__()
-
-        if self.modified_newton:
-            rpy.r.assign('type.logistic', "modified.Newton")
-        else:
-            rpy.r.assign('type.logistic', "Newton")
-        self.args['type.logistic'] = 'type.logistic'
+def get_RLogNet(Rinfo):
+    RGLMNet = Rinfo["RGLMNet"]
+    rpy = Rinfo["rpy"]
+    @dataclass
+    class RLogNet(RGLMNet):
+        modified_newton: bool = False
+        family: str= '"binomial"'
+        def __post_init__(self):
+            super().__post_init__()
+            if self.modified_newton:
+                rpy.r.assign("type.logistic", "modified.Newton")
+            else:
+                rpy.r.assign("type.logistic", "Newton")
+            self.args["type.logistic"] = "type.logistic"
+    return RLogNet
 
 def get_data(n, p, sample_weight, offset):
 
@@ -71,7 +65,7 @@ def get_data(n, p, sample_weight, offset):
     return X, Y_R, D, col_args, weightsR, offsetR
 
 
-def test_lognet(modified_newton,
+def test_lognet(Rinfo, modified_newton,
                 penalty_factor,
                 standardize,
                 fit_intercept,
@@ -80,6 +74,9 @@ def test_lognet(modified_newton,
                 sample_weight,
                 offset,
                 ):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)
@@ -94,7 +91,7 @@ def test_lognet(modified_newton,
 
     L.fit(X, D)
 
-    C = get_glmnet_soln(RLogNet,
+    C = get_glmnet_soln(Rinfo, get_RLogNet(Rinfo),
                         X,
                         Y,
                         modified_newton=modified_newton,
@@ -108,7 +105,7 @@ def test_lognet(modified_newton,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
-def test_CV(offset,
+def test_CV(Rinfo, offset,
             sample_weight,
             alignment,
             penalty_factor=None,
@@ -120,6 +117,9 @@ def test_CV(offset,
             lambda_min_ratio=None,
             n=103,
             p=20):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     if penalty_factor is not None:
         penalty_factor = penalty_factor(p)
@@ -148,7 +148,7 @@ def test_CV(offset,
                             cv=cv)
     CVM_ = L.score_path_.scores['Binomial Deviance']
     CVSD_ = L.score_path_.scores['SD(Binomial Deviance)']
-    C, CVM, CVSD = get_glmnet_soln(RLogNet,
+    C, CVM, CVSD = get_glmnet_soln(Rinfo, get_RLogNet(Rinfo),
                                    X,
                                    Y.copy(),
                                    standardize=standardize,

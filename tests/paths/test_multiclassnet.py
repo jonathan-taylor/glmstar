@@ -9,22 +9,19 @@ import pytest
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import KFold
 
-import rpy2.robjects as rpy
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-from rpy2.robjects import default_converter
 
 rng = np.random.default_rng(0)
-np_cv_rules = default_converter + numpy2ri.converter
 
 from glmnet import MultiClassNet
 
-from .test_gaussnet import RGLMNet
 
-def get_glmnet_soln(parser_cls,
+def get_glmnet_soln(Rinfo,
+                    parser_cls,
                     X,
                     Y,
                     **args):
+    rpy = Rinfo["rpy"]
+    np_cv_rules = Rinfo["np_cv_rules"]
 
     parser = parser_cls(**args)
     args, cvargs = parser.parse()
@@ -72,10 +69,12 @@ if (doCV) {{
     else:
         return C.T, CVM, CVSD
 
-@dataclass
-class RMultiClassNet(RGLMNet):
-
-    family: str= '"multinomial"'
+def get_RMultiClassNet(Rinfo):
+    RGLMNet = Rinfo['RGLMNet']
+    @dataclass
+    class RMultiClassNet(RGLMNet):
+        family: str= '"multinomial"'
+    return RMultiClassNet
 
 def get_data(n, p, q, sample_weight, offset):
 
@@ -114,11 +113,14 @@ def get_data(n, p, q, sample_weight, offset):
 
 
 
-def test_multiclassnet(standardize,
+def test_multiclassnet(Rinfo, standardize,
                        fit_intercept,
                        sample_weight,
                        offset,
                        ):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     n, p, q = 103, 20, 3
 
@@ -130,7 +132,7 @@ def test_multiclassnet(standardize,
 
     L.fit(X, D)
 
-    C = get_glmnet_soln(RMultiClassNet,
+    C = get_glmnet_soln(Rinfo, get_RMultiClassNet(Rinfo),
                         X,
                         Y,
                         weights=weightsR,
@@ -142,12 +144,15 @@ def test_multiclassnet(standardize,
     if fit_intercept:
         assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-5
 
-def test_CV(offset,
+def test_CV(Rinfo, offset,
             sample_weight,
             alignment,
             standardize,
             fit_intercept,
             ):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
 
     df_max = None
     penalty_factor = None
@@ -184,7 +189,7 @@ def test_CV(offset,
                             cv=cv)
     CVM_ = L.score_path_.scores['Multinomial Deviance']
     CVSD_ = L.score_path_.scores['SD(Multinomial Deviance)']
-    C, CVM, CVSD = get_glmnet_soln(RMultiClassNet,
+    C, CVM, CVSD = get_glmnet_soln(Rinfo, get_RMultiClassNet(Rinfo),
                                    X,
                                    Y.copy(),
                                    standardize=standardize,

@@ -22,7 +22,31 @@ Provides the FishNet estimator class using the FastNetMixin base.
 
 @dataclass
 class FishNet(FastNetMixin):
-    """FishNet estimator for Poisson regression using the FastNet path algorithm."""
+    """FishNet estimator for Poisson regression using the FastNet path algorithm.
+
+    This class implements the regularization path for Poisson regression models
+    using coordinate descent.
+
+    Parameters
+    ----------
+    lambda_min_ratio : float, optional
+        Minimum lambda ratio.
+    nlambda : int, default=100
+        Number of lambda values.
+    df_max : int, optional
+        Maximum degrees of freedom.
+    control : FastNetControl, optional
+        Control parameters for the solver.
+
+    Attributes
+    ----------
+    coefs_ : ndarray of shape (n_lambda, n_features)
+        Fitted coefficients across the path.
+    intercepts_ : ndarray of shape (n_lambda,)
+        Fitted intercepts across the path.
+    lambda_values_ : ndarray of shape (n_lambda,)
+        The sequence of lambda values used.
+    """
 
     _dense = _dense
     _sparse = _sparse

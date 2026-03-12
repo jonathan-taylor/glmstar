@@ -41,6 +41,9 @@ class MultiClassFamily(object):
 class MultiClassNet(MultiFastNetMixin):
     """MultiClassNet estimator for multinomial classification using the FastNet path algorithm.
 
+    This class implements the regularization path for multinomial classification
+    models using coordinate descent.
+
     Parameters
     ----------
     standardize_response : bool, default=False
@@ -51,6 +54,25 @@ class MultiClassNet(MultiFastNetMixin):
         Whether to use univariate beta updates.
     type_logistic : {'Newton', 'modified_Newton'}, default='Newton'
         Type of logistic solver.
+    lambda_min_ratio : float, optional
+        Minimum lambda ratio.
+    nlambda : int, default=100
+        Number of lambda values.
+    df_max : int, optional
+        Maximum degrees of freedom.
+    control : FastNetControl, optional
+        Control parameters for the solver.
+
+    Attributes
+    ----------
+    coefs_ : ndarray of shape (n_lambda, n_classes, n_features)
+        Fitted coefficients across the path.
+    intercepts_ : ndarray of shape (n_lambda, n_classes)
+        Fitted intercepts across the path.
+    lambda_values_ : ndarray of shape (n_lambda,)
+        The sequence of lambda values used.
+    categories_ : ndarray
+        The classes labels.
     """
 
     standardize_response: bool = False
@@ -123,6 +145,13 @@ class MultiClassNet(MultiFastNetMixin):
     def get_data_arrays(self, X, y, check=True):
         """Prepare and validate data arrays for multinomial classification.
 
+        For multinomial classification, the response can be specified as a 1D array of 
+        class labels, or as a 2D array of counts where each column represents a class 
+        and each row is an observation. If provided as counts, `sample_weight` will be 
+        multiplied by the number of trials (row sums), and the response will be 
+        transformed into proportions. This assumption is documented because users might 
+        mistakenly use the trials as `sample_weight` without accounting for them in the data shape.
+
         Parameters
         ----------
         X : array-like
@@ -139,9 +168,20 @@ class MultiClassNet(MultiFastNetMixin):
         """
 
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
-        encoder = OneHotEncoder(sparse_output=False)
-        y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
-        self.categories_ = encoder.categories_[0]
+        
+        if response.ndim == 2 and response.shape[1] > 1:
+            trials = response.sum(axis=1)
+            if np.any(response < 0) or np.any(trials <= 0):
+                raise ValueError("Response matrix must contain non-negative counts and row sums must be > 0.")
+            weight = weight * trials
+            y_onehot = np.asfortranarray(response / trials[:, None])
+            self.categories_ = np.arange(response.shape[1])
+        else:
+            if response.ndim == 2 and response.shape[1] == 1:
+                response = response.ravel()
+            encoder = OneHotEncoder(sparse_output=False)
+            y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
+            self.categories_ = encoder.categories_[0]
 
         return X, y, y_onehot, offset, weight
 

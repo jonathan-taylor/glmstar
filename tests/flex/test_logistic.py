@@ -5,23 +5,29 @@ import statsmodels.api as sm
 
 from glmnet.regularized_glm import RegGLM
 
-from .common import (ifrpy,
-                     has_rpy2,
-                     glmnetR,
-                     baseR,
-                     statR,
-                     np_cv_rules)
 
 rng = np.random.default_rng(0)
 
-@ifrpy
-def test_glmnet(standardize,
+def test_glmnet(Rinfo, standardize,
                 fit_intercept,
                 sample_weight,
                 alpha,
                 path,
                 n=1000,
                 p=50):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    baseR = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
 
     n, p = 1000, 50
 
@@ -89,10 +95,23 @@ def test_glmnet(standardize,
 
     assert fit_match and intercept_match and coef_match
 
-def test_cv(standardize,
+def test_cv(Rinfo, standardize,
             fit_intercept,
             n=1000,
             p=50):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    ro = Rinfo['rpy']
+    importr = Rinfo['importr']
+    FloatVector = Rinfo['FloatVector']
+    IntVector = Rinfo['IntVector']
+    numpy2ri = Rinfo['numpy2ri']
+    glmnetR = importr('glmnet')
+    statR = importr('stats')
+    survival = importr('survival')
+    base = importr('base')
+    np_cv_rules = Rinfo['np_cv_rules']
 
     X = rng.standard_normal((n, p))
     X[:,4] *= 1.5

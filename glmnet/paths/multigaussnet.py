@@ -38,6 +38,9 @@ class MultiClassFamily(object):
 class MultiGaussNet(MultiFastNetMixin):
     """MultiGaussNet estimator for multi-response Gaussian regression using the FastNet path algorithm.
 
+    This class implements the regularization path for multi-response Gaussian regression
+    models using coordinate descent.
+
     Parameters
     ----------
     response_id : int, str, or list, optional
@@ -46,6 +49,23 @@ class MultiGaussNet(MultiFastNetMixin):
         Identifiers for offset columns.
     standardize_response : bool, default=False
         Whether to standardize the response.
+    lambda_min_ratio : float, optional
+        Minimum lambda ratio.
+    nlambda : int, default=100
+        Number of lambda values.
+    df_max : int, optional
+        Maximum degrees of freedom.
+    control : FastNetControl, optional
+        Control parameters for the solver.
+
+    Attributes
+    ----------
+    coefs_ : ndarray of shape (n_lambda, n_responses, n_features)
+        Fitted coefficients across the path.
+    intercepts_ : ndarray of shape (n_lambda, n_responses)
+        Fitted intercepts across the path.
+    lambda_values_ : ndarray of shape (n_lambda,)
+        The sequence of lambda values used.
     """
 
     response_id: Optional[Union[int,str,list]] = None
