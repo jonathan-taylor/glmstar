@@ -79,7 +79,10 @@ py::dict lognet(
                 lmu, a0, ca, ia, nin, nulldev, dev, alm, nlp, jerr,
                 [&](int v) {update_pb(pb, v);}, params);
     };
-    run(f, jerr);
+    {
+      py::gil_scoped_release nogil;
+      run(f, jerr);
+    }
 
   py::dict result;
 
@@ -187,7 +190,10 @@ py::dict splognet(
                 lmu, a0, ca, ia, nin, nulldev, dev, alm, nlp, jerr,
                 [&](int v) {update_pb(pb, v);}, params);
     };
-    run(f, jerr);
+    {
+      py::gil_scoped_release nogil;
+      run(f, jerr);
+    }
 
   py::dict result;
 
