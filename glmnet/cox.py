@@ -119,11 +119,14 @@ class CoxFamily(object):
         Column name for event status (0=censored, 1=event).
     start_id : str, optional, default=None
         Column name for start times (for start-stop data).
+    strata_id : str, optional, default=None
+        Column name for strata (for stratified Cox models).
     """
     tie_breaking: Literal['breslow', 'efron'] = 'efron'
     event_id: Optional[str] = 'event'
     status_id: Optional[str] = 'status'
     start_id: Optional[str] = None
+    strata_id: Optional[str] = None
 
 @dataclass
 class CoxFamilySpec(object):
@@ -176,7 +179,8 @@ class CoxFamilySpec(object):
         n = len(event)
 
         if self.strata_id is not None and self.strata_id in event_data.columns:
-            strata = np.asarray(event_data[self.strata_id])
+            # coxdev requires integer strata labels
+            strata = pd.factorize(event_data[self.strata_id], sort=True)[0]
         else:
             strata = np.zeros(n, dtype=int)
         self.strata = strata
