@@ -192,7 +192,8 @@ class LogNet(FastNetMixin):
         # fix intercept and coefs
 
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
-        _args['ca'] = np.zeros((n_features*self.nlambda*nc, 1))
+        # from https://github.com/trevorhastie/glmnet/blob/master/R/lognet.R: ca=double(nx*nlam*nc)
+        _args['ca'] = np.zeros((_args['nx']*self.nlambda*nc, 1))
 
         # reshape y
         if np.issubdtype(_args['y'].dtype, np.floating) or len(np.unique(_args['y'])) > 2:

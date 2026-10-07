@@ -200,3 +200,27 @@ def test_CV(Rinfo, offset,
     assert np.allclose(CVM, CVM_)
     assert np.allclose(CVSD, CVSD_)
 
+
+@pytest.mark.parametrize('nobs, nvars, dfmax', [(100, 50, 3), (50, 200, 10)])
+def test_mrelnet_df_max(Rinfo, nobs, nvars, dfmax):
+    # df_max small enough that nx = min(2*df_max+20, p) < p, so that the
+    # flattened coefficient array returned from C++ has stride nx, not p
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+
+    q = 2
+
+    X, Y, D, col_args, weightsR, offsetR = get_data(nobs, nvars, q, None, None)
+
+    L = MultiGaussNet(df_max=dfmax, **col_args)
+    L.fit(X, D)
+
+    C = get_glmnet_soln(Rinfo, get_RMultiGaussNet(Rinfo),
+                        X,
+                        Y,
+                        df_max=dfmax)
+
+    assert C.shape[0] == L.coefs_.shape[0]
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / max(np.linalg.norm(L.coefs_), 1) < 1e-8
+    assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
