@@ -159,6 +159,10 @@ class MultiGaussNet(MultiFastNetMixin):
             response = np.asfortranarray(response.copy())            
         else:
             offset = np.asarray(offset).astype(float)
+            if offset.shape != response.shape:
+                # as in R's mrelnet: offset must have the same shape as y
+                raise ValueError(f'offset should have the same shape as the response {response.shape}; '
+                                 f'got {offset.shape}. Use one offset column per response.')
             response = response - offset # make a copy, do not modify 
             is_offset = True
 

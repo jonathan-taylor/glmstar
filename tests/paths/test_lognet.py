@@ -165,8 +165,9 @@ def test_CV(Rinfo, offset,
 
     print(CVM)
     print(np.asarray(CVM_))
-    assert np.allclose(CVM[:15], CVM_.iloc[:15])
-    assert np.allclose(CVSD[:15], CVSD_.iloc[:15])
+    assert CVM.shape == CVM_.shape
+    assert np.allclose(CVM, CVM_, rtol=1e-8, atol=1e-12)
+    assert np.allclose(CVSD, CVSD_, rtol=1e-8, atol=1e-12)
 
 
 @pytest.mark.parametrize('nobs, nvars, dfmax', [(100, 50, 3), (50, 200, 10)])

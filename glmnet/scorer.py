@@ -80,6 +80,8 @@ class PathScorer(object):
             W = val_W[:,:,1]
             mask = ~np.isnan(val)
             count = mask.sum(1)
+            # missing scores (failed folds) are excluded; NaN * 0 is NaN, so zero them first
+            val = np.where(mask, val, 0)
             mean_ = np.sum(val * mask * W, 1) / np.sum(mask * W, 1)
             df_dict[scorer.name] = mean_
 
@@ -147,8 +149,13 @@ class PathScorer(object):
                                                      predictions[:,i],
                                                      sample_weight=sample_weight)
                     except ValueError as e:
-                        warnings.warn(f'Scorer "{cur_scorer.name}" failed on fold {f}, lambda {i}: {e}')                    
-                        pass
+                        warnings.warn(f'Scorer "{cur_scorer.name}" failed on fold {f}, lambda {i}: {e}')
+                        # record a missing score for this fold (excluded when averaging)
+                        # rather than reusing the previous fold's value
+                        if cur_scorer.grouped:
+                            val, w = np.nan, sample_weight[split].sum()
+                        else:
+                            val, w = np.full(len(split), np.nan), sample_weight[split]
                     cur_scores.append([val, w])
 
                 if cur_scorer.grouped:
