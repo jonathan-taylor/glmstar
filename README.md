@@ -14,45 +14,66 @@ A Python implementation of the glmnet algorithm for fitting generalized linear m
 
 ## Installation
 
-### Prerequisites
+### Get the source
 
-The package requires the Eigen C++ library. You have two options:
+The C++ code depends on two git submodules, [Eigen](https://gitlab.com/libeigen/eigen) and
+[glmnetpp](https://github.com/intro-stat-learning/glmnetpp), so clone recursively:
 
-#### Option 1: Use the included submodule (Recommended)
 ```bash
-# Clone with submodules
 git clone --recursive https://github.com/jonathan-taylor/pyglmnet.git
 cd pyglmnet
 
-# Or if already cloned, initialize submodules
+# Or, if already cloned without submodules
 git submodule update --init --recursive
 ```
 
-#### Option 2: Install Eigen separately
-```bash
-# Clone Eigen 3.4.0
-git clone --branch 3.4.0 https://gitlab.com/libeigen/eigen.git --depth 5
+A C++17 compiler is required to build the extension modules.
 
-# Set environment variable
-export EIGEN_LIBRARY_PATH=/path/to/eigen
+### Development install with uv (recommended)
+
+```bash
+uv sync          # editable install plus build and test tools (the `dev` group)
+uv run pytest tests --test-size=small
 ```
 
-### Install the package
+The project uses meson-python, whose editable installs recompile the C++ extensions on
+import. For that reason `pyproject.toml` disables build isolation for `glmstar` under
+uv, so the build tools (meson, ninja, pybind11, ...) must live in the project
+environment -- `uv sync` takes care of this. To target an already-activated venv other
+than `.venv`, use `uv sync --active`.
+
+If you prefer `uv pip`, install the build tools first:
 
 ```bash
-# Install in development mode
-pip install .[dev]
-pip install -e . --no-isolation-build
+uv pip install meson-python meson ninja pybind11 setuptools_scm
+uv pip install -e .      # or `uv pip install .` for a regular install
+```
 
-# Or install directly
+Running `uv pip install .` without them fails with `No module named 'mesonpy'`.
+
+### Install with pip
+
+```bash
 pip install .
 ```
 
-### Run the tests
+For an editable install with pip, again install the build tools into the environment
+and disable build isolation:
 
 ```bash
-pip install .[test]
-pytest tests --test-size=small
+pip install meson-python meson ninja pybind11 setuptools_scm
+pip install --no-build-isolation -e .
+```
+
+### Troubleshooting
+
+If the build fails with `'pybind11/pybind11.h' file not found`, a stale meson build
+directory (e.g. `build/cp310`) is pointing at a temporary build environment that no
+longer exists. Delete it and reinstall:
+
+```bash
+rm -rf build/cp*
+uv sync
 ```
 
 ## Quick Start
@@ -142,25 +163,23 @@ fit = GaussNet(response_id="response",
 
 ## Dependencies
 
-- **Core**: numpy, scipy, pandas, scikit-learn
-- **Build**: pybind11, setuptools, wheel
-- **Optional**: matplotlib, joblib, statsmodels, tqdm
+- **Core**: numpy, scipy, pandas, scikit-learn, joblib, statsmodels, coxdev, tqdm, mpmath
+- **Build**: meson-python, meson, ninja, pybind11, setuptools_scm
+- **Optional**: matplotlib (plotting), pytest (tests)
 
 ## Development
 
 ### Building from Source
-```bash
-# Install build dependencies
-pip install -r requirements.txt
-
-# Build the package
-python setup.py build_ext --inplace
-```
+See [Installation](#installation); `uv sync` builds the C++ extensions in place and
+rebuilds them automatically on import after source changes.
 
 ### Running Tests
 ```bash
-# Run all tests
+# Run all tests (or prefix with `uv run`)
 pytest tests/
+
+# Quicker subset
+pytest tests --test-size=small
 
 # Run specific test suites
 pytest tests/paths/
