@@ -1,4 +1,4 @@
-from dataclasses import dataclass, InitVar
+from dataclasses import dataclass, field, InitVar
 from typing import Optional, Literal
 from functools import partial
 
@@ -384,21 +384,28 @@ class RegCoxLM(RegGLM):
                              strata_id=self.family.strata_id)
 
 @dataclass
-class CoxNet(GLMNet):
+class CoxNetIRLS(GLMNet):
     """
-    CoxNet: Cox Proportional Hazards Model with Elastic Net regularization.
+    CoxNetIRLS: Cox Proportional Hazards Model with Elastic Net regularization.
     
     Fits a Cox proportional hazards model with regularization along a path of lambda values.
     Supports both right-censored and start-stop survival data with Breslow or Efron tie-breaking.
     
+    The path is computed by IRLS in Python around the generic `GLMNet` solver.
+    `glmnet.CoxNet` (`glmnet.paths.CoxNet`) fits the same model with the C++
+    Cox path used by R's glmnet.
+
     Parameters
     ----------
+    family : CoxFamily, default=CoxFamily()
+        Column names for the survival data and tie-breaking method.
     fit_intercept : Literal[False], default=False
         Whether to fit an intercept. For Cox models, this is always False
         as the intercept is absorbed into the baseline hazard.
     regularized_estimator : BaseEstimator, default=RegCoxLM
         The regularized estimator class to use for fitting.
     """
+    family: CoxFamily = field(default_factory=CoxFamily)
     fit_intercept: Literal[False] = False
     regularized_estimator: BaseEstimator = RegCoxLM
     
@@ -456,7 +463,7 @@ class CoxNet(GLMNet):
                 prediction_type='response',
                 interpolation_grid=None):
         """
-        Predict using the fitted CoxNet model.
+        Predict using the fitted CoxNetIRLS model.
 
         Parameters
         ----------

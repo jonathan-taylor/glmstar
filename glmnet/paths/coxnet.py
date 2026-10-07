@@ -9,7 +9,7 @@ import pandas as pd
 from .fastnet import FastNetMixin
 from ..cox import (CoxFamily,
                    CoxFamilySpec,
-                   CoxNet as _CoxNet)
+                   CoxNetIRLS)
 from .._utils import (_get_data,
                       _jerr_coxnet)
 
@@ -63,8 +63,8 @@ class CoxNet(FastNetMixin):
     _dense = _dense
     _sparse = _sparse
 
-    # predictions are the linear predictor (risk score), as in CoxNet
-    predict = _CoxNet.predict
+    # predictions are the linear predictor (risk score), as in CoxNetIRLS
+    predict = CoxNetIRLS.predict
 
     def fit(self,
             X,

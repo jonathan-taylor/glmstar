@@ -1,20 +1,20 @@
 """
-Test CoxNet comparison with R glmnet using rpy2.
+Test CoxNetIRLS comparison with R glmnet using rpy2.
 
-This module provides a suite of tests to verify the correctness of the CoxNet implementation
+This module provides a suite of tests to verify the correctness of the CoxNetIRLS implementation
 by comparing its output against the reference implementation in the R `glmnet` package.
 It uses `rpy2` to interface with R and execute the corresponding R functions.
 
 The tests cover:
 - Comparison of CoxLM (unregularized Cox model) with R's `survival::coxph`.
-- Comparison of CoxNet (regularized Cox model) coefficients with R's `glmnet`.
+- Comparison of CoxNetIRLS (regularized Cox model) coefficients with R's `glmnet`.
 - Comparison of cross-validation results (deviance and SD) with R's `cv.glmnet`.
 """
 
 import pytest
 import numpy as np
 import pandas as pd
-from glmnet.cox import CoxLM, CoxNet, CoxFamilySpec
+from glmnet.cox import CoxLM, CoxNetIRLS, CoxFamilySpec
 from sklearn.model_selection import KFold
 import statsmodels.api as sm
 from glmnet.glm import GLMControl
@@ -170,7 +170,7 @@ def test_coxlm_efron_comparison(Rinfo, sample_data):
     assert np.allclose(G3.coef_, r_coef, rtol=1e-4, atol=1e-4)
 
 def test_coxnet_comparison(Rinfo, sample_data):
-    """Test CoxNet comparison with R glmnet."""
+    """Test CoxNetIRLS comparison with R glmnet."""
 
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
@@ -185,8 +185,8 @@ def test_coxnet_comparison(Rinfo, sample_data):
     base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
-    # Python CoxNet
-    GN = CoxNet(family=breslow, weight_id='weight')
+    # Python CoxNetIRLS
+    GN = CoxNetIRLS(family=breslow, weight_id='weight')
     GN.fit(X, event_data)
     
     # R glmnet
@@ -227,9 +227,9 @@ def test_cross_validation_fraction_alignment_grouped(Rinfo, sample_data):
     base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
-    # Python CoxNet with CV
+    # Python CoxNetIRLS with CV
     control = GLMNetControl()
-    GN3 = CoxNet(family=breslow, weight_id='weight', control=control)
+    GN3 = CoxNetIRLS(family=breslow, weight_id='weight', control=control)
     GN3.fit(X, event_data)
     
     # Create fold IDs
@@ -283,9 +283,9 @@ def test_cross_validation_lambda_alignment_grouped(Rinfo, sample_data):
     base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
-    # Python CoxNet with CV
+    # Python CoxNetIRLS with CV
     control = GLMNetControl()
-    GN4 = CoxNet(family=breslow, weight_id='weight', control=control)
+    GN4 = CoxNetIRLS(family=breslow, weight_id='weight', control=control)
     GN4.fit(X, event_data)
     
     # Create fold IDs
@@ -337,9 +337,9 @@ def test_cross_validation_fraction_alignment_ungrouped(Rinfo, sample_data):
     base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
-    # Python CoxNet with CV
+    # Python CoxNetIRLS with CV
     control = GLMNetControl()
-    GN3 = CoxNet(family=breslow, weight_id='weight', control=control)
+    GN3 = CoxNetIRLS(family=breslow, weight_id='weight', control=control)
     GN3.fit(X, event_data)
     
     # Create fold IDs
@@ -391,9 +391,9 @@ def test_cross_validation_lambda_alignment_ungrouped(Rinfo, sample_data):
     base = importr('base')
     X, event_data, breslow, efron, W = sample_data
     
-    # Python CoxNet with CV
+    # Python CoxNetIRLS with CV
     control = GLMNetControl()
-    GN4 = CoxNet(family=breslow, weight_id='weight', control=control)
+    GN4 = CoxNetIRLS(family=breslow, weight_id='weight', control=control)
     GN4.fit(X, event_data)
     
     # Create fold IDs

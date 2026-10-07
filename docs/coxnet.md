@@ -44,7 +44,7 @@ We use synthetic data for illustration. `X` must be an $n\times p$ matrix of cov
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from glmnet import CoxNet
+from glmnet import CoxNetIRLS
 from glmnet.cox import CoxFamilySpec
 from glmnet.data import make_survival
 
@@ -56,12 +56,12 @@ print("First 5 rows of survival data:")
 print(y.head())
 ```
 
-We apply the `CoxNet` function to compute the solution path under default settings:
+We apply the `CoxNetIRLS` function to compute the solution path under default settings. `CoxNetIRLS` computes the path by IRLS in Python; `CoxNet` fits the same model with the C++ Cox path used by R's `glmnet` (see [CoxNet](paths/CoxNet.md)).
 
 ```{code-cell} ipython3
 # Create Cox family specification
 family = CoxFamilySpec(y, event_id='event', status_id='status', tie_breaking='efron')
-fit = CoxNet(family=family).fit(X, y)
+fit = CoxNetIRLS(family=family).fit(X, y)
 ```
 
 All the standard options such as `alpha`, `weights`, `nlambda` and `standardize` apply, and their usage is similar as in the Gaussian case.
@@ -80,7 +80,7 @@ coefs, intercept = fit.interpolate_coefs(0.05)
 coefs
 ```
 
-Since the Cox Model is not commonly used for prediction, we do not give an illustrative example on prediction. If needed, users can refer to the help file by typing `help(CoxNet.predict)`.
+Since the Cox Model is not commonly used for prediction, we do not give an illustrative example on prediction. If needed, users can refer to the help file by typing `help(CoxNetIRLS.predict)`.
 
 ### Cross-validation
 
@@ -91,7 +91,7 @@ First, `type_measure` only supports `"deviance"` (also default) which gives the 
 The code below illustrates how one can perform cross-validation using the Harrell C index. Note that unlike most error measures, a higher C index means better prediction performance.
 
 ```{code-cell} ipython3
-cvfit = CoxNet(family=family).fit(X, y)
+cvfit = CoxNetIRLS(family=family).fit(X, y)
 _, cvpath = cvfit.cross_validation_path(X, y, cv=5)
 ```
 
@@ -126,11 +126,11 @@ X, y, coef = make_survival(n_samples=500, n_features=15,
 
 # Fit with Breslow approximation
 family_breslow = CoxFamilySpec(y, event_id='event', status_id='status', tie_breaking='breslow')
-fit_breslow = CoxNet(family=family_breslow).fit(X, y)
+fit_breslow = CoxNetIRLS(family=family_breslow).fit(X, y)
 
 # Fit with Efron approximation
 family_efron = CoxFamilySpec(y, event_id='event', status_id='status', tie_breaking='efron')
-fit_efron = CoxNet(family=family_efron).fit(X, y)
+fit_efron = CoxNetIRLS(family=family_efron).fit(X, y)
 
 # Compare coefficients at lambda=0
 coefs_breslow, _ = fit_breslow.interpolate_coefs(0)
@@ -176,7 +176,7 @@ Let's fit a regularized Cox model with start-stop data:
 
 ```{code-cell} ipython3
 family = CoxFamilySpec(yss, event_id='event', status_id='status', start_id='start', tie_breaking='efron')
-fit = CoxNet(family=family).fit(X, yss)
+fit = CoxNetIRLS(family=family).fit(X, yss)
 ```
 
 `cross_validation_path` works with start-stop data too:
@@ -203,10 +203,10 @@ print(y2.head(6))
 
 # Fit stratified Cox model (commented out until implementation)
 family = CoxFamilySpec(y2, event_id='event', status_id='status', strata_id='strata', tie_breaking='efron')
-fit = CoxNet(family=family).fit(X, y2)
+fit = CoxNetIRLS(family=family).fit(X, y2)
 
 # Cross-validation with stratified data (commented out until implementation)
-cv_fit = CoxNet(family=family).fit(X, y2)
+cv_fit = CoxNetIRLS(family=family).fit(X, y2)
 _, cvpath = cv_fit.cross_validation_path(X, y2, cv=5)
 ax = cvpath.plot(score='Cox Deviance')
 ax.set_title('Cross-validation Results for Stratified Cox Model')
@@ -214,7 +214,7 @@ ax.set_title('Cross-validation Results for Stratified Cox Model')
 
 ## Plotting survival curves
 
-Fitting a regularized Cox model using `CoxNet` returns an object that can be used for prediction and survival curve plotting. The `predict` method allows the user to get survival predictions from the model.
+Fitting a regularized Cox model using `CoxNetIRLS` returns an object that can be used for prediction and survival curve plotting. The `predict` method allows the user to get survival predictions from the model.
 
 ```{code-cell} ipython3
 # Get survival predictions for specific lambda value
