@@ -9,6 +9,7 @@ parts:
   - file: quick_start.md
   - file: input_data_rationale.md
   - file: coxnet.md
+  - file: glmnet_family.md
 - caption: GLMNet paths
   chapters:
   - file: paths/GLMNet.md

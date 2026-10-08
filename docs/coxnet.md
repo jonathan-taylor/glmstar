@@ -14,7 +14,9 @@ kernelspec:
 
 # Regularized Cox Regression
 
-This vignette describes how one can use the `glmnet` package to fit regularized Cox models.
+This document parallels the R vignette [Regularized Cox Regression](https://glmnet.stanford.edu/articles/Coxnet.html), and describes how to fit regularized Cox models with `CoxNet`.
+
+## Introduction
 
 The Cox proportional hazards model is commonly used for the study of the relationship between predictor variables and survival time. In the usual survival analysis framework, we have data of the form $(y_1, x_1, \delta_1), \ldots, (y_n, x_n, \delta_n)$ where $y_i$, the observed time, is a time of failure if $\delta_i$ is 1 or a right-censored time if $\delta_i$ is 0. We also let $t_1 < t_2 < \ldots < t_m$ be the increasing list of unique failure times, and let $j(i)$ denote the index of the observation failing at time $t_i$.
 
@@ -34,120 +36,98 @@ where $R_i$ is the set of indices $j$ with $y_j \geq t_i$ (those at risk at time
 
 Note there is no intercept in the Cox model as it is built into the baseline hazard, and like it, would cancel in the partial likelihood.
 
-In `glmnet`, we penalize the negative log of the partial likelihood with an elastic net penalty.
+`CoxNet` penalizes the negative log of the partial likelihood with an elastic net penalty. It uses the same C++ path algorithm as R's `glmnet(family = "cox")`, which computes the partial likelihood and its derivatives with [coxdev](https://github.com/jonathan-taylor/coxdev).
+
+(Credits: The original `"coxnet"` algorithm for right-censored data was developed by Noah Simon, Jerome Friedman, Trevor Hastie and Rob Tibshirani. The other features for Cox models, introduced in R glmnet v4.1, were developed by Kenneth Tay, Trevor Hastie, Balasubramanian Narasimhan and Rob Tibshirani.)
 
 ## Basic usage for right-censored data
 
-We use synthetic data for illustration. `X` must be an $n\times p$ matrix of covariate values --- each row corresponds to a patient and each column a covariate. `y` is an $n \times 2$ matrix, with a column `"time"` of failure/censoring times, and `"status"` a 0/1 indicator, with 1 meaning the time is a failure time, and 0 a censoring time.
+We use synthetic data for illustration. `X` must be an $n\times p$ matrix of covariate values --- each row corresponds to a patient and each column a covariate. The response `y` is a DataFrame with a column of failure/censoring times and a 0/1 status column, with 1 meaning the time is a failure time, and 0 a censoring time. `CoxFamily` names these columns (by default `'event'` and `'status'`) and chooses how ties are handled.
 
 ```{code-cell} ipython3
+import warnings
+
 import numpy as np
 import pandas as pd
+import scipy.sparse
 import matplotlib.pyplot as plt
-from glmnet import CoxNetIRLS
-from glmnet.cox import CoxFamilySpec
+from statsmodels.duration.hazard_regression import PHReg
+
+from glmnet import CoxNet
+from glmnet.cox import CoxFamily
 from glmnet.data import make_survival
 
-# Generate synthetic survival data
-X, y, coef = make_survival(n_samples=100, n_features=20, 
-                          n_informative=5, snr=3.0, 
-                          random_state=42)
-print("First 5 rows of survival data:")
-print(y.head())
+X, y, coef = make_survival(n_samples=100, n_features=20,
+                           n_informative=5, snr=3.0,
+                           random_state=42)
+y.head()
 ```
 
-We apply the `CoxNetIRLS` function to compute the solution path under default settings. `CoxNetIRLS` computes the path by IRLS in Python; `CoxNet` fits the same model with the C++ Cox path used by R's `glmnet` (see [CoxNet](paths/CoxNet.md)).
+We apply `CoxNet` to compute the solution path under default settings:
 
 ```{code-cell} ipython3
-# Create Cox family specification
-family = CoxFamilySpec(y, event_id='event', status_id='status', tie_breaking='efron')
-fit = CoxNetIRLS(family=family).fit(X, y)
+fit = CoxNet(family=CoxFamily(event_id='event', status_id='status')).fit(X, y)
 ```
 
-All the standard options such as `alpha`, `weights`, `nlambda` and `standardize` apply, and their usage is similar as in the Gaussian case.
+All the standard options such as `alpha`, `weight_id`, `nlambda` and `standardize` apply, and their usage is similar to the Gaussian case (see [Quick Start](quick_start.md)).
 
-We can plot the coefficients with the `plot` method:
+We can plot the coefficients:
 
 ```{code-cell} ipython3
 ax = fit.coef_path_.plot()
-ax.set_title('Coefficient Paths for Cox Regression')
+ax.set_title('Coefficient paths for Cox regression');
 ```
 
 As before, we can extract the coefficients at certain values of $\lambda$:
 
 ```{code-cell} ipython3
-coefs, intercept = fit.interpolate_coefs(0.05)
-coefs
+coefs, _ = fit.interpolate_coefs(0.05)
+pd.Series(coefs, index=fit.feature_names_in_).round(4)
 ```
 
-Since the Cox Model is not commonly used for prediction, we do not give an illustrative example on prediction. If needed, users can refer to the help file by typing `help(CoxNetIRLS.predict)`.
+Since the Cox model is not commonly used for prediction, we do not give an illustrative example of prediction. `fit.predict(X)` returns the linear predictor $x_i^T \hat\beta$ (the log relative risk) along the path; see `help(CoxNet.predict)`.
 
 ### Cross-validation
 
-The `cross_validation_path` method can be used to compute $K$-fold cross-validation (CV) for the Cox model. The usage is similar to that for other families except for two main differences.
-
-First, `type_measure` only supports `"deviance"` (also default) which gives the partial-likelihood, and `"C"`, which gives the Harrell *C index*. This is like the area under the curve (AUC) measure of concordance for survival data, but only considers comparable pairs. Pure concordance would record the fraction of pairs for which the order of the death times agree with the order of the predicted risk. However, with survival data, if an observation is right censored at a time *before* another observation's death time, they are not comparable.
-
-The code below illustrates how one can perform cross-validation using the Harrell C index. Note that unlike most error measures, a higher C index means better prediction performance.
-
-```{code-cell} ipython3
-cvfit = CoxNetIRLS(family=family).fit(X, y)
-_, cvpath = cvfit.cross_validation_path(X, y, cv=5)
+```{note}
+Cross-validation for `CoxNet` (`cross_validation_path`) is not available yet: it is being fixed, and this section will then show the code. The description below is of R's `cv.glmnet`, which `cross_validation_path` will follow.
 ```
 
-Once fit, we can view the optimal $\lambda$ value and a cross validated error plot to help evaluate our model.
+$K$-fold cross-validation (CV) for the Cox model is similar to that for other families except for two main differences.
 
-```{code-cell} ipython3
-score = 'Cox Deviance'
-ax = cvpath.plot(score=score) # C index
-ax.set_title('Cross-validation Results')
-```
+First, the measures are the deviance (partial likelihood) and the Harrell *C index*. The C index is like the area under the curve (AUC) measure of concordance for survival data, but only considers comparable pairs. Pure concordance would record the fraction of pairs for which the order of the death times agree with the order of the predicted risk. However, with survival data, if an observation is right censored at a time *before* another observation's death time, they are not comparable. Unlike most error measures, a higher C index means better prediction performance.
 
-As with other families, the left vertical line in our plot shows us where the CV-error curve hits its minimum. The right vertical line shows us the most regularized model with CV-error within 1 standard deviation of the minimum. We also extract such optimal $\lambda$'s:
-
-```{code-cell} ipython3
-lambda_min = cvpath.index_best[score]
-lambda_1se = cvpath.index_1se[score]
-lambda_min, lambda_1se
-```
-
-Second, the option `grouped = True` (default) obtains the CV partial likelihood for the Kth fold by subtraction, i.e. by subtracting the log partial likelihood evaluated on the full dataset from that evaluated on the $(K-1)/K$ dataset. This makes more efficient use of risk sets. With `grouped = False` the log partial likelihood is computed only on the $K$th fold, which is only reasonable if each fold has a large number of observations.
+Second, the grouped CV partial likelihood for the $K$th fold is obtained by subtraction, i.e. by subtracting the log partial likelihood evaluated on the full dataset from that evaluated on the $(K-1)/K$ dataset. This makes more efficient use of risk sets. Computing the log partial likelihood only on the $K$th fold is only reasonable if each fold has a large number of observations.
 
 ### Handling of ties
 
-`glmnet` handles ties in survival time using either the Breslow or the Efron approximation. The choice of tie-breaking method can affect the coefficient estimates when there are tied event times.
+`CoxNet` supports both the Breslow and Efron approximations for handling tied survival times, chosen by `tie_breaking` in `CoxFamily`. The default is `'efron'`, matching statsmodels' `PHReg` and R's `survival::coxph`. (In R, `glmnet` chooses with `cox.ties`.)
+
+With `lambda_values=[0]`, `CoxNet` fits the unpenalized Cox model, which we can compare with `PHReg` for data with many ties:
 
 ```{code-cell} ipython3
-# Generate data with ties using make_survival
-X, y, coef = make_survival(n_samples=500, n_features=15, 
-                           n_informative=5, snr=3.0,
-                           random_state=42, discretize=True)
+rng = np.random.default_rng(1)
+nobs, nvars = 100, 15
+x = rng.standard_normal((nobs, nvars))
 
+# response with many ties
+ty = np.repeat(rng.exponential(size=nobs // 5), 5)
+tcens = rng.binomial(1, 0.3, size=nobs)
+y = pd.DataFrame({'time': ty, 'status': tcens})
 
-# Fit with Breslow approximation
-family_breslow = CoxFamilySpec(y, event_id='event', status_id='status', tie_breaking='breslow')
-fit_breslow = CoxNetIRLS(family=family_breslow).fit(X, y)
-
-# Fit with Efron approximation
-family_efron = CoxFamilySpec(y, event_id='event', status_id='status', tie_breaking='efron')
-fit_efron = CoxNetIRLS(family=family_efron).fit(X, y)
-
-# Compare coefficients at lambda=0
-coefs_breslow, _ = fit_breslow.interpolate_coefs(0)
-coefs_efron, _ = fit_efron.interpolate_coefs(0)
+fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+for ax, ties in zip(axes, ['efron', 'breslow']):
+    family = CoxFamily(event_id='time', status_id='status', tie_breaking=ties)
+    glmnet_fit = CoxNet(family=family, lambda_values=[0.]).fit(x, y)
+    coxph_fit = PHReg(ty, x, status=tcens, ties=ties).fit()
+    ax.scatter(glmnet_fit.coefs_[0], coxph_fit.params)
+    ax.axline((0, 0), slope=1, color='gray', ls='--')
+    ax.set_xlabel('CoxNet'); ax.set_ylabel('PHReg'); ax.set_title(f'{ties} ties')
 ```
-
-```{code-cell} ipython3
-fig, ax = plt.subplots()
-ax.scatter(coefs_breslow, coefs_efron);
-ax.set_title('Comparison of Efron vs. Breslow tie-breaking methods')
-```
-
-The Breslow approximation is generally faster but may be less accurate when there are many ties. The Efron approximation provides a more accurate estimate of the partial likelihood when ties are present, but is computationally more intensive.
 
 ## Cox models for start-stop data
 
-Since version 4.1 `glmnet` can fit models where the response is a (start, stop] time interval. As explained in Therneau & Grambsch (2000), the ability to work with start-stop responses opens the door to fitting regularized Cox models with
+`CoxNet` can fit models where the response is a (start, stop] time interval. As explained in Therneau & Grambsch (2000), the ability to work with start-stop responses opens the door to fitting regularized Cox models with
 
 * time-dependent covariates,
 * time-dependent strata,
@@ -157,89 +137,89 @@ Since version 4.1 `glmnet` can fit models where the response is a (start, stop] 
 * independent increment, marginal, and conditional models for correlated data, and
 * various forms of case-cohort models.
 
-The code below shows how to create a response of this type and how to fit such a model with `glmnet`.
+The code below shows how to create a response of this type and fit such a model. The start times are given by `start_id`.
 
 ```{code-cell} ipython3
-X, yss, coef = make_survival(n_samples=200, n_features=15, 
-                            n_informative=5, snr=3.0, 
-                            start_id=True, discretize=True, 
-                            random_state=42)
+rng = np.random.default_rng(2)
+xvec = rng.standard_normal(nobs * nvars)
+xvec[rng.choice(nobs * nvars, size=int(0.4 * nobs * nvars), replace=False)] = 0
+x = xvec.reshape((nobs, nvars))          # dense x
+x_sparse = scipy.sparse.csc_matrix(x)     # sparse x
+
+# start-stop response
+beta = rng.standard_normal(5)
+fx = x[:, :5] @ beta / 3
+ty = rng.exponential(np.exp(-fx))
+tcens = rng.binomial(1, 0.3, size=nobs)
+starty = rng.uniform(size=nobs)
+yss = pd.DataFrame({'start': starty, 'stop': starty + ty, 'status': tcens})
+
+family = CoxFamily(event_id='stop', status_id='status', start_id='start')
+fit = CoxNet(family=family).fit(x, yss)
 ```
 
-The start-stop data looks as follows:
+The call above would have worked as well with `x_sparse` in place of `x`:
 
 ```{code-cell} ipython3
-yss.head()
+fit_sparse = CoxNet(family=family).fit(x_sparse, yss)
+np.max(np.abs(fit.coefs_ - fit_sparse.coefs_))
 ```
 
-Let's fit a regularized Cox model with start-stop data:
+As a sanity check, fitting start-stop responses with `lambda_values=[0]` matches `PHReg`, which takes the start times as `entry`:
 
 ```{code-cell} ipython3
-family = CoxFamilySpec(yss, event_id='event', status_id='status', start_id='start', tie_breaking='efron')
-fit = CoxNetIRLS(family=family).fit(X, yss)
-```
-
-`cross_validation_path` works with start-stop data too:
-
-```{code-cell} ipython3
-_, cvpath = fit.cross_validation_path(X, yss, cv=5)
-ax = cvpath.plot(score=score)
-ax.set_title('Cross-validation Results for Start-Stop Data');
+glmnet_fit = CoxNet(family=family, lambda_values=[0.]).fit(x, yss)
+coxph_fit = PHReg(yss['stop'], x, status=tcens, entry=starty).fit()
+fig, ax = plt.subplots()
+ax.scatter(glmnet_fit.coefs_[0], coxph_fit.params)
+ax.axline((0, 0), slope=1, color='gray', ls='--')
+ax.set_xlabel('CoxNet'); ax.set_ylabel('PHReg');
 ```
 
 ## Stratified Cox models
 
-One extension of the Cox regression model is to allow for strata that divide the observations into disjoint groups. Each group has its own baseline hazard function, but the groups share the same coefficient vector for the covariates provided by the design matrix `X`.
+One extension of the Cox regression model is to allow for strata that divide the observations into disjoint groups. Each group has its own baseline hazard function, but the groups share the same coefficient vector for the covariates provided by the design matrix `x`.
 
-`glmnet` can fit stratified Cox models with the elastic net penalty. Since `glmnet` does not use a model formula, we achieve this by adding a strata column to the response DataFrame.
-
-```{code-cell} ipython3
-rng = np.random.default_rng(0)
-strata = rng.choice(range(1, 6), size=(yss.shape[0],))
-y2 = yss.copy()
-y2['strata'] = strata
-print("First 6 rows of stratified data:")
-print(y2.head(6))
-
-# Fit stratified Cox model (commented out until implementation)
-family = CoxFamilySpec(y2, event_id='event', status_id='status', strata_id='strata', tie_breaking='efron')
-fit = CoxNetIRLS(family=family).fit(X, y2)
-
-# Cross-validation with stratified data (commented out until implementation)
-cv_fit = CoxNetIRLS(family=family).fit(X, y2)
-_, cvpath = cv_fit.cross_validation_path(X, y2, cv=5)
-ax = cvpath.plot(score='Cox Deviance')
-ax.set_title('Cross-validation Results for Stratified Cox Model')
-```
-
-## Plotting survival curves
-
-Fitting a regularized Cox model using `CoxNetIRLS` returns an object that can be used for prediction and survival curve plotting. The `predict` method allows the user to get survival predictions from the model.
+`CoxNet` can fit stratified Cox models with the elastic net penalty. In R, `glmnet` attaches strata to the response with `stratifySurv`; here we add a strata column to the response DataFrame and name it with `strata_id`. The labels can be of any type.
 
 ```{code-cell} ipython3
-# Get survival predictions for specific lambda value
-lambda_val = 0.05
-predictions = fit.predict(X[:5], interpolation_grid=lambda_val)
-print("Survival predictions for first 5 individuals:")
-print(predictions)
+strata = np.tile(np.arange(1, 6), nobs // 5)
+y2 = y.assign(strata=strata)
+y2.head(6)
 ```
-
-To be consistent with other methods in `glmnet`, if the `interpolation_grid` parameter is not specified, predictions are returned for the entire `lambda` sequence.
 
 ```{code-cell} ipython3
-# Get predictions for all lambda values
-all_predictions = fit.predict(X[:3])
-print(f"Shape of predictions: {all_predictions.shape}")
-print(f"Number of lambda values: {len(fit.lambda_values_)}")
+family = CoxFamily(event_id='time', status_id='status', strata_id='strata')
+fit = CoxNet(family=family).fit(x, y2)
 ```
 
-The `predict` method is available for cross-validation objects as well. By default, the lambda value chosen is the "lambda.1se" value stored in the CV object.
+With `lambda_values=[0]` the stratified fit matches `PHReg` with `strata`:
 
 ```{code-cell} ipython3
-# Predictions using cross-validation object
-cv_predictions = fit.predict(X[:5])
-cv_predictions.shape
+x = rng.standard_normal((nobs, nvars))
+glmnet_fit = CoxNet(family=family, lambda_values=[0.]).fit(x, y2)
+coxph_fit = PHReg(y2['time'], x, status=y2['status'], strata=strata).fit()
+np.max(np.abs(glmnet_fit.coefs_[0] - coxph_fit.params))
 ```
+
+## Survival curves
+
+R's `glmnet` provides a `survfit` method for Cox fits, which estimates the baseline hazard and plots survival curves. This is not yet available in Python; `predict` returns the linear predictor, from which relative risks $e^{x^T \hat\beta}$ can be computed:
+
+```{code-cell} ipython3
+fit = CoxNet(family=CoxFamily(event_id='time', status_id='status')).fit(x, y)
+fit.predict(x[:3], interpolation_grid=0.05)
+```
+
+To be consistent with other methods, if `interpolation_grid` is not specified, predictions are returned for the entire $\lambda$ sequence:
+
+```{code-cell} ipython3
+fit.predict(x[:3]).shape
+```
+
+## `CoxNetIRLS`
+
+`CoxNetIRLS` fits the same model by IRLS in Python around the generic `GLMNet` solver (see [GLM families](glmnet_family.md)). `CoxNet` is faster and matches R's `glmnet`; see [CoxNetIRLS](paths/CoxNetIRLS.md).
 
 ## References
 
@@ -252,7 +232,3 @@ cv_predictions.shape
 ---
 
 *This document adapts the R glmnet vignette for the Python glmnet package. The original R vignette was written by Kenneth Tay, Noah Simon, Jerome Friedman, Trevor Hastie, Rob Tibshirani, and Balasubramanian Narasimhan.*
-
-```{code-cell} ipython3
-
-```
