@@ -1,4 +1,3 @@
 namespace py = pybind11;
 
-void update_pb(py::object, int);
-
+void update_pb(const py::object&, int);
