@@ -282,6 +282,7 @@ class GLMNet(BaseEstimator,
 
         self.excluded_ = copy(self.exclude)
         self.excluded_.extend(list(self.prefilter(X, y)))
+        self.penalty_factor_ = self.get_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
@@ -300,7 +301,7 @@ class GLMNet(BaseEstimator,
                                lambda_val=self.control.big,
                                family=self.family,
                                alpha=self.alpha,
-                               penalty_factor=self.penalty_factor,
+                               penalty_factor=self.penalty_factor_,
                                lower_limits=self.lower_limits,
                                upper_limits=self.upper_limits,
                                fit_intercept=self.fit_intercept,
@@ -884,7 +885,7 @@ class GLMNet(BaseEstimator,
                                lambda_val=lambda_val,
                                family=self._fixed_lambda_family(),
                                alpha=self.alpha,
-                               penalty_factor=self.penalty_factor,
+                               penalty_factor=self.penalty_factor_,
                                lower_limits=self.lower_limits,
                                upper_limits=self.upper_limits,
                                fit_intercept=self.fit_intercept,
@@ -923,6 +924,28 @@ class GLMNet(BaseEstimator,
             List of feature indices to exclude.
         """
         return []
+
+    def get_penalty_factor(self, X, y):
+        """
+        Method intended to be overwritten by subclasses to compute penalty
+        factors from the data, as R's glmnet allows a function for
+        `penalty.factor`. Called on the data passed to `fit`, so it is
+        re-run on each training fold in cross-validation.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+
+        Returns
+        -------
+        penalty_factor : Optional[Union[float, np.ndarray]]
+            Penalty factors, as for `penalty_factor` (infinite factors mark
+            exclusions). Defaults to `self.penalty_factor`.
+        """
+        return self.penalty_factor
 
 
 @dataclass
