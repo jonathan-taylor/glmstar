@@ -55,7 +55,8 @@ doc = [
     "jupytext",
     "jupyter-book",
     "sphinx",
-    "myst-parser"
+    "myst-parser",
+    "lassoinf"
 ]
 test = ["pytest",
         "rpy2",
