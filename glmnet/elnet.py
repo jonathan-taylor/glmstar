@@ -122,7 +122,14 @@ class ElNet(BaseEstimator,
         else:
             design = self.design_
 
-        if self.lambda_val > 0 or not (np.all(design.centers_ == 0) and np.all(design.scaling_ == 1)):
+        # the unpenalized shortcut below ignores exclusions and limits
+        constrained = (len(self.exclude) > 0
+                       or (self.penalty_factor is not None
+                           and np.any(np.isinf(self.penalty_factor)))
+                       or np.any(np.isfinite(self.lower_limits))
+                       or np.any(np.isfinite(self.upper_limits)))
+        if (self.lambda_val > 0 or constrained
+            or not (np.all(design.centers_ == 0) and np.all(design.scaling_ == 1))):
             if self.control is None:
                 self.control = ElNetControl()
             n_samples, n_features = design.X.shape
@@ -159,7 +166,8 @@ class ElNet(BaseEstimator,
                                                     alpha=self.alpha,
                                                     intercept=self.fit_intercept,
                                                     penalty_factor=penalty_factor_,
-                                                    exclude=excluded_,
+                                                    # 0-based: excluded_ is 1-based, for the path code
+                                                    exclude=self.excluded_,
                                                     lower_limits=lower_limits_,
                                                     upper_limits=upper_limits_,
                                                     thresh=self.control.thresh,
