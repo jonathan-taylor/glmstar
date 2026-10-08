@@ -28,7 +28,7 @@ from .regularized_glm import (RegGLMControl,
 from .glm import (GLM,
                   GLMState,
                   GLMFamilySpec)
-from ._utils import _get_data
+from ._utils import _get_data, _check_offset
 from .scorer import (PathScorer,
                      ScorePath)
 
@@ -423,7 +423,8 @@ class GLMNet(BaseEstimator,
     def predict(self,
                 X,
                 prediction_type='response',
-                interpolation_grid=None):
+                interpolation_grid=None,
+                offset=None):
         """
         Predict using the fitted GLMNet model.
 
@@ -440,13 +441,18 @@ class GLMNet(BaseEstimator,
         interpolation_grid: np.ndarray, optional
             Grid of lambda values for interpolation. If provided, coefficients are interpolated
             to these values before prediction.
+        offset: np.ndarray, optional
+            Offset for the rows of `X`, of shape `(nobs,)`, added to the linear
+            predictor (R's `newoffset`). If the model was fit with `offset_id`,
+            pass the offset for the new data here; if omitted, no offset is
+            used.
 
         Returns
         -------
         np.ndarray
             Predictions for each lambda value.
         """
-        
+
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
             coefs_, intercepts_ = self.interpolate_coefs(grid_)
@@ -458,6 +464,8 @@ class GLMNet(BaseEstimator,
         coefs_ = np.atleast_2d(coefs_)
         linear_pred_ = coefs_ @ X.T + intercepts_[:, None]
         linear_pred_ = linear_pred_.T
+        if offset is not None:
+            linear_pred_ = linear_pred_ + _check_offset(offset, X.shape[0])[:, None]
         if prediction_type != 'link':
             fits = self._family.predict(linear_pred_, prediction_type=prediction_type)
         else:

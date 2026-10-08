@@ -88,7 +88,8 @@ class MultiClassNet(MultiFastNetMixin):
     def predict(self,
                 X,
                 prediction_type='response', # ignored except checking valid
-                interpolation_grid=None
+                interpolation_grid=None,
+                offset=None
                 ):
         """Predict class probabilities or logits for multinomial classification.
 
@@ -98,6 +99,11 @@ class MultiClassNet(MultiFastNetMixin):
             Feature matrix.
         prediction_type : str, default='response'
             Type of prediction ('response' for probabilities, 'link' for logits).
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+        offset : array-like, optional
+            Offset for the rows of `X`, of shape `(n_samples, n_classes)`,
+            added to the logits (R's `newoffset`). If omitted, no offset is used.
 
         Returns
         -------
@@ -107,7 +113,8 @@ class MultiClassNet(MultiFastNetMixin):
 
         value = super().predict(X,
                                 interpolation_grid=interpolation_grid,
-                                prediction_type='link')
+                                prediction_type='link',
+                                offset=offset)
         if prediction_type == 'response':
             _max = value.max(-1)
             value = value - _max[:,:,None]
@@ -189,7 +196,8 @@ class MultiClassNet(MultiFastNetMixin):
 
     def predict_proba(self,
                       X,
-                      interpolation_grid=None):
+                      interpolation_grid=None,
+                      offset=None):
         """
         Probability estimates for a LogNet model.
 
@@ -202,6 +210,9 @@ class MultiClassNet(MultiFastNetMixin):
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 
+        offset : array-like, optional
+            Offset for the rows of `X` (see `predict`).
+
         Returns
         -------
         T : array-like of shape (n_samples, n_classes)
@@ -210,7 +221,8 @@ class MultiClassNet(MultiFastNetMixin):
         """
         return self.predict(X,
                             interpolation_grid=interpolation_grid,
-                            prediction_type='response')
+                            prediction_type='response',
+                            offset=offset)
 
     def _extract_fits(self,
                       X_shape,
