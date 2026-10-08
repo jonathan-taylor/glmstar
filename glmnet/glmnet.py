@@ -957,7 +957,8 @@ class CoefPath(object):
              ax=None,
              legend=False,
              drop=None,
-             keep=None):
+             keep=None,
+             label=False):
         """
         Plot coefficient paths.
 
@@ -973,6 +974,10 @@ class CoefPath(object):
             Features to drop from the plot.
         keep: list, optional
             Features to keep in the plot.
+        label: bool
+            Label each curve with its feature name at the end of the
+            path (the smallest lambda), as R's `plot(fit, label=TRUE)`.
+            Features that are zero along the whole path are not labelled.
 
         Returns
         -------
@@ -1000,9 +1005,9 @@ class CoefPath(object):
         if coefs_.ndim > 2:
             # compute the l2 norm
             coefs_ = np.sqrt((coefs_**2).sum(-1))
-            label = r'Coefficient norms ($\|\beta\|_2$)'
+            ylabel = r'Coefficient norms ($\|\beta\|_2$)'
         else:
-            label = r'Coefficients ($\beta$)'
+            ylabel = r'Coefficients ($\beta$)'
         soln_path = pd.DataFrame(coefs_,
                                  columns=self.feature_names,
                                  index=index)
@@ -1010,10 +1015,28 @@ class CoefPath(object):
             soln_path = soln_path.drop(columns=drop)
         if keep is not None:
             soln_path = soln_path.loc[:, keep]
+        n_lines = 0 if ax is None else len(ax.get_lines())
         ax = soln_path.plot(ax=ax, legend=False)
+        lines = ax.get_lines()[n_lines:n_lines + soln_path.shape[1]]
         ax.set_xlabel(index.name)
-        ax.set_ylabel(label)
+        ax.set_ylabel(ylabel)
         ax.axhline(0, c='k', ls='--')
+
+        if label:
+            # label at the end of the path, on the outside of the curves
+            x_end = soln_path.index[-1]
+            ha = 'left' if x_end >= soln_path.index[0] else 'right'
+            for name, line in zip(soln_path.columns, lines):
+                if np.all(soln_path[name] == 0):
+                    continue
+                ax.annotate(str(name),
+                            (x_end, soln_path[name].iloc[-1]),
+                            xytext=(3 if ha == 'left' else -3, 0),
+                            textcoords='offset points',
+                            ha=ha,
+                            va='center',
+                            fontsize='small',
+                            color=line.get_color())
 
         if legend:
             fig = ax.figure
