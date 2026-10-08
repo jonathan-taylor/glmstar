@@ -22,6 +22,33 @@ from ..family import GLMFamilySpec
 from .._utils import (_jerr_elnetfit,
                       _validate_cpp_args)
 
+class _NoProgress(object):
+    """Stand-in for a tqdm progress bar that shows nothing."""
+
+    def update(self, m):
+        pass
+
+    def close(self):
+        pass
+
+
+class _PathProgress(object):
+    """
+    Progress bar for the C++ paths. These call ``update(m)`` with the
+    (0-based) index of the lambda value just fit, as R's ``setpb``,
+    rather than an increment.
+    """
+
+    def __init__(self, total):
+        self.bar = tqdm(total=total)
+
+    def update(self, m):
+        self.bar.update(m + 1 - self.bar.n)
+
+    def close(self):
+        self.bar.close()
+
+
 @dataclass
 class FastNetControl(object):
     """Control parameters for FastNet path solvers.
@@ -51,7 +78,8 @@ class FastNetControl(object):
     exmx : float, default=250.
         Maximum allowed value of the linear predictor (exponent).
     itrace : int, default=0
-        If nonzero, report progress along the path.
+        If nonzero, show a progress bar along the path (R's ``trace.it``).
+        By default fits are silent.
     prec : float, default=1e-10
         Convergence threshold for the bounds adjustment in multi-response
         (multinomial grouped, multi-Gaussian) fits.
@@ -195,7 +223,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         sample_weight = weight
         
-        self.pb = tqdm(total=self.nlambda)
+        # the C++ paths only advance the bar when itrace is nonzero,
+        # so only show one then (R's trace.it)
+        if self.control.itrace:
+            self.pb = _PathProgress(total=self.nlambda)
+        else:
+            self.pb = _NoProgress()
         self._args = self._wrapper_args(design,
                                         response,
                                         sample_weight,
@@ -231,6 +264,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if msg is not None:
             raise ValueError(msg)
         self._fit = fit_method(**self._args)
+        self.pb.close()
 
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
