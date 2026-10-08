@@ -106,13 +106,11 @@ OPTIONS = {
     'weights': dict(weight_id='w'),
     'offset': dict(offset_id='o'),
     'alpha_weights': dict(alpha=0.3, weight_id='w'),
+    'exclude': dict(exclude=[3, 5]),
 }
 
-# known bugs in the IRLS GLMNet (still present in 0.1.3): exclude is applied to
-# the next variable (1-based indices used on a 0-based array in glmnet/elnet.py),
-# and fits with a penalty factor of 0 or inf fail in IRLS
+# known bugs in the IRLS GLMNet: fits with a penalty factor of 0 or inf fail
 GLMSTAR_BROKEN = {
-    'exclude': dict(exclude=[3, 5]),
     'unpenalized': dict(penalty_factor=np.r_[0., 2., np.ones(P - 2)]),
     'penalty_factor_inf': dict(penalty_factor=np.r_[1., 1., 1., np.inf, np.ones(P - 4)]),
 }
@@ -175,10 +173,10 @@ def test_glmstar_fastnet_problem(data, family, standardize, fit_intercept, optio
     y_scale = glmnet_response_scale(y, w, fit_intercept) if family == 'gaussian' else 1.
     _check_problem(prob, X, y, family, w, offset, fit_intercept, lam,
                    alpha=opts.get('alpha', 1.), pf=opts.get('penalty_factor'),
-                   standardize=standardize, y_scale=y_scale)
+                   exclude=opts.get('exclude', ()), standardize=standardize, y_scale=y_scale)
 
 
-@pytest.mark.xfail(strict=True, reason='IRLS GLMNet: exclude off by one; penalty factor 0 / inf fails')
+@pytest.mark.xfail(strict=True, reason='IRLS GLMNet: penalty factor 0 / inf fails')
 @pytest.mark.parametrize('option', GLMSTAR_BROKEN)
 def test_glmstar_broken_options(data, option):
     _check_glmstar(data, 'gaussian', True, True, GLMSTAR_BROKEN[option])
