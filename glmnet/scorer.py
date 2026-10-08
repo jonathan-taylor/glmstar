@@ -304,14 +304,19 @@ def _tune(index,
     cv_scores : pd.DataFrame
         Cross-validation scores.
     complexity_order : str, optional
-        Order of complexity ('increasing' or 'decreasing').
+        Order of model complexity along the rows of `cv_scores`
+        ('increasing' or 'decreasing'). For a glmnet path with decreasing
+        lambda values this is 'increasing'. If None, no 1SE selection
+        is made.
     compute_std_error : bool, default=True
         Whether standard errors were computed.
-        
+
     Returns
     -------
     tuple
-        Tuple of (index_best, index_1se).
+        Tuple of (index_best, index_1se). As in R's `cv.glmnet`, the
+        1SE choice is the least complex model whose score is within one
+        standard error of the best score.
     """
 
     if (complexity_order is not None
@@ -322,41 +327,35 @@ def _tune(index,
     index_1se_ = []
 
     npath = cv_scores.shape[0]
-    
+    index_ = np.asarray(index)
+
+    # row positions of the path in order of increasing complexity
+    if complexity_order == 'decreasing':
+        order = np.arange(npath)[::-1]
+    else:
+        order = np.arange(npath)
+
     for i, scorer in enumerate(scorers):
         picker = {False:np.argmin, True:np.argmax}[scorer.maximize]
 
-        if complexity_order == 'increasing':
-            _mean = np.asarray(cv_scores[scorer.name])
-        else:
-            # in this case indices are taken from the last entry
-            # must reshuffle indices below
-            _mean = np.asarray(cv_scores[scorer.name].iloc[::-1])
+        _mean = np.asarray(cv_scores[scorer.name])[order]
 
+        # ties go to the least complex model
         _best_idx = picker(_mean)
-        index_best_.append((scorer.name, index[_best_idx]))
+        index_best_.append((scorer.name, index_[order[_best_idx]]))
 
         if compute_std_error:
-            _std = np.asarray(cv_scores[f'SD({scorer.name})'])
-            if not scorer.maximize:
-                _mean_1se = (_mean + _std)[_best_idx]
-
-                if complexity_order is not None:
-                    _1se_idx = max(np.nonzero((_mean <=
-                                               _mean_1se))[0].min() - 1, 0)
+            if complexity_order is not None:
+                _std = np.asarray(cv_scores[f'SD({scorer.name})'])[order]
+                if not scorer.maximize:
+                    _mean_1se = (_mean + _std)[_best_idx]
+                    _eligible = _mean <= _mean_1se
                 else:
-                    _1se_idx = None
-
-            else:
-                _mean_1se = (_mean - _std)[_best_idx]                    
-                if complexity_order is not None:
-                    _1se_idx = max(np.nonzero((_mean >=
-                                               _mean_1se))[0].min() - 1, 0)
-                else:
-                    _1se_idx = None
-
-            if _1se_idx is not None:
-                index_1se_.append((scorer.name, index[_1se_idx]))
+                    _mean_1se = (_mean - _std)[_best_idx]
+                    _eligible = _mean >= _mean_1se
+                # first eligible model in order of increasing complexity
+                _1se_idx = np.nonzero(_eligible)[0].min()
+                index_1se_.append((scorer.name, index_[order[_1se_idx]]))
             else:
                 index_1se_.append((scorer.name, np.nan))
 
@@ -364,15 +363,10 @@ def _tune(index,
                             index=[n for n, _ in index_best_],
                             name='index_best')
 
-    if complexity_order == 'decreasing':
-        index_best_ = npath - 1 - index_best_
-
     if len(index_1se_) > 0:
         index_1se_ = pd.Series([v for _, v in index_1se_],
                                 index=[n for n, _ in index_1se_],
                                name='index_1se')
-        if complexity_order == 'decreasing':
-            index_1se_ = npath - 1 - index_1se_
     else:
         index_1se_ = None
         

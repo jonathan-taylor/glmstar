@@ -275,4 +275,8 @@ def test_cross_validation(Rinfo, sample_data, alpha, alignment, use_offset, use_
     
     # Compare results
     assert np.allclose(GN.score_path_.scores['Binomial Deviance'].iloc[:50], r_cvm[:50], rtol=1e-3, atol=1e-3)
-    assert np.allclose(GN.score_path_.scores['SD(Binomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3) 
+    assert np.allclose(GN.score_path_.scores['SD(Binomial Deviance)'].iloc[:50], r_cvsd[:50], rtol=1e-3, atol=1e-3)
+
+    # Compare lambda.min and lambda.1se selections
+    assert np.isclose(GN.score_path_.index_best['Binomial Deviance'], r_gcv.rx2('lambda.min')[0])
+    assert np.isclose(GN.score_path_.index_1se['Binomial Deviance'], r_gcv.rx2('lambda.1se')[0]) 
