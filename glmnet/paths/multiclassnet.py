@@ -116,10 +116,10 @@ class MultiClassNet(MultiFastNetMixin):
                                 prediction_type='link',
                                 offset=offset)
         if prediction_type == 'response':
-            _max = value.max(-1)
-            value = value - _max[:,:,None]
+            # value is (n, nlambda, K), or (n, K) for a scalar interpolation_grid
+            value = value - value.max(-1, keepdims=True)
             exp_value = np.exp(value)
-            value = exp_value / exp_value.sum(-1)[:,:,None]
+            value = exp_value / exp_value.sum(-1, keepdims=True)
         elif prediction_type == 'class':
             int_class = np.argmax(value, -1)
             value = self.categories_[int_class]
