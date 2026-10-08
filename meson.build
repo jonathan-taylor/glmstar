@@ -103,6 +103,15 @@ py.extension_module(
   subdir : 'glmnet'
 )
 
+py.extension_module(
+  '_concordance',
+  'src/concordance.cpp',
+  include_directories : include_directories('eigen'),
+  dependencies : pybind11_dep,
+  install : true,
+  subdir : 'glmnet'
+)
+
 # Install Python sources
 install_subdir(
     'glmnet',
