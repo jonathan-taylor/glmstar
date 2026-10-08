@@ -54,7 +54,8 @@ def get_glmnet_cox_soln(Rinfo,
         else:
             Y = 'Surv(stop, status)'
         if strata:
-            rpy.r.assign('strata', D['strata'].values)
+            # plain str array: pandas >= 3 string columns do not convert to R directly
+            rpy.r.assign('strata', np.asarray(D['strata'], dtype=str))
             Y = f'stratifySurv({Y}, strata)'
         Xr = 'Matrix(X, sparse=TRUE)' if sparse else 'X'
         cmd = f'''

@@ -149,14 +149,16 @@ class CoxNet(FastNetMixin):
                 raise ValueError(f'expecting column "{col}" in survival data')
 
         n = y.shape[0]
-        stop = np.asarray(y[family.event_id], float)
+        # np.array copies: with pandas >= 3 (copy-on-write) np.asarray of a column
+        # is a read-only view, which the C++ binding does not accept
+        stop = np.array(y[family.event_id], float)
         status = np.asarray(y[family.status_id])
         if not np.all(np.isin(status, [0, 1])):
             raise ValueError('status should be binary (0=censored, 1=event)')
         status = status.astype(np.int32)
 
         if family.start_id is not None:
-            start = np.asarray(y[family.start_id], float)
+            start = np.array(y[family.start_id], float)
         else:
             start = np.zeros(n)
 
