@@ -19,12 +19,3 @@ This section provides the API reference for the GLMStar Python package.
    :undoc-members:
    :show-inheritance:
 ```
-
-## Inference Module
-
-```{eval-rst}
-.. automodule:: glmnet.inference
-   :members:
-   :undoc-members:
-   :show-inheritance:
-```

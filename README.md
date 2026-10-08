@@ -163,7 +163,7 @@ fit = GaussNet(response_id="response",
 
 ## Dependencies
 
-- **Core**: numpy, scipy, pandas, scikit-learn, joblib, statsmodels, coxdev, tqdm, mpmath
+- **Core**: numpy, scipy, pandas, scikit-learn, joblib, statsmodels, coxdev, tqdm
 - **Build**: meson-python, meson, ninja, pybind11, setuptools_scm
 - **Optional**: matplotlib (plotting), pytest (tests)
 
