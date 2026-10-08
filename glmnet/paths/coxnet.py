@@ -7,12 +7,16 @@ import numpy as np
 import pandas as pd
 
 from sklearn.utils.validation import check_is_fitted
+from sklearn.base import BaseEstimator
 
 from .fastnet import FastNetMixin
 from ..cox import (CoxFamily,
                    CoxFamilySpec,
                    CoxNetIRLS,
+                   CoxState,
+                   RegCoxLM,
                    cox_survfit)
+
 from .._utils import (_get_data,
                       _jerr_coxnet)
 
@@ -62,6 +66,8 @@ class CoxNet(FastNetMixin):
 
     family: CoxFamily = field(default_factory=CoxFamily)
     fit_intercept: Literal[False] = False
+    # single lambda fits for get_fixed_lambda, as in CoxNetIRLS
+    regularized_estimator: BaseEstimator = RegCoxLM
 
     _dense = _dense
     _sparse = _sparse
@@ -101,9 +107,14 @@ class CoxNet(FastNetMixin):
         self._family = self._finalize_family(y)
         self._survival_data = self._get_survival_data(y)
 
-        return super().fit(X,
-                           y,
-                           interpolation_grid=interpolation_grid)
+        super().fit(X,
+                    y,
+                    interpolation_grid=interpolation_grid)
+        self.state_ = CoxState(self.coefs_[-1])
+        return self
+
+    def _fixed_lambda_family(self):
+        return self.family
 
     def survfit(self,
                 X,

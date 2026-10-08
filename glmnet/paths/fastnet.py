@@ -250,7 +250,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self.coefs_ = result['coefs']
         self.intercepts_ = result['intercepts']
             
-        if self.coefs_.ndim == 1:
+        # single response: coefs_ has shape (nlambda, nfeatures)
+        if self.coefs_.ndim == 2:
             self.state_ = GLMState(self.coefs_[-1],
                                    self.intercepts_[-1])
 
@@ -485,6 +486,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         return _args
 
+    def _fixed_lambda_family(self):
+        # the `family` field is unused by the C++ paths; `_family` is set in
+        # __post_init__ (e.g. binomial for LogNet) or by `fit`
+        return self._family
+
     def prefilter(self, X, y):
         """
         Method intended to be overwritten by subclasses to implement pre-filtering of features.
@@ -524,6 +530,10 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
     control : FastNetControl, optional
         Control parameters for the solver.
     """
+
+    def get_fixed_lambda(self,
+                         lambda_val):
+        raise NotImplementedError(f'{self.__class__.__name__} has no single lambda estimator for get_fixed_lambda')
 
     def predict(self,
                 X,

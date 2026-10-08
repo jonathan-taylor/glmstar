@@ -882,7 +882,7 @@ class GLMNet(BaseEstimator,
 
         estimator = self.regularized_estimator(
                                lambda_val=lambda_val,
-                               family=self.family,
+                               family=self._fixed_lambda_family(),
                                alpha=self.alpha,
                                penalty_factor=self.penalty_factor,
                                lower_limits=self.lower_limits,
@@ -900,6 +900,10 @@ class GLMNet(BaseEstimator,
         cls = self.state_.__class__
         state = cls(coefs[0], intercepts[0])
         return estimator, state
+
+    def _fixed_lambda_family(self):
+        """Family passed to `regularized_estimator` by `get_fixed_lambda`."""
+        return self.family
 
     def prefilter(self, X, y):
         """
