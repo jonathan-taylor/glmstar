@@ -131,11 +131,50 @@ the fit on an 80-row training fold.
 ax = cvpath.plot(score='Mean Squared Error')
 ```
 
+## Penalty factors as a function
+
+Since version 5.1, R's glmnet also accepts a function for
+`penalty.factor`. For example, the adaptive lasso divides each
+variable's penalty by the size of its least squares coefficient:
+
+```r
+pf <- function(x, y, ...) 1 / abs(coef(lm(y ~ x))[-1])
+fit <- glmnet(x, y, penalty.factor = pf)
+cvfit <- cv.glmnet(x, y, penalty.factor = pf)
+```
+
+The Python equivalent is to override `get_penalty_factor(X, y)`. As
+with `prefilter`, it is called at the start of each `fit`, so
+cross-validation recomputes the factors on each training fold. The
+constructor's `penalty_factor` is left unchanged; the factors used for
+the last fit are stored in `penalty_factor_`.
+
+```{code-cell} ipython3
+@dataclass
+class AdaptiveGaussNet(GaussNet):
+
+    def get_penalty_factor(self, X, y):
+        X1 = np.column_stack([np.ones(X.shape[0]), X])
+        beta_ls = np.linalg.lstsq(X1, y, rcond=None)[0][1:]
+        return 1 / np.fabs(beta_ls)
+
+fit_adaptive = AdaptiveGaussNet().fit(X, y)
+np.round(fit_adaptive.penalty_factor_, 2)
+```
+
+```{code-cell} ipython3
+_, cvpath_adaptive = fit_adaptive.cross_validation_path(X, y, cv=5)
+ax = cvpath_adaptive.plot(score='Mean Squared Error')
+```
+
 ## Notes
 
 - The same approach works for any `*Net` estimator (`LogNet`,
   `FishNet`, `CoxNet`, `MultiGaussNet`, ...) and for `GLMNet`. All of
-  them call `self.prefilter(X, y)` at the start of `fit`.
+  them call `self.prefilter(X, y)` and `self.get_penalty_factor(X, y)`
+  at the start of `fit`.
+- `get_penalty_factor` returns factors as for `penalty_factor=`; an
+  infinite factor excludes the variable.
 - `prefilter` receives `X` and `y` exactly as they were passed to
   `fit`, so `y` may be a DataFrame that also holds the weight or offset
   columns. R's filter function receives `x`, `y` and `weights`; to use

@@ -234,7 +234,8 @@ class LogNet(FastNetMixin):
 
     def predict_proba(self,
                       X,
-                      interpolation_grid=None):
+                      interpolation_grid=None,
+                      offset=None):
         """
         Probability estimates for a LogNet model.
 
@@ -247,6 +248,9 @@ class LogNet(FastNetMixin):
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 
+        offset : array-like, optional
+            Offset for the rows of `X` (see `predict`).
+
         Returns
         -------
         T : array-like of shape (n_samples, n_classes)
@@ -255,7 +259,8 @@ class LogNet(FastNetMixin):
         """
         prob_1 = self.predict(X,
                               interpolation_grid=interpolation_grid,
-                              prediction_type='response')
+                              prediction_type='response',
+                              offset=offset)
         result = np.empty(prob_1.shape + (2,))
         result[:,:,1] = prob_1
         result[:,:,0] = 1 - prob_1

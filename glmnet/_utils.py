@@ -344,3 +344,33 @@ def _validate_cpp_args(
     if msg:
         return msg
 
+
+
+def _check_offset(offset, n, ncol=None):
+    """
+    Validate an offset passed to `predict` (R's `newoffset`).
+
+    Parameters
+    ----------
+    offset : array-like
+        Offset for `n` new observations: shape `(n,)`, or `(n, ncol)` for
+        multi-response models (a vector is then used for every response).
+    n : int
+        Number of rows being predicted.
+    ncol : int, optional
+        Number of responses for multi-response models.
+
+    Returns
+    -------
+    np.ndarray
+        Offset of shape `(n,)`, or `(n, ncol)` if `ncol` is given.
+    """
+    offset = np.asarray(offset, dtype=float)
+    if ncol is not None and offset.ndim == 1:
+        offset = np.repeat(offset[:, None], ncol, axis=1)
+    expected = (n,) if ncol is None else (n, ncol)
+    if offset.ndim == 2 and ncol is None and offset.shape[1] == 1:
+        offset = offset[:, 0]
+    if offset.shape != expected:
+        raise ValueError(f'offset should have shape {expected}, got {offset.shape}')
+    return offset

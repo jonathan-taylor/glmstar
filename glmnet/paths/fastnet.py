@@ -20,7 +20,35 @@ from ..glmnet import (GLMNet,
 from ..family import GLMFamilySpec
 
 from .._utils import (_jerr_elnetfit,
-                      _validate_cpp_args)
+                      _validate_cpp_args,
+                      _check_offset)
+
+class _NoProgress(object):
+    """Stand-in for a tqdm progress bar that shows nothing."""
+
+    def update(self, m):
+        pass
+
+    def close(self):
+        pass
+
+
+class _PathProgress(object):
+    """
+    Progress bar for the C++ paths. These call ``update(m)`` with the
+    (0-based) index of the lambda value just fit, as R's ``setpb``,
+    rather than an increment.
+    """
+
+    def __init__(self, total):
+        self.bar = tqdm(total=total)
+
+    def update(self, m):
+        self.bar.update(m + 1 - self.bar.n)
+
+    def close(self):
+        self.bar.close()
+
 
 @dataclass
 class FastNetControl(object):
@@ -51,7 +79,8 @@ class FastNetControl(object):
     exmx : float, default=250.
         Maximum allowed value of the linear predictor (exponent).
     itrace : int, default=0
-        If nonzero, report progress along the path.
+        If nonzero, show a progress bar along the path (R's ``trace.it``).
+        By default fits are silent.
     prec : float, default=1e-10
         Convergence threshold for the bounds adjustment in multi-response
         (multinomial grouped, multi-Gaussian) fits.
@@ -168,6 +197,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         self.excluded_ = copy(self.exclude)
         self.excluded_.extend(list(self.prefilter(X, y)))
+        self.penalty_factor_ = self.get_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -195,7 +225,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         sample_weight = weight
         
-        self.pb = tqdm(total=self.nlambda)
+        # the C++ paths only advance the bar when itrace is nonzero,
+        # so only show one then (R's trace.it)
+        if self.control.itrace:
+            self.pb = _PathProgress(total=self.nlambda)
+        else:
+            self.pb = _NoProgress()
         self._args = self._wrapper_args(design,
                                         response,
                                         sample_weight,
@@ -231,6 +266,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if msg is not None:
             raise ValueError(msg)
         self._fit = fit_method(**self._args)
+        self.pb.close()
 
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
@@ -413,7 +449,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             response = response.reshape((-1,1))
 
         # compute vp
-        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor,
+        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor_,
                                                                 n_features,
                                                                 exclude)
         self.excluded_ = np.asarray(excluded_) - 1
@@ -539,6 +575,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                 X,
                 prediction_type='link', # ignored except checking valid
                 interpolation_grid=None,
+                offset=None,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -549,6 +586,12 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             Feature matrix.
         prediction_type : str, optional
             Type of prediction ('response' or 'link').
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+        offset : array-like, optional
+            Offset for the rows of `X`, of shape `(n_samples, n_responses)`,
+            added to the linear predictor (R's `newoffset`). A vector is used
+            for every response. If omitted, no offset is used.
 
         Returns
         -------
@@ -575,6 +618,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                           X)
         fits = term1 + intercepts_[:, None, :]
         fits = np.transpose(fits, [1,0,2])
+        if offset is not None:
+            fits = fits + _check_offset(offset, X.shape[0], fits.shape[2])[:, None, :]
 
         # make return based on original
         # promised number of lambdas
@@ -597,6 +642,38 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             return value
         else:
             return value[:,0,:]
+
+    def nonzero(self,
+                interpolation_grid=None):
+        """
+        Indices of the nonzero coefficients along the path, as
+        `predict(fit, type="nonzero")` in R.
+
+        Parameters
+        ----------
+        interpolation_grid : array-like, optional
+            Grid of lambda values. If provided, coefficients are interpolated
+            to these values first, as in `predict`.
+
+        Returns
+        -------
+        list
+            For each lambda in `lambda_values_` (or in `interpolation_grid`),
+            the (0-based) indices of the features with a nonzero coefficient
+            for any response. For an ungrouped multinomial fit (`grouped=False`)
+            this is instead a list with one such list per class, as in R.
+            If `interpolation_grid` is a scalar, each list of arrays is
+            replaced by its single array.
+        """
+        coefs_, squeeze = self._nonzero_coefs(interpolation_grid)
+        # coefs_ has shape (n_lambda, n_features, n_responses);
+        # MultiGaussNet has no `grouped` attribute and is always grouped
+        if getattr(self, 'grouped', True):
+            value = [np.nonzero(np.any(c != 0, axis=1))[0] for c in coefs_]
+            return value[0] if squeeze else value
+        value = [[np.nonzero(c[:, k])[0] for c in coefs_]
+                 for k in range(coefs_.shape[2])]
+        return [v[0] for v in value] if squeeze else value
 
     # private methods
 

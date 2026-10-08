@@ -28,7 +28,7 @@ from .regularized_glm import (RegGLMControl,
 from .glm import (GLM,
                   GLMState,
                   GLMFamilySpec)
-from ._utils import _get_data
+from ._utils import _get_data, _check_offset
 from .scorer import (PathScorer,
                      ScorePath)
 
@@ -282,6 +282,7 @@ class GLMNet(BaseEstimator,
 
         self.excluded_ = copy(self.exclude)
         self.excluded_.extend(list(self.prefilter(X, y)))
+        self.penalty_factor_ = self.get_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
@@ -300,7 +301,7 @@ class GLMNet(BaseEstimator,
                                lambda_val=self.control.big,
                                family=self.family,
                                alpha=self.alpha,
-                               penalty_factor=self.penalty_factor,
+                               penalty_factor=self.penalty_factor_,
                                lower_limits=self.lower_limits,
                                upper_limits=self.upper_limits,
                                fit_intercept=self.fit_intercept,
@@ -423,7 +424,8 @@ class GLMNet(BaseEstimator,
     def predict(self,
                 X,
                 prediction_type='response',
-                interpolation_grid=None):
+                interpolation_grid=None,
+                offset=None):
         """
         Predict using the fitted GLMNet model.
 
@@ -440,13 +442,18 @@ class GLMNet(BaseEstimator,
         interpolation_grid: np.ndarray, optional
             Grid of lambda values for interpolation. If provided, coefficients are interpolated
             to these values before prediction.
+        offset: np.ndarray, optional
+            Offset for the rows of `X`, of shape `(nobs,)`, added to the linear
+            predictor (R's `newoffset`). If the model was fit with `offset_id`,
+            pass the offset for the new data here; if omitted, no offset is
+            used.
 
         Returns
         -------
         np.ndarray
             Predictions for each lambda value.
         """
-        
+
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
             coefs_, intercepts_ = self.interpolate_coefs(grid_)
@@ -458,6 +465,8 @@ class GLMNet(BaseEstimator,
         coefs_ = np.atleast_2d(coefs_)
         linear_pred_ = coefs_ @ X.T + intercepts_[:, None]
         linear_pred_ = linear_pred_.T
+        if offset is not None:
+            linear_pred_ = linear_pred_ + _check_offset(offset, X.shape[0])[:, None]
         if prediction_type != 'link':
             fits = self._family.predict(linear_pred_, prediction_type=prediction_type)
         else:
@@ -525,6 +534,42 @@ class GLMNet(BaseEstimator,
             return np.asarray(coefs_), np.asarray(intercepts_)
         else:
             return np.asarray(coefs_)[0], np.asarray(intercepts_)[0]
+
+    def nonzero(self,
+                interpolation_grid=None):
+        """
+        Indices of the nonzero coefficients along the path, as
+        `predict(fit, type="nonzero")` in R.
+
+        Parameters
+        ----------
+        interpolation_grid: np.ndarray, optional
+            Grid of lambda values. If provided, coefficients are interpolated
+            to these values first, as in `predict`.
+
+        Returns
+        -------
+        list or np.ndarray
+            For each lambda in `lambda_values_` (or in `interpolation_grid`),
+            the (0-based) indices of the features with a nonzero coefficient.
+            A single array if `interpolation_grid` is a scalar.
+        """
+        coefs_, squeeze = self._nonzero_coefs(interpolation_grid)
+        value = [np.nonzero(c)[0] for c in coefs_]
+        return value[0] if squeeze else value
+
+    def _nonzero_coefs(self,
+                       interpolation_grid):
+        """
+        Coefficients along the path, or interpolated to `interpolation_grid`,
+        with a leading lambda axis; and whether the grid was a scalar.
+        """
+        check_is_fitted(self, ["coefs_"])
+        if interpolation_grid is None:
+            return self.coefs_, False
+        grid_ = np.asarray(interpolation_grid)
+        coefs_, _ = self.interpolate_coefs(np.atleast_1d(grid_))
+        return coefs_, grid_.ndim == 0
 
     def refit_path(self,
                    X,
@@ -889,7 +934,7 @@ class GLMNet(BaseEstimator,
                                lambda_val=lambda_val,
                                family=self._fixed_lambda_family(),
                                alpha=self.alpha,
-                               penalty_factor=self.penalty_factor,
+                               penalty_factor=self.penalty_factor_,
                                lower_limits=self.lower_limits,
                                upper_limits=self.upper_limits,
                                fit_intercept=self.fit_intercept,
@@ -929,6 +974,28 @@ class GLMNet(BaseEstimator,
         """
         return []
 
+    def get_penalty_factor(self, X, y):
+        """
+        Method intended to be overwritten by subclasses to compute penalty
+        factors from the data, as R's glmnet allows a function for
+        `penalty.factor`. Called on the data passed to `fit`, so it is
+        re-run on each training fold in cross-validation.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        y : array-like
+            Target vector.
+
+        Returns
+        -------
+        penalty_factor : Optional[Union[float, np.ndarray]]
+            Penalty factors, as for `penalty_factor` (infinite factors mark
+            exclusions). Defaults to `self.penalty_factor`.
+        """
+        return self.penalty_factor
+
 
 @dataclass
 class CoefPath(object):
@@ -962,7 +1029,8 @@ class CoefPath(object):
              ax=None,
              legend=False,
              drop=None,
-             keep=None):
+             keep=None,
+             label=False):
         """
         Plot coefficient paths.
 
@@ -978,6 +1046,10 @@ class CoefPath(object):
             Features to drop from the plot.
         keep: list, optional
             Features to keep in the plot.
+        label: bool
+            Label each curve with its feature name at the end of the
+            path (the smallest lambda), as R's `plot(fit, label=TRUE)`.
+            Features that are zero along the whole path are not labelled.
 
         Returns
         -------
@@ -1005,9 +1077,9 @@ class CoefPath(object):
         if coefs_.ndim > 2:
             # compute the l2 norm
             coefs_ = np.sqrt((coefs_**2).sum(-1))
-            label = r'Coefficient norms ($\|\beta\|_2$)'
+            ylabel = r'Coefficient norms ($\|\beta\|_2$)'
         else:
-            label = r'Coefficients ($\beta$)'
+            ylabel = r'Coefficients ($\beta$)'
         soln_path = pd.DataFrame(coefs_,
                                  columns=self.feature_names,
                                  index=index)
@@ -1015,10 +1087,28 @@ class CoefPath(object):
             soln_path = soln_path.drop(columns=drop)
         if keep is not None:
             soln_path = soln_path.loc[:, keep]
+        n_lines = 0 if ax is None else len(ax.get_lines())
         ax = soln_path.plot(ax=ax, legend=False)
+        lines = ax.get_lines()[n_lines:n_lines + soln_path.shape[1]]
         ax.set_xlabel(index.name)
-        ax.set_ylabel(label)
+        ax.set_ylabel(ylabel)
         ax.axhline(0, c='k', ls='--')
+
+        if label:
+            # label at the end of the path, on the outside of the curves
+            x_end = soln_path.index[-1]
+            ha = 'left' if x_end >= soln_path.index[0] else 'right'
+            for name, line in zip(soln_path.columns, lines):
+                if np.all(soln_path[name] == 0):
+                    continue
+                ax.annotate(str(name),
+                            (x_end, soln_path[name].iloc[-1]),
+                            xytext=(3 if ha == 'left' else -3, 0),
+                            textcoords='offset points',
+                            ha=ha,
+                            va='center',
+                            fontsize='small',
+                            color=line.get_color())
 
         if legend:
             fig = ax.figure
