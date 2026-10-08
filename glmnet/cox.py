@@ -12,6 +12,8 @@ from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
 
 from coxdev import CoxDeviance
+
+from ._concordance import concordance as _concordance
     
 from .glm import (GLMFamilySpec,
                   GLMState,
@@ -20,6 +22,269 @@ from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
 from ._utils import _get_data
+
+def c_index(pred,
+            time,
+            status,
+            start=None,
+            strata=None,
+            sample_weight=None):
+    """
+    Harrell's concordance index for Cox model predictions.
+
+    Matches R's ``glmnet::Cindex``, i.e. ``survival::concordance(y ~ -pred,
+    weights=w)``: for each event time ``t`` an event ``i`` is compared to
+    every ``j`` at risk at ``t`` (``start_j < t <= stop_j``), except other
+    events tied at ``t``. A pair is concordant if ``pred_i > pred_j``, counts
+    1/2 if the predictions are tied, and has weight ``w_i * w_j``.
+
+    Computed in O(n log n) per column, as in the survival package's
+    concordance vignette: subjects are processed in decreasing time order,
+    with the risk set's weights kept in a binary indexed tree over the ranks
+    of `pred`.
+
+    Parameters
+    ----------
+    pred : np.ndarray
+        Linear predictor (risk score), of shape `(n,)` or `(n, nlambda)`.
+    time : np.ndarray
+        Event (stop) times.
+    status : np.ndarray
+        Event indicator (1=event, 0=censored).
+    start : np.ndarray, optional
+        Start times for (start, stop] data.
+    strata : np.ndarray, optional
+        If given, only pairs within the same stratum are compared. R's
+        ``Cindex`` ignores strata, so leave as None to match it.
+    sample_weight : np.ndarray, optional
+        Observation weights.
+
+    Returns
+    -------
+    float or np.ndarray
+        C index, one per column of `pred`; NaN if no pairs are comparable.
+    """
+    pred = np.asarray(pred, float)
+    squeeze = pred.ndim == 1
+    pred = pred.reshape((pred.shape[0], -1))
+    time = np.asarray(time, float)
+    status = np.asarray(status).astype(np.int32)
+    n = time.shape[0]
+    start = np.full(n, -np.inf) if start is None else np.asarray(start, float)
+    if strata is None:
+        strata = np.zeros(n, np.int32)
+    else:
+        strata = pd.factorize(np.asarray(strata))[0].astype(np.int32)
+    w = np.ones(n) if sample_weight is None else np.asarray(sample_weight, float)
+
+    num, den = _concordance(np.asfortranarray(pred), time, status, start, strata, w)
+    value = num / den if den > 0 else np.full(pred.shape[1], np.nan)
+    return value[0] if squeeze else value
+
+@dataclass
+class CoxSurvivalCurves(object):
+    """
+    Survival curves from a Cox model, laid out as in R's ``survfit.coxph``.
+
+    Rows are the distinct (stop) times within each stratum, stratum by
+    stratum; columns are curves. A curve for a subject in one stratum is NaN
+    on the rows of the other strata.
+
+    Attributes
+    ----------
+    time : np.ndarray
+        Times, shape `(ntimes,)`.
+    strata : np.ndarray or None
+        Stratum label of each row (None if the model is not stratified).
+    n_risk, n_event, n_censor : np.ndarray
+        Weighted number at risk, with an event, and censored at each time.
+    cumhaz : np.ndarray
+        Cumulative hazard, shape `(ntimes, ncurves)`.
+    """
+    time: np.ndarray
+    strata: Optional[np.ndarray]
+    n_risk: np.ndarray
+    n_event: np.ndarray
+    n_censor: np.ndarray
+    cumhaz: np.ndarray
+
+    @property
+    def surv(self):
+        """Survival probabilities exp(-cumhaz), as R's default ``stype=2``."""
+        return np.exp(-self.cumhaz)
+
+    def predict(self, times):
+        """
+        Evaluate the curves at the given times.
+
+        Parameters
+        ----------
+        times : np.ndarray
+            Times at which to evaluate, shape `(m,)`.
+
+        Returns
+        -------
+        np.ndarray
+            Survival probabilities, shape `(m, ncurves)`. Each curve is a
+            right-continuous step function, equal to 1 before its first time.
+        """
+        times = np.atleast_1d(np.asarray(times, float))
+        value = np.empty((times.shape[0], self.cumhaz.shape[1]))
+        for j in range(self.cumhaz.shape[1]):
+            rows = np.nonzero(~np.isnan(self.cumhaz[:, j]))[0]
+            pos = np.searchsorted(self.time[rows], times, side='right') - 1
+            H = np.where(pos >= 0, self.cumhaz[rows[np.maximum(pos, 0)], j], 0)
+            value[:, j] = np.exp(-H)
+        return value
+
+    def plot(self, ax=None, **plot_args):
+        """Plot each curve as a step function; returns the axes."""
+        if ax is None:
+            import matplotlib.pyplot as plt
+            ax = plt.gca()
+        for j in range(self.cumhaz.shape[1]):
+            if self.strata is None:
+                groups = [np.ones(self.time.shape[0], bool)]
+            else:
+                groups = [self.strata == s for s in pd.unique(self.strata)]
+            for rows in groups:
+                rows = rows & ~np.isnan(self.cumhaz[:, j])
+                if rows.any():
+                    ax.step(np.r_[0, self.time[rows]], np.r_[1, self.surv[rows, j]],
+                            where='post', **plot_args)
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Survival')
+        return ax
+
+def cox_survfit(linear_predictor,
+                stop,
+                status,
+                start=None,
+                strata=None,
+                sample_weight=None,
+                new_linear_predictor=None,
+                new_strata=None,
+                tie_breaking='efron',
+                center=None):
+    """
+    Survival curves for a Cox model with a fixed linear predictor.
+
+    Matches R's ``survfit.coxph`` (with ``se.fit=FALSE``) applied to
+    ``coxph(y ~ offset(linear_predictor), ties=tie_breaking)``, which is how
+    R's ``survfit.coxnet`` computes curves. The baseline cumulative hazard is
+    the Breslow estimator, or its Efron-corrected version for tied events.
+
+    Parameters
+    ----------
+    linear_predictor : np.ndarray
+        Linear predictor (including any offset) for the training data.
+    stop, status : np.ndarray
+        Event (stop) times and event indicator (1=event, 0=censored).
+    start : np.ndarray, optional
+        Start times for (start, stop] data.
+    strata : np.ndarray, optional
+        Stratum labels; each stratum has its own baseline hazard.
+    sample_weight : np.ndarray, optional
+        Observation weights.
+    new_linear_predictor : np.ndarray, optional
+        Linear predictors of the subjects to compute curves for. If None,
+        a single curve is computed at the weighted mean linear predictor,
+        as R does when ``newdata`` is missing.
+    new_strata : np.ndarray, optional
+        Stratum labels of the new subjects; required if `strata` is given
+        along with `new_linear_predictor`.
+    tie_breaking : {'efron', 'breslow'}
+        Hazard estimate for tied event times (R's ``ctype`` 2 or 1).
+    center : float, optional
+        Linear predictor of the curve computed when `new_linear_predictor` is
+        None. Defaults to the weighted mean of `linear_predictor`.
+
+    Returns
+    -------
+    CoxSurvivalCurves
+    """
+    lp = np.asarray(linear_predictor, float)
+    stop = np.asarray(stop, float)
+    status = np.asarray(status).astype(bool)
+    n = stop.shape[0]
+    start = np.full(n, -np.inf) if start is None else np.asarray(start, float)
+    w = np.ones(n) if sample_weight is None else np.asarray(sample_weight, float)
+    if tie_breaking not in ['efron', 'breslow']:
+        raise ValueError("tie_breaking must be one of 'efron' or 'breslow'")
+
+    # all hazards are computed for linear predictor `center` and then rescaled
+    if center is None:
+        center = np.sum(w * lp) / np.sum(w)
+    if new_linear_predictor is None:
+        new_lp = np.array([center])
+    else:
+        new_lp = np.atleast_1d(np.asarray(new_linear_predictor, float))
+
+    if strata is None:
+        labels = np.zeros(n, int)
+        levels = np.array([0])
+        new_labels = None
+    else:
+        labels, levels = pd.factorize(np.asarray(strata), sort=True)
+        if new_linear_predictor is None:
+            new_labels = None
+        else:
+            if new_strata is None:
+                raise ValueError('new_strata is required for curves from a stratified model')
+            new_labels = pd.Index(levels).get_indexer(np.atleast_1d(np.asarray(new_strata)))
+            if np.any(new_labels < 0):
+                raise ValueError('new_strata contains labels not seen in the training data')
+            if new_labels.shape[0] != new_lp.shape[0]:
+                raise ValueError('new_strata and new_linear_predictor have different lengths')
+
+    risk = w * np.exp(lp - center)
+    results = []
+    for s in range(len(levels)):
+        idx = labels == s
+        stop_s, status_s, start_s = stop[idx], status[idx], start[idx]
+        w_s, risk_s = w[idx], risk[idx]
+        times = np.unique(stop_s)
+
+        # sums over {j: start_j < t <= stop_j} = {stop_j >= t} - {start_j >= t}
+        def at_risk(v):
+            by_stop, by_start = np.argsort(stop_s), np.argsort(start_s)
+            tail_stop = np.r_[np.cumsum(v[by_stop][::-1])[::-1], 0]
+            tail_start = np.r_[np.cumsum(v[by_start][::-1])[::-1], 0]
+            return (tail_stop[np.searchsorted(stop_s[by_stop], times, 'left')] -
+                    tail_start[np.searchsorted(start_s[by_start], times, 'left')])
+
+        n_risk = at_risk(w_s)
+        risk_sum = at_risk(risk_s)
+
+        pos = np.searchsorted(times, stop_s)
+        n_event = np.bincount(pos, weights=w_s * status_s, minlength=len(times))
+        n_censor = np.bincount(pos, weights=w_s * ~status_s, minlength=len(times))
+        d = np.bincount(pos, weights=status_s.astype(float), minlength=len(times))
+        event_risk = np.bincount(pos, weights=risk_s * status_s, minlength=len(times))
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            dH = np.where(n_event > 0, n_event / risk_sum, 0)
+        if tie_breaking == 'efron':
+            for k in np.nonzero(d > 1)[0]:
+                frac = np.arange(d[k]) / d[k]
+                dH[k] = np.sum(n_event[k] / d[k] / (risk_sum[k] - frac * event_risk[k]))
+        H = np.cumsum(dH)
+
+        if new_labels is None:
+            cumhaz = H[:, None] * np.exp(new_lp - center)[None, :]
+        else:
+            cumhaz = np.full((len(times), new_lp.shape[0]), np.nan)
+            in_s = new_labels == s
+            cumhaz[:, in_s] = H[:, None] * np.exp(new_lp[in_s] - center)[None, :]
+        results.append((times, np.full(len(times), levels[s]), n_risk, n_event, n_censor, cumhaz))
+
+    time_, strata_, n_risk_, n_event_, n_censor_, cumhaz_ = [np.concatenate(v) for v in zip(*results)]
+    return CoxSurvivalCurves(time=time_,
+                             strata=None if strata is None else strata_,
+                             n_risk=n_risk_,
+                             n_event=n_event_,
+                             n_censor=n_censor_,
+                             cumhaz=cumhaz_)
 
 @dataclass
 class CoxState(GLMState):
@@ -208,7 +473,11 @@ class CoxFamilySpec(object):
     # GLMFamilySpec API
     def link(self, mu):
         return mu
-    
+
+    def predict(self, linpred, prediction_type='response'):
+        # Cox predictions are on the linear predictor scale, as in CoxNet.predict
+        return linpred
+
     def deviance(self, 
                  y,
                  mu,
@@ -612,3 +881,52 @@ class CoxDiffScorer(CoxScorer):
 
 
   
+@dataclass(frozen=True)
+class CoxCIndexScorer(Scorer):
+    """
+    Harrell's C index (R's ``type.measure="C"``), computed per fold and
+    averaged with fold weights equal to the summed sample weights, as in R's
+    ``cv.coxnet``. Strata are ignored unless ``stratified=True``, matching R.
+
+    Use ``CoxCIndexScorer.from_family(family)`` to take the column names from
+    a `CoxFamily` or `CoxFamilySpec`.
+    """
+
+    name: str = 'C-index'
+    maximize: bool = True
+    use_full_data: bool = True
+    event_id: str = 'event'
+    status_id: str = 'status'
+    start_id: Optional[str] = None
+    strata_id: Optional[str] = None
+    stratified: bool = False
+
+    @staticmethod
+    def from_family(family, **kwargs):
+        return CoxCIndexScorer(event_id=family.event_id,
+                               status_id=family.status_id,
+                               start_id=family.start_id,
+                               strata_id=family.strata_id,
+                               **kwargs)
+
+    def score_fn(self,
+                 split,
+                 event_data,
+                 predictions,
+                 sample_weight):
+
+        event_split = event_data.iloc[split]
+        start = strata = None
+        if self.start_id is not None:
+            start = event_split[self.start_id]
+        if self.stratified and self.strata_id is not None:
+            strata = event_split[self.strata_id]
+        split_w = np.asarray(sample_weight)[split]
+
+        value = c_index(np.asarray(predictions)[split],
+                        event_split[self.event_id],
+                        event_split[self.status_id],
+                        start=start,
+                        strata=strata,
+                        sample_weight=split_w)
+        return value, split_w.sum()
