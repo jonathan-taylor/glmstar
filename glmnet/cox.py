@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from scipy.stats import norm as normal_dbn
+from scipy.sparse.linalg import LinearOperator
 
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
@@ -266,8 +267,13 @@ class CoxFamilySpec(object):
     def information(self,
                     state,
                     sample_weight):
-        return self._coxdev.information(state.link_parameter,
+        info = self._coxdev.information(state.link_parameter,
                                         sample_weight)
+        if not hasattr(info, '_xp'):
+            # coxdev <= 0.1.6 does not call LinearOperator.__init__, which
+            # SciPy >= 1.18 needs (it sets the array namespace used by @)
+            LinearOperator.__init__(info, dtype=info.dtype, shape=info.shape)
+        return info
 
     def _default_scorers(self):
 
