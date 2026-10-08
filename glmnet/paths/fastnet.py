@@ -598,6 +598,38 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         else:
             return value[:,0,:]
 
+    def nonzero(self,
+                interpolation_grid=None):
+        """
+        Indices of the nonzero coefficients along the path, as
+        `predict(fit, type="nonzero")` in R.
+
+        Parameters
+        ----------
+        interpolation_grid : array-like, optional
+            Grid of lambda values. If provided, coefficients are interpolated
+            to these values first, as in `predict`.
+
+        Returns
+        -------
+        list
+            For each lambda in `lambda_values_` (or in `interpolation_grid`),
+            the (0-based) indices of the features with a nonzero coefficient
+            for any response. For an ungrouped multinomial fit (`grouped=False`)
+            this is instead a list with one such list per class, as in R.
+            If `interpolation_grid` is a scalar, each list of arrays is
+            replaced by its single array.
+        """
+        coefs_, squeeze = self._nonzero_coefs(interpolation_grid)
+        # coefs_ has shape (n_lambda, n_features, n_responses);
+        # MultiGaussNet has no `grouped` attribute and is always grouped
+        if getattr(self, 'grouped', True):
+            value = [np.nonzero(np.any(c != 0, axis=1))[0] for c in coefs_]
+            return value[0] if squeeze else value
+        value = [[np.nonzero(c[:, k])[0] for c in coefs_]
+                 for k in range(coefs_.shape[2])]
+        return [v[0] for v in value] if squeeze else value
+
     # private methods
 
     def _extract_fits(self,
