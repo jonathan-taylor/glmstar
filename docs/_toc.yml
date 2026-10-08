@@ -10,6 +10,7 @@ parts:
   - file: input_data_rationale.md
   - file: coxnet.md
   - file: glmnet_family.md
+  - file: exclude.md
 - caption: GLMNet paths
   chapters:
   - file: paths/GLMNet.md
