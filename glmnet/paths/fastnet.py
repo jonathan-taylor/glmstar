@@ -114,6 +114,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     df_max: Optional[int] = None
     control: FastNetControl = field(default_factory=FastNetControl)
 
+    # interprets the C++ error code (R's jerr.elnet / jerr.coxnet ...)
+    _jerr_message = staticmethod(_jerr_elnetfit)
+
     def fit(self,
             X,
             y,
@@ -217,8 +220,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # if error code < 0, non-fatal error occurred: return error code
 
         if self._fit['jerr'] != 0:
-            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.maxit)
+            errmsg = type(self)._jerr_message(self._fit['jerr'], self.control.maxit)
             if self.control.logging: logging.debug(errmsg['msg'])
+            if not errmsg['fatal']:
+                # as R's glmnet, warn that solutions for larger lambdas were returned
+                warnings.warn(errmsg['msg'])
 
         # extract the coefficients
         
@@ -291,7 +297,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         nfits = _fit['lmu']
 
         if nfits < 1:
+            # as in R's getcoef: a single all-zero fit at lambda = Inf
             warnings.warn("an empty model has been returned; probably a convergence issue")
+            return {'coefs':np.zeros((1, n_features)),
+                    'intercepts':np.asarray(_fit['a0']).reshape(-1)[:1],
+                    'df':np.zeros(1, dtype=int),
+                    'lambda_values':np.array([np.inf])}
 
         nin = _fit['nin'][:nfits]
         ninmax = max(nin)

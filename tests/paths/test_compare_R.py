@@ -507,3 +507,36 @@ def test_failed_fold_scores_are_missing():
                             family=GLMFamilySpec()).compute_scores(scorers=[scorer])[0]
     # the failed fold is excluded: the mean is over the two remaining folds
     assert np.allclose(scores['Picky'], [(1 + 9) / 2, (4 + 36) / 2])
+
+# non-convergence: warning and empty model, as in R
+
+def test_nonconvergence_empty_model(Rinfo):
+    # from R's glmnetFamily vignette: unit Newton steps diverge for this Poisson
+    # problem at lambda = 0, so no solution is returned
+
+    rng = np.random.default_rng(2020)
+    x = rng.uniform(5, 10, (100, 4))
+    y = rng.poisson(np.exp(x.mean(1))).astype(float)
+
+    with pytest.warns(UserWarning) as record:
+        L = FishNet(standardize=False, fit_intercept=False, lambda_values=[0.]).fit(x, y)
+    messages = [str(w.message) for w in record]
+    assert any('Convergence for 1-th lambda value not reached' in m for m in messages)
+    assert any('empty model' in m for m in messages)
+
+    # R's getcoef returns a single all-zero fit at lambda = Inf
+    assert L.coefs_.shape == (1, 4) and np.all(L.coefs_ == 0)
+    assert np.all(L.lambda_values_ == np.inf)
+
+    if not Rinfo.get('has_rpy2'):
+        return
+    rpy = Rinfo['rpy']
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('x', x)
+        rpy.r.assign('y', y)
+    rpy.r('''suppressMessages(library(glmnet)); y <- as.vector(y)
+             G <- suppressWarnings(glmnet(x, y, family="poisson", standardize=FALSE,
+                                          intercept=FALSE, lambda=0))''')
+    assert int(_get(Rinfo, 'G$jerr')[0]) == L._fit['jerr'] == -1
+    assert np.all(_get(Rinfo, 'as.matrix(G$beta)') == 0)
+    assert np.isinf(_get(Rinfo, 'G$lambda')[0])

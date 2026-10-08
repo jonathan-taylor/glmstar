@@ -124,6 +124,8 @@ def _jerr_elnetfit(n, maxit, k=None):
         A dictionary containing the error code, a boolean indicating if it's a
         fatal error, and a descriptive message.
     """
+    if k is None and -10000 < n < 0:
+        k = -n # index of the lambda value that did not converge, as in R
     if n == 0:
         fatal = False
         msg = ''

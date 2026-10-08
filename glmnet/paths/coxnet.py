@@ -62,6 +62,7 @@ class CoxNet(FastNetMixin):
 
     _dense = _dense
     _sparse = _sparse
+    _jerr_message = staticmethod(_jerr_coxnet)
 
     # predictions are the linear predictor (risk score), as in CoxNetIRLS
     predict = CoxNetIRLS.predict
@@ -97,15 +98,9 @@ class CoxNet(FastNetMixin):
         self._family = self._finalize_family(y)
         self._survival_data = self._get_survival_data(y)
 
-        super().fit(X,
-                    y,
-                    interpolation_grid=interpolation_grid)
-
-        jerr = self._fit['jerr']
-        if jerr < 0:
-            warnings.warn(_jerr_coxnet(jerr, self.control.maxit)['msg'])
-
-        return self
+        return super().fit(X,
+                           y,
+                           interpolation_grid=interpolation_grid)
 
     def get_data_arrays(self,
                         X,
