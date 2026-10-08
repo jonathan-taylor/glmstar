@@ -196,6 +196,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         self.excluded_ = copy(self.exclude)
         self.excluded_.extend(list(self.prefilter(X, y)))
+        self.penalty_factor_ = self.get_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -447,7 +448,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             response = response.reshape((-1,1))
 
         # compute vp
-        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor,
+        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor_,
                                                                 n_features,
                                                                 exclude)
         self.excluded_ = np.asarray(excluded_) - 1
