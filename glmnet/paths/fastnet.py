@@ -108,6 +108,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         Number of lambda values.
     df_max : int, optional
         Maximum degrees of freedom.
+    pmax : int, optional
+        Maximum number of variables ever nonzero along the path. Defaults
+        to `min(2 * df_max + 20, n_features)`, as in R. If it is exceeded,
+        the path stops with a warning and the solutions for the larger
+        lambdas are returned.
     control : FastNetControl, optional
         Control parameters for the solver.
 
@@ -128,6 +133,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     lambda_min_ratio: Optional[float] = None
     nlambda: int = 100
     df_max: Optional[int] = None
+    pmax: Optional[int] = None
     control: FastNetControl = field(default_factory=FastNetControl)
 
     # interprets the C++ error code (R's jerr.elnet / jerr.coxnet ...)
@@ -236,7 +242,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # if error code < 0, non-fatal error occurred: return error code
 
         if self._fit['jerr'] != 0:
-            errmsg = type(self)._jerr_message(self._fit['jerr'], self.control.maxit)
+            errmsg = type(self)._jerr_message(self._fit['jerr'],
+                                              self.control.maxit,
+                                              pmax=self._args['nx'])
             if self.control.logging: logging.debug(errmsg['msg'])
             if not errmsg['fatal']:
                 # as R's glmnet, warn that solutions for larger lambdas were returned
@@ -447,9 +455,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # all but the X -- this is set below
 
-        # isn't this always n_features?
-        # should have a df_max arg
-        if self.df_max is not None:
+        # nx is R's pmax: the maximum number of variables ever nonzero
+        if self.pmax is not None:
+            if int(self.pmax) != self.pmax or self.pmax < 1:
+                raise ValueError('pmax should be a positive integer')
+            nx = int(self.pmax)
+        elif self.df_max is not None:
             nx = min(self.df_max*2+20, n_features)
         else:
             nx = n_features

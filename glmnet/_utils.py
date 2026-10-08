@@ -105,7 +105,7 @@ def _get_data(estimator,
 
     return X, y, np.squeeze(response), offset, weight
 
-def _jerr_elnetfit(n, maxit, k=None):
+def _jerr_elnetfit(n, maxit, k=None, pmax=None):
     """
     Interprets error codes from `elnet` (C++ or Fortran) routines.
 
@@ -117,6 +117,9 @@ def _jerr_elnetfit(n, maxit, k=None):
         Maximum number of iterations set for the `elnet` routine.
     k : int, optional
         The index of the lambda value for which convergence failed.
+    pmax : int, optional
+        Maximum number of variables ever nonzero (`nx`), used in the
+        message when it is exceeded.
 
     Returns
     -------
@@ -134,6 +137,10 @@ def _jerr_elnetfit(n, maxit, k=None):
         fatal = True
         msg =(f"Memory allocation error; contact package maintainer" if n < 7777 else
               "Unknown error")
+    elif n < -10000:
+        fatal = False
+        msg = (f"Number of nonzero coefficients along the path exceeds pmax={pmax}" +
+               f" at {-n-10000}-th lambda value; solutions for larger lambdas returned")
     else:
         fatal = False
         msg = (f"Convergence for {k}-th lambda value not reached after maxit={maxit}" +
@@ -142,7 +149,45 @@ def _jerr_elnetfit(n, maxit, k=None):
             'fatal':fatal,
             'msg':f"Error code {n}:" + msg}
 
-def _jerr_coxnet(n, maxit, k=None):
+def _jerr_lognet(n, maxit, k=None, pmax=None):
+    """
+    Interprets error codes from the logistic and multinomial path routines
+    (as in R's `jerr.lognet`).
+
+    Parameters
+    ----------
+    n : int
+        The error code returned by the `lognet` routine.
+    maxit : int
+        Maximum number of iterations set for the `lognet` routine.
+    k : int, optional
+        The index of the lambda value for which convergence failed.
+    pmax : int, optional
+        Maximum number of variables ever nonzero (`nx`).
+
+    Returns
+    -------
+    dict
+        A dictionary containing the error code, a boolean indicating if it's a
+        fatal error, and a descriptive message.
+    """
+    if n < -20000:
+        msg = (f"Max(p(1-p),1.0e-6 at {-n-20000}-th value of lambda;" +
+               " solutions for larger values of lambda returned")
+        return {'n':n,
+                'fatal':False,
+                'msg':f"Error code {n}:" + msg}
+    if 8000 < n < 9000:
+        msg = f"Null probability for class {n-8000} < 1.0e-5"
+    elif 9000 < n < 10000:
+        msg = f"Null probability for class {n-9000} > 1.0 - 1.0e-5"
+    else:
+        return _jerr_elnetfit(n, maxit, k, pmax=pmax)
+    return {'n':n,
+            'fatal':True,
+            'msg':f"Error code {n}:" + msg}
+
+def _jerr_coxnet(n, maxit, k=None, pmax=None):
     """
     Interprets error codes from the Cox path routine (as in R's `jerr.coxnet`).
 
@@ -154,6 +199,8 @@ def _jerr_coxnet(n, maxit, k=None):
         Maximum number of iterations set for the `coxnet` routine.
     k : int, optional
         The index of the lambda value for which convergence failed.
+    pmax : int, optional
+        Maximum number of variables ever nonzero (`nx`).
 
     Returns
     -------
@@ -169,7 +216,7 @@ def _jerr_coxnet(n, maxit, k=None):
         elif n in [20000, 30000]:
             msg = "Initialization numerical error; probably too many censored observations"
         else:
-            return _jerr_elnetfit(n, maxit, k)
+            return _jerr_elnetfit(n, maxit, k, pmax=pmax)
         return {'n':n,
                 'fatal':True,
                 'msg':f"Error code {n}:" + msg}
@@ -181,7 +228,7 @@ def _jerr_coxnet(n, maxit, k=None):
                 'msg':f"Error code {n}:" + msg}
     if k is None and -10000 < n < 0:
         k = -n # index of the lambda value that did not converge, as in R
-    return _jerr_elnetfit(n, maxit, k)
+    return _jerr_elnetfit(n, maxit, k, pmax=pmax)
 
 def _parent_dataclass_from_child(cls,
                                  parent_dict,
