@@ -6,10 +6,13 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from sklearn.utils.validation import check_is_fitted
+
 from .fastnet import FastNetMixin
 from ..cox import (CoxFamily,
                    CoxFamilySpec,
-                   CoxNetIRLS)
+                   CoxNetIRLS,
+                   cox_survfit)
 from .._utils import (_get_data,
                       _jerr_coxnet)
 
@@ -101,6 +104,100 @@ class CoxNet(FastNetMixin):
         return super().fit(X,
                            y,
                            interpolation_grid=interpolation_grid)
+
+    def survfit(self,
+                X,
+                y,
+                lambda_val=None,
+                newX=None,
+                new_offset=None,
+                new_strata=None,
+                tie_breaking=None):
+        """Survival curves at one or more points on the path.
+
+        The analogue of R's ``survfit.coxnet``: the baseline hazard is
+        estimated with the coefficients held fixed at their values at
+        `lambda_val`, so the training data must be passed again.
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Feature matrix used in `fit`.
+        y : pd.DataFrame
+            Survival data used in `fit`, with any weight, offset or strata columns.
+        lambda_val : float or array-like, optional
+            Value(s) of lambda; coefficients are interpolated linearly between
+            path values, as in `predict`. Defaults to the whole path.
+        newX : array-like or sparse matrix, optional
+            Features of the subjects to compute curves for. If None, one curve
+            (per stratum) is computed at the mean linear predictor, as R does.
+        new_offset : array-like, optional
+            Offsets for `newX`; required if the model was fit with an offset.
+        new_strata : array-like, optional
+            Strata labels for `newX`; required if the model is stratified.
+        tie_breaking : {'efron', 'breslow'}, optional
+            Hazard estimate for tied event times. Defaults to the family's
+            `tie_breaking`. R's ``survfit.coxnet`` always uses 'efron'.
+
+        Returns
+        -------
+        CoxSurvivalCurves or list of CoxSurvivalCurves
+            A list if `lambda_val` has more than one value.
+        """
+        check_is_fitted(self, ["coefs_"])
+
+        _, _, _, offset, weight = self.get_data_arrays(X, y, check=False)
+        surv_data = self._get_survival_data(y)
+        strata = None
+        if self.family.strata_id is not None:
+            strata = np.asarray(y[self.family.strata_id])
+        if offset is None:
+            offset = np.zeros(X.shape[0])
+
+        if newX is not None:
+            if self.offset_id is not None and new_offset is None:
+                raise ValueError('new_offset is required for a model fit with an offset')
+            if strata is not None and new_strata is None:
+                raise ValueError('new_strata is required for a stratified model')
+            if new_offset is None:
+                new_offset = np.zeros(newX.shape[0])
+
+        if tie_breaking is None:
+            tie_breaking = self.family.tie_breaking
+
+        if lambda_val is None:
+            lambda_val = self.lambda_values_
+        lambda_val = np.asarray(lambda_val, float)
+        coefs, _ = self.interpolate_coefs(np.atleast_1d(lambda_val))
+
+        offset = np.asarray(offset, float).reshape(-1)
+        curves = []
+        for beta in coefs:
+            eta = np.asarray(X @ beta).reshape(-1)
+            lp = eta + offset
+            # R's default curve is at coxph's `means`, which are weighted for
+            # right-censored data but unweighted for (start, stop] data; the
+            # offset enters at its weighted mean
+            if self.family.start_id is None:
+                center = np.average(lp, weights=weight)
+            else:
+                center = eta.mean() + np.average(offset, weights=weight)
+            new_lp = None
+            if newX is not None:
+                new_lp = (np.asarray(newX @ beta).reshape(-1) +
+                          np.asarray(new_offset, float).reshape(-1))
+            curves.append(cox_survfit(lp,
+                                      surv_data['stop'],
+                                      surv_data['status'],
+                                      start=surv_data['start'],
+                                      strata=strata,
+                                      sample_weight=weight,
+                                      new_linear_predictor=new_lp,
+                                      new_strata=new_strata,
+                                      tie_breaking=tie_breaking,
+                                      center=center))
+
+        return curves[0] if lambda_val.ndim == 0 else curves
 
     def get_data_arrays(self,
                         X,
