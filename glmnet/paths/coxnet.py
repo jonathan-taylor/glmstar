@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator
 
 from .fastnet import FastNetMixin
