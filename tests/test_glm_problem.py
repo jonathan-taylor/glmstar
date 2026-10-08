@@ -143,8 +143,8 @@ def _check_glmstar(data, family, standardize, fit_intercept, opts):
     return prob
 
 
-@pytest.mark.parametrize('family,standardize,fit_intercept,option',
-                         list(itertools.product(SM_FAMILIES, [True, False], [True, False], OPTIONS)))
+# standardize and fit_intercept are parametrized by tests/conftest.py
+@pytest.mark.parametrize('family,option', list(itertools.product(SM_FAMILIES, OPTIONS)))
 def test_glmstar_problem(data, family, standardize, fit_intercept, option):
     prob = _check_glmstar(data, family, standardize, fit_intercept, OPTIONS[option])
     if option == 'limits':
@@ -155,8 +155,8 @@ def test_glmstar_problem(data, family, standardize, fit_intercept, option):
 FAST_NETS = {'gaussian': GaussNet, 'binomial': LogNet, 'poisson': FishNet}
 
 
-@pytest.mark.parametrize('family,standardize,fit_intercept,option',
-                         list(itertools.product(FAST_NETS, [True, False], [True, False], OPTIONS)))
+# standardize and fit_intercept are parametrized by tests/conftest.py
+@pytest.mark.parametrize('family,option', list(itertools.product(FAST_NETS, OPTIONS)))
 def test_glmstar_fastnet_problem(data, family, standardize, fit_intercept, option):
     # the C++ paths standardize internally, so their design_.scaling_ is all ones
     X, df = data
@@ -237,8 +237,8 @@ CORE_OPTIONS = {
 
 
 @needs_cvxpy
-@pytest.mark.parametrize('family,standardize,fit_intercept,option',
-                         list(itertools.product(SM_FAMILIES, [True, False], [True, False], CORE_OPTIONS)))
+# standardize and fit_intercept are parametrized by tests/conftest.py
+@pytest.mark.parametrize('family,option', list(itertools.product(SM_FAMILIES, CORE_OPTIONS)))
 def test_glmnet_problem_matches_objective(data, family, standardize, fit_intercept, option):
     X, df = data
     y, w, offset = df[family].values, df['w'].values, df['o'].values
@@ -295,7 +295,7 @@ def test_operator_matches_dense(data, family):
 
 
 @needs_cvxpy
-@pytest.mark.parametrize('family,fit_intercept', list(itertools.product(['binomial', 'poisson'], [True, False])))
+@pytest.mark.parametrize('family', ['binomial', 'poisson'])
 def test_relaxed_information(data, family, fit_intercept):
     # Q_hat at one Newton step on the selected coordinates from the LASSO solution
     X, df = data
