@@ -13,7 +13,8 @@ from .scoring import (Scorer,
                       auc_scorer,
                       aucpr_scorer,
                       ungrouped_mse_scorer,
-                      ungrouped_mae_scorer)
+                      ungrouped_mae_scorer,
+                      binomial_deviance_scorer)
 
 @dataclass
 class GLMFamilySpec(object):
@@ -303,11 +304,15 @@ class GLMFamilySpec(object):
 
         fam_name = self.base.__class__.__name__
 
-        def _dev(y, yhat, sample_weight):
-            return self.deviance(y, yhat, sample_weight) / y.shape[0]
-        dev_scorer = Scorer(name=f'{fam_name} Deviance',
-                            score=_dev,
-                            maximize=False)
+        if isinstance(self.base, sm_family.Binomial):
+            # clamps predicted probabilities as in R's cv.glmnet
+            dev_scorer = binomial_deviance_scorer()
+        else:
+            def _dev(y, yhat, sample_weight):
+                return self.deviance(y, yhat, sample_weight) / y.shape[0]
+            dev_scorer = Scorer(name=f'{fam_name} Deviance',
+                                score=_dev,
+                                maximize=False)
         
         scorers_ = [dev_scorer,
                     mse_scorer,

@@ -391,6 +391,40 @@ ax = cvpath.plot(score='Binomial Deviance');
 ax.set_title('Cross-validation Results for Logistic Regression');
 ```
 
+Two conventions differ from R's `cv.glmnet` by design. 'Binomial Deviance' clamps the predicted probabilities to $[10^{-5}, 1 - 10^{-5}]$, as R does; `glmnet.scoring.binomial_deviance_scorer(prob_min=None)` gives the unclamped deviance. 'Mean Squared Error' and 'Mean Absolute Error' are $(y - \hat{p})^2$ and $|y - \hat{p}|$, while R's binomial `"mse"` and `"mae"` sum over both classes and so are twice as large.
+
+## Grouped data: proportions and counts
+
+The response can also be grouped: the proportion of successes among a number of trials for each observation. In R this is a two-column matrix of proportions with the numbers of trials as `weights`. In Python, give the proportions as the response and the numbers of trials (or any observation weights) with `weight_id`:
+
+```{code-cell} ipython3
+rng = np.random.default_rng(0)
+n = 200
+X_grouped = rng.standard_normal((n, 10))
+trials = rng.integers(1, 20, size=n)
+p_true = 1 / (1 + np.exp(-(X_grouped[:, 0] - 0.5 * X_grouped[:, 1])))
+successes = rng.binomial(trials, p_true)
+
+Df_grouped = pd.DataFrame({'proportion': successes / trials,
+                           'trials': trials})
+fit_prop = LogNet(response_id='proportion', weight_id='trials').fit(X_grouped, Df_grouped)
+```
+
+Equivalently, the response can be the pairs (trials, successes), in which case the numbers of trials are multiplied into any observation weights:
+
+```{code-cell} ipython3
+Df_counts = pd.DataFrame({'trials': trials, 'successes': successes})
+fit_counts = LogNet(response_id=['trials', 'successes']).fit(X_grouped, Df_counts)
+np.max(np.abs(fit_prop.coefs_ - fit_counts.coefs_))
+```
+
+Cross-validation works the same way for grouped data:
+
+```{code-cell} ipython3
+_, cvpath = fit_prop.cross_validation_path(X_grouped, Df_grouped, cv=5)
+ax = cvpath.plot(score='Binomial Deviance');
+```
+
 # Multinomial Regression: MultiClassNet
 
 The multinomial model extends the binomial when the number of classes is more than two. Suppose the response variable has $K$ levels ${\cal G}=\{1,2,\ldots,K\}$. Here we model
@@ -714,6 +748,48 @@ print("Intercept without offset:", fit_no_offset.intercepts_[0])
 
 Of course, weights can also be added as above with a `weight_id` argument
 to the `GLMNet` object.
+
+## Sparse matrix support
+
+All the path estimators support sparse input matrices, which allow the efficient storage and operation of large matrices having only a few nonzero entries. A `scipy.sparse` matrix (in CSC format, or converted to it) is used in the same way as a regular array: it is not densified, and the C++ code standardizes it implicitly.
+
+```{code-cell} ipython3
+import scipy.sparse
+
+rng = np.random.default_rng(0)
+X_sparse = scipy.sparse.random(100, 20, density=0.2, format='csc', random_state=0)
+y_sparse = X_sparse @ np.r_[np.ones(5), np.zeros(15)] + rng.standard_normal(100)
+X_sparse
+```
+
+We can fit the model the same way as before:
+
+```{code-cell} ipython3
+fit_sparse = GaussNet().fit(X_sparse, y_sparse)
+```
+
+It gives the same path as the dense matrix:
+
+```{code-cell} ipython3
+fit_dense = GaussNet().fit(X_sparse.toarray(), y_sparse)
+np.max(np.abs(fit_sparse.coefs_ - fit_dense.coefs_))
+```
+
+We can also do cross-validation and plot the result:
+
+```{code-cell} ipython3
+_, cvpath_sparse = fit_sparse.cross_validation_path(X_sparse, y_sparse, cv=5)
+ax = cvpath_sparse.plot(score='Mean Squared Error');
+```
+
+Sparse matrices can also be used for new data in `predict`:
+
+```{code-cell} ipython3
+i = rng.integers(0, 5, size=25)
+j = rng.integers(0, 20, size=25)
+newx = scipy.sparse.csc_matrix((rng.standard_normal(25), (i, j)), shape=(5, 20))
+fit_sparse.predict(newx, interpolation_grid=cvpath_sparse.index_best['Mean Squared Error'])
+```
 
 +++
 

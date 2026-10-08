@@ -52,6 +52,15 @@ class LogNet(FastNetMixin):
         The sequence of lambda values used.
     classes_ : ndarray
         The classes labels.
+
+    Notes
+    -----
+    In `cross_validation_path` and `score_path`, 'Mean Squared Error' and
+    'Mean Absolute Error' are :math:`(y - \\hat{p})^2` and :math:`|y - \\hat{p}|`.
+    R's `cv.glmnet(type.measure="mse")` (or `"mae"`) for the binomial family sums
+    over both classes, giving twice these values. 'Binomial Deviance' clamps
+    predicted probabilities to [1e-5, 1 - 1e-5] as R does; see
+    `glmnet.scoring.binomial_deviance_scorer` for the unclamped deviance.
     """
 
     modified_newton: bool = False
@@ -94,12 +103,18 @@ class LogNet(FastNetMixin):
                         check=True):
         """Prepare and validate data arrays for binomial regression.
 
-        For binomial regression, the response can be specified as a 1D array of labels,
-        or as a 2D array of shape (n_samples, 2) containing pairs of (trials, successes).
-        If provided as (trials, successes), `sample_weight` will be multiplied by the 
-        number of trials, and the response will be transformed into proportions. This
-        assumption is documented because users might mistakenly use trials as weights
-        without accounting for them in the data shape.
+        For binomial regression, the response can be specified as
+
+        - a 1D array of labels (two classes);
+        - a 1D array of proportions in [0, 1] (with at least one value strictly
+          between 0 and 1), with observation weights such as the number of
+          trials given by `weight_id`. This is equivalent to R's two-column
+          matrix of proportions with `weights` as the total counts;
+        - a 2D array of shape (n_samples, 2) containing pairs of (trials, successes).
+          `sample_weight` will be multiplied by the number of trials, and the
+          response will be transformed into proportions. This assumption is
+          documented because users might mistakenly use trials as weights
+          without accounting for them in the data shape.
 
         Parameters
         ----------
@@ -125,6 +140,9 @@ class LogNet(FastNetMixin):
             
             weight = weight * trials
             labels = successes / trials
+            self.classes_ = self._family.classes_ = np.array([0, 1])
+        elif _is_proportion(response):
+            labels = np.asfortranarray(np.asarray(response, float).ravel())
             self.classes_ = self._family.classes_ = np.array([0, 1])
         else:
             if response.ndim == 2 and response.shape[1] == 1:
@@ -192,7 +210,8 @@ class LogNet(FastNetMixin):
         # fix intercept and coefs
 
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
-        _args['ca'] = np.zeros((n_features*self.nlambda*nc, 1))
+        # from https://github.com/trevorhastie/glmnet/blob/master/R/lognet.R: ca=double(nx*nlam*nc)
+        _args['ca'] = np.zeros((_args['nx']*self.nlambda*nc, 1))
 
         # reshape y
         if np.issubdtype(_args['y'].dtype, np.floating) or len(np.unique(_args['y'])) > 2:
@@ -242,3 +261,13 @@ class LogNet(FastNetMixin):
         result[:,:,0] = 1 - prob_1
 
         return result
+
+def _is_proportion(response):
+    """A numeric response in [0, 1] with some value strictly between 0 and 1."""
+    response = np.asarray(response)
+    if response.ndim == 2 and response.shape[1] == 1:
+        response = response.ravel()
+    if response.ndim != 1 or not np.issubdtype(response.dtype, np.number):
+        return False
+    return bool(np.all((response >= 0) & (response <= 1)) and
+                np.any((response > 0) & (response < 1)))

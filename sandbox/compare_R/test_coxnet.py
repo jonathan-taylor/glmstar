@@ -16,7 +16,7 @@
 # +
 import numpy as np
 import pandas as pd
-from glmnet.cox import CoxLM, CoxNet, CoxFamilySpec
+from glmnet.cox import CoxLM, CoxNetIRLS, CoxFamilySpec
 import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 import statsmodels.api as sm
@@ -110,11 +110,11 @@ assert np.allclose(G3.coef_, C, rtol=1e-4, atol=1e-4)
 
 G3.coef_, C
 
-# # CoxNet
+# # CoxNetIRLS
 #
 # ## Without CV
 
-GN = CoxNet(family=breslow,
+GN = CoxNetIRLS(family=breslow,
             weight_id='weight',
              ).fit(X, event_data)
 GN.summary_
@@ -147,7 +147,7 @@ assert np.allclose(L[:30], GN.lambda_values_[:30])
 
 # ## Now with CV, first no weights
 
-GN3 = CoxNet(family=breslow,
+GN3 = CoxNetIRLS(family=breslow,
              weight_id='weight',
              control=GNcontrol
              ).fit(X, event_data)
@@ -201,7 +201,7 @@ ax.axline((GN3.cv_scores_['SD(Cox Deviance (Difference))'].iloc[:10].min(),CVSD[
 # ## Using `lambda`
 
 # +
-GN4 = CoxNet(family=breslow,
+GN4 = CoxNetIRLS(family=breslow,
              weight_id='weight',
              control=GNcontrol
              ).fit(X, event_data)
@@ -283,7 +283,7 @@ ax.axline((GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10].min(),CVSD[:10].min()),s
 # ## Using `lambda`
 
 # +
-GN4 = CoxNet(family=breslow,
+GN4 = CoxNetIRLS(family=breslow,
              weight_id='weight',
              control=GNcontrol
              ).fit(X, event_data)
@@ -348,7 +348,7 @@ ax.axline((GN3.cv_scores_['SD(Cox Deviance)'].iloc[:10].min(),CVSD[:10].min()),s
 from copy import deepcopy
 event_data2 = deepcopy(event_data)
 event_data2['weight'] *= 2
-GN5 = CoxNet(family=breslow,
+GN5 = CoxNetIRLS(family=breslow,
              weight_id='weight',
              control=GNcontrol
              ).fit(X, event_data2)

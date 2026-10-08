@@ -114,6 +114,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     df_max: Optional[int] = None
     control: FastNetControl = field(default_factory=FastNetControl)
 
+    # interprets the C++ error code (R's jerr.elnet / jerr.coxnet ...)
+    _jerr_message = staticmethod(_jerr_elnetfit)
+
     def fit(self,
             X,
             y,
@@ -217,8 +220,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # if error code < 0, non-fatal error occurred: return error code
 
         if self._fit['jerr'] != 0:
-            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.maxit)
+            errmsg = type(self)._jerr_message(self._fit['jerr'], self.control.maxit)
             if self.control.logging: logging.debug(errmsg['msg'])
+            if not errmsg['fatal']:
+                # as R's glmnet, warn that solutions for larger lambdas were returned
+                warnings.warn(errmsg['msg'])
 
         # extract the coefficients
         
@@ -291,7 +297,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         nfits = _fit['lmu']
 
         if nfits < 1:
+            # as in R's getcoef: a single all-zero fit at lambda = Inf
             warnings.warn("an empty model has been returned; probably a convergence issue")
+            return {'coefs':np.zeros((1, n_features)),
+                    'intercepts':np.asarray(_fit['a0']).reshape(-1)[:1],
+                    'df':np.zeros(1, dtype=int),
+                    'lambda_values':np.array([np.inf])}
 
         nin = _fit['nin'][:nfits]
         ninmax = max(nin)
@@ -299,7 +310,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         if ninmax > 0:
             if _fit['ca'].ndim == 1: # logistic is like this
-                unsort_coefs = _fit['ca'][:(n_features*nfits)].reshape(nfits, n_features)
+                # flattened (nx, nlam) column-major: column k holds the k-th fit
+                nx = _args['nx']
+                unsort_coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
             else:
                 unsort_coefs = _fit['ca'][:,:nfits].T
             df = (np.fabs(unsort_coefs) > 0).sum(1)
@@ -591,9 +604,11 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         lambda_values = _fit['alm'][:nfits]
 
         if ninmax > 0:
-            unsort_coefs = _fit['ca'][:(nresp*n_features*nfits)].reshape(nfits,
-                                                                    nresp,
-                                                                    n_features)
+            # flattened (nx, nresp, nlam) column-major, as in R's getcoef.multinomial
+            nx = _args['nx']
+            unsort_coefs = _fit['ca'][:(nresp*nx*nfits)].reshape(nfits,
+                                                            nresp,
+                                                            nx)
             unsort_coefs = np.transpose(unsort_coefs, [0,2,1])
             df = ((unsort_coefs**2).sum(2) > 0).sum(1)
 
@@ -649,7 +664,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         (n_samples, n_features), nr = design.X.shape, response.shape[1]
         _args['a0'] = np.asfortranarray(np.zeros((nr, self.nlambda), float))
-        _args['ca'] = np.zeros((self.nlambda * nr * n_features, 1))
+        _args['ca'] = np.zeros((self.nlambda * nr * _args['nx'], 1))
         _args['y'] = np.asfortranarray(_args['y'].reshape((n_samples, nr)))
 
         return _args

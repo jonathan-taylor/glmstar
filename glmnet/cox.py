@@ -1,4 +1,4 @@
-from dataclasses import dataclass, InitVar
+from dataclasses import dataclass, field, InitVar
 from typing import Optional, Literal
 from functools import partial
 
@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from scipy.stats import norm as normal_dbn
+from scipy.sparse.linalg import LinearOperator
 
 from sklearn.utils import check_X_y
 from sklearn.base import BaseEstimator
@@ -119,11 +120,14 @@ class CoxFamily(object):
         Column name for event status (0=censored, 1=event).
     start_id : str, optional, default=None
         Column name for start times (for start-stop data).
+    strata_id : str, optional, default=None
+        Column name for strata (for stratified Cox models).
     """
     tie_breaking: Literal['breslow', 'efron'] = 'efron'
     event_id: Optional[str] = 'event'
     status_id: Optional[str] = 'status'
     start_id: Optional[str] = None
+    strata_id: Optional[str] = None
 
 @dataclass
 class CoxFamilySpec(object):
@@ -176,7 +180,8 @@ class CoxFamilySpec(object):
         n = len(event)
 
         if self.strata_id is not None and self.strata_id in event_data.columns:
-            strata = np.asarray(event_data[self.strata_id])
+            # coxdev requires integer strata labels
+            strata = pd.factorize(event_data[self.strata_id], sort=True)[0]
         else:
             strata = np.zeros(n, dtype=int)
         self.strata = strata
@@ -262,8 +267,13 @@ class CoxFamilySpec(object):
     def information(self,
                     state,
                     sample_weight):
-        return self._coxdev.information(state.link_parameter,
+        info = self._coxdev.information(state.link_parameter,
                                         sample_weight)
+        if not hasattr(info, '_xp'):
+            # coxdev <= 0.1.6 does not call LinearOperator.__init__, which
+            # SciPy >= 1.18 needs (it sets the array namespace used by @)
+            LinearOperator.__init__(info, dtype=info.dtype, shape=info.shape)
+        return info
 
     def _default_scorers(self):
 
@@ -380,21 +390,28 @@ class RegCoxLM(RegGLM):
                              strata_id=self.family.strata_id)
 
 @dataclass
-class CoxNet(GLMNet):
+class CoxNetIRLS(GLMNet):
     """
-    CoxNet: Cox Proportional Hazards Model with Elastic Net regularization.
+    CoxNetIRLS: Cox Proportional Hazards Model with Elastic Net regularization.
     
     Fits a Cox proportional hazards model with regularization along a path of lambda values.
     Supports both right-censored and start-stop survival data with Breslow or Efron tie-breaking.
     
+    The path is computed by IRLS in Python around the generic `GLMNet` solver.
+    `glmnet.CoxNet` (`glmnet.paths.CoxNet`) fits the same model with the C++
+    Cox path used by R's glmnet.
+
     Parameters
     ----------
+    family : CoxFamily, default=CoxFamily()
+        Column names for the survival data and tie-breaking method.
     fit_intercept : Literal[False], default=False
         Whether to fit an intercept. For Cox models, this is always False
         as the intercept is absorbed into the baseline hazard.
     regularized_estimator : BaseEstimator, default=RegCoxLM
         The regularized estimator class to use for fitting.
     """
+    family: CoxFamily = field(default_factory=CoxFamily)
     fit_intercept: Literal[False] = False
     regularized_estimator: BaseEstimator = RegCoxLM
     
@@ -452,7 +469,7 @@ class CoxNet(GLMNet):
                 prediction_type='response',
                 interpolation_grid=None):
         """
-        Predict using the fitted CoxNet model.
+        Predict using the fitted CoxNetIRLS model.
 
         Parameters
         ----------

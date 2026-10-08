@@ -12,9 +12,10 @@ except PackageNotFoundError:
 
 from .glmnet import GLMNet
 from .glm import GLM
-from .cox import CoxNet
+from .cox import CoxNetIRLS
 from .paths.gaussnet import GaussNet
 from .paths.lognet import LogNet
 from .paths.fishnet import FishNet
 from .paths.multigaussnet import MultiGaussNet
 from .paths.multiclassnet import MultiClassNet
+from .paths.coxnet import CoxNet

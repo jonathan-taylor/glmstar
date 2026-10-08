@@ -68,8 +68,32 @@ test = ["pytest",
 requires = ["meson-python>=0.13.1", "pybind11", "ninja", "patchelf; platform_system == 'Linux'", "setuptools_scm"]
 build-backend = "mesonpy"
 
-[tool.uv.extra-build-dependencies]
-glmnet = ["meson-python",
-          "pybind11",
-	  "setuptools_scm",
-	  "ninja"]
+# Development dependency groups (PEP 735), used by `uv sync`.
+# The `dev` group is installed by default, so a plain `uv sync` gives an
+# editable install with everything needed to run `uv run pytest`.
+[dependency-groups]
+build = [
+    "meson-python>=0.13.1",
+    "meson",
+    "ninja",
+    "pybind11",
+    "setuptools_scm",
+    "patchelf; platform_system == 'Linux'",
+]
+test = [
+    "pytest",
+    "matplotlib",
+]
+dev = [
+    {include-group = "build"},
+    {include-group = "test"},
+]
+
+[tool.uv]
+# meson-python editable installs rebuild the C++ extensions on import, which
+# requires the build tools to live in the project environment rather than an
+# isolated build environment.
+no-build-isolation-package = ["glmstar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -11,15 +11,15 @@ import numpy as np
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
 from sklearn.metrics import (accuracy_score,
-                             zero_one_loss,
-                             log_loss)
+                             zero_one_loss)
 
 from .fastnet import MultiFastNetMixin
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
-from ..scoring import Scorer
+from ..scoring import (Scorer,
+                       multinomial_deviance_scorer)
 
 @dataclass
 class MultiClassFamily(object):
@@ -35,7 +35,9 @@ class MultiClassFamily(object):
         """
         return [accuracy_scorer,
                 misclass_scorer,
-                deviance_scorer]
+                deviance_scorer,
+                mse_scorer,
+                mae_scorer]
 
 @dataclass
 class MultiClassNet(MultiFastNetMixin):
@@ -336,25 +338,6 @@ def _accuracy_score(y, p_hat, sample_weight):
                           sample_weight=sample_weight,
                           normalize=True)
 
-def _deviance(y, p_hat, sample_weight):
-    """Compute deviance for multinomial classification.
-    
-    Parameters
-    ----------
-    y : array-like
-        True one-hot encoded labels.
-    p_hat : array-like
-        Predicted probabilities.
-    sample_weight : array-like
-        Sample weights.
-        
-    Returns
-    -------
-    float
-        Deviance value.
-    """
-    return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
-
 misclass_scorer = Scorer(name='Misclassification Error',
                          score=_misclass,
                          maximize=False)
@@ -363,6 +346,21 @@ accuracy_scorer = Scorer(name='Accuracy',
                          score=_accuracy_score,
                          maximize=True)
 
-deviance_scorer = Scorer(name="Multinomial Deviance",
-                         score=_deviance,
-                         maximize=False)
+# clamps predicted probabilities as in R's cv.glmnet
+deviance_scorer = multinomial_deviance_scorer()
+
+def _mse(y, p_hat, sample_weight):
+    """Squared error summed over classes, as R's cv.glmnet(type.measure="mse")."""
+    return np.average(((y - p_hat)**2).sum(-1), weights=sample_weight)
+
+def _mae(y, p_hat, sample_weight):
+    """Absolute error summed over classes, as R's cv.glmnet(type.measure="mae")."""
+    return np.average(np.fabs(y - p_hat).sum(-1), weights=sample_weight)
+
+mse_scorer = Scorer(name='Mean Squared Error',
+                    score=_mse,
+                    maximize=False)
+
+mae_scorer = Scorer(name='Mean Absolute Error',
+                    score=_mae,
+                    maximize=False)

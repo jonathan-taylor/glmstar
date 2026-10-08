@@ -124,6 +124,8 @@ def _jerr_elnetfit(n, maxit, k=None):
         A dictionary containing the error code, a boolean indicating if it's a
         fatal error, and a descriptive message.
     """
+    if k is None and -10000 < n < 0:
+        k = -n # index of the lambda value that did not converge, as in R
     if n == 0:
         fatal = False
         msg = ''
@@ -139,6 +141,47 @@ def _jerr_elnetfit(n, maxit, k=None):
     return {'n':n,
             'fatal':fatal,
             'msg':f"Error code {n}:" + msg}
+
+def _jerr_coxnet(n, maxit, k=None):
+    """
+    Interprets error codes from the Cox path routine (as in R's `jerr.coxnet`).
+
+    Parameters
+    ----------
+    n : int
+        The error code returned by the `coxnet` routine.
+    maxit : int
+        Maximum number of iterations set for the `coxnet` routine.
+    k : int, optional
+        The index of the lambda value for which convergence failed.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the error code, a boolean indicating if it's a
+        fatal error, and a descriptive message.
+    """
+    if n > 0:
+        if n == 8888:
+            msg = "All observations censored - cannot proceed"
+        elif n == 9999:
+            msg = "No positive observation weights"
+        elif n in [20000, 30000]:
+            msg = "Initialization numerical error; probably too many censored observations"
+        else:
+            return _jerr_elnetfit(n, maxit, k)
+        return {'n':n,
+                'fatal':True,
+                'msg':f"Error code {n}:" + msg}
+    elif n <= -30000:
+        msg = (f"Numerical error at {-n-30000}-th lambda value;" +
+               " solutions for larger values of lambda returned")
+        return {'n':n,
+                'fatal':False,
+                'msg':f"Error code {n}:" + msg}
+    if k is None and -10000 < n < 0:
+        k = -n # index of the lambda value that did not converge, as in R
+    return _jerr_elnetfit(n, maxit, k)
 
 def _parent_dataclass_from_child(cls,
                                  parent_dict,
@@ -251,6 +294,25 @@ ALL_CPP_ARGS = {
         'x_indptr_array', 'y', 'w', 'g', 'jd', 'vp', 'cl', 'ne', 'nx',
         'nlam', 'flmin', 'ulam', 'thr', 'isd', 'intr', 'maxit', 'pb', 'lmu',
         'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev', 'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+
+    # From: coxnet.cpp
+    "coxnet": [
+        'parm', 'ni', 'no', 'x', 'start', 'stop', 'status', 'strata', 'efron',
+        'g', 'w', 'jd', 'vp', 'cl', 'ne', 'nx', 'nlam', 'flmin', 'ulam', 'thr',
+        'isd', 'maxit', 'pb', 'lmu', 'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev',
+        'alm', 'nlp', 'jerr',
+        'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
+        'prec', 'mxit', 'epsnr', 'mxitnr'
+    ],
+    "spcoxnet": [
+        'parm', 'ni', 'no', 'x_data_array', 'x_indices_array',
+        'x_indptr_array', 'start', 'stop', 'status', 'strata', 'efron',
+        'g', 'w', 'jd', 'vp', 'cl', 'ne', 'nx', 'nlam', 'flmin', 'ulam', 'thr',
+        'isd', 'maxit', 'pb', 'lmu', 'a0', 'ca', 'ia', 'nin', 'nulldev', 'dev',
+        'alm', 'nlp', 'jerr',
         'fdev', 'eps', 'big', 'mnlam', 'devmax', 'pmin', 'exmx', 'itrace',
         'prec', 'mxit', 'epsnr', 'mxitnr'
     ]

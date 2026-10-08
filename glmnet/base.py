@@ -46,7 +46,8 @@ class Design(LinearOperator):
         intercept: bool
             Whether to include an intercept.
         """
-        self.shape = (self.X.shape[0], self.X.shape[1]+1)
+        # sets shape and dtype (and, in recent SciPy, the array namespace used by @)
+        LinearOperator.__init__(self, dtype=self.dtype, shape=(self.X.shape[0], self.X.shape[1]+1))
         n = self.shape[0]
 
         if self.weights is None:
@@ -380,8 +381,7 @@ class UnscaleOperator(LinearOperator):
     def __post_init__(self):
         """Initialize the operator after creation."""
         ncoef = self.scaling.shape[0]
-        self.shape = (ncoef+1,)*2
-        self.dtype = float
+        LinearOperator.__init__(self, dtype=float, shape=(ncoef+1,)*2)
 
     # LinearOperator API
     def _matvec(self, stacked):
@@ -451,8 +451,7 @@ class ScaleOperator(LinearOperator):
     def __post_init__(self):
         """Initialize the operator after creation."""
         ncoef = self.scaling.shape[0]
-        self.shape = (ncoef+1,)*2
-        self.dtype = float
+        LinearOperator.__init__(self, dtype=float, shape=(ncoef+1,)*2)
 
     # LinearOperator API
     def _matvec(self, stacked):
@@ -525,7 +524,7 @@ class DiagonalOperator(LinearOperator):
         """Initialize the operator after creation."""
         self.weights = np.asarray(self.weights).reshape(-1)
         n = self.weights.shape[0]
-        self.shape = (n, n)
+        LinearOperator.__init__(self, dtype=self.dtype, shape=(n, n))
 
     def _matvec(self, arg):
         """
