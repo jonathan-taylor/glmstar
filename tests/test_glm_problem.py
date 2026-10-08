@@ -332,3 +332,23 @@ def test_relaxed_information_gaussian(data):
     relaxed = glmnet_problem(X, y, coef, a0, 0.03)
     lasso = glmnet_problem(X, y, coef, a0, 0.03, information='lasso')
     np.testing.assert_allclose(relaxed.Q_hat, lasso.Q_hat)
+
+
+def test_glmstar_problem_penalty_factor_hook(data):
+    # penalty factors computed by get_penalty_factor are the ones used in the fit
+    X, df = data
+    pf = np.r_[0.5, 2., np.ones(P - 2)]
+
+    class HookGaussNet(GaussNet):
+        def get_penalty_factor(self, X, y):
+            return pf
+
+    kw = dict(response_id='gaussian', nlambda=20, control=FastNetControl(thresh=1e-14, fdev=0))
+    hook = HookGaussNet(**kw).fit(X, df)
+    fixed = GaussNet(penalty_factor=np.copy(pf), **kw).fit(X, df)
+    lam = fixed.lambda_values_[8]
+    np.testing.assert_allclose(hook.lambda_values_, fixed.lambda_values_)
+    prob_hook = glmstar_problem(hook, X, df, lambda_val=lam)
+    prob_fixed = glmstar_problem(fixed, X, df, lambda_val=lam)
+    np.testing.assert_allclose(prob_hook.D, prob_fixed.D)
+    assert prob_hook.kkt_violation() < 2e-5 * lam
