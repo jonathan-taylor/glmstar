@@ -26,38 +26,54 @@ from .._utils import (_jerr_elnetfit,
 class FastNetControl(object):
     """Control parameters for FastNet path solvers.
 
+    Most fields mirror R's ``glmnet.control``. To change the convergence
+    tolerance or iteration limit of the coordinate descent solver, set
+    ``thresh`` and ``maxit`` (the analogues of the ``thresh`` and ``maxit``
+    arguments to R's ``glmnet``), not ``eps`` or ``mxit``.
+
     Parameters
     ----------
     fdev : float, default=1e-5
-        Fractional deviance tolerance for early stopping.
+        Minimum fractional change in deviance for stopping the path early.
     eps : float, default=1e-6
-        Convergence threshold for coordinate descent.
+        Minimum value of the lambda min ratio; only used when lambda
+        values are not supplied. Not a convergence tolerance.
     big : float, default=9.9e35
-        Large value used for numerical stability.
+        Large floating point number, effectively infinity.
     mnlam : int, default=5
-        Minimum number of lambda values.
+        Minimum number of path points (lambda values) fit before early
+        stopping is allowed.
     devmax : float, default=0.999
-        Maximum fraction of deviance explained.
+        Path stops early if the fraction of deviance explained reaches
+        this value.
     pmin : float, default=1e-9
-        Minimum value for probabilities.
+        Minimum fitted probability for binomial/multinomial models.
     exmx : float, default=250.
-        Maximum exponent value.
+        Maximum allowed value of the linear predictor (exponent).
     itrace : int, default=0
-        Trace level for logging.
+        If nonzero, report progress along the path.
     prec : float, default=1e-10
-        Precision for calculations.
+        Convergence threshold for the bounds adjustment in multi-response
+        (multinomial grouped, multi-Gaussian) fits.
     mxit : int, default=100
-        Maximum number of iterations.
+        Maximum iterations for the bounds adjustment in multi-response
+        (multinomial grouped, multi-Gaussian) fits. Not the coordinate
+        descent iteration limit.
     epsnr : float, default=1e-6
-        Convergence threshold for Newton-Raphson.
+        Convergence threshold for Newton-Raphson; kept for parity with
+        ``glmnet.control``, not used by the path solvers.
     mxitnr : int, default=25
-        Maximum Newton-Raphson iterations.
+        Maximum Newton-Raphson iterations; kept for parity with
+        ``glmnet.control``, not used by the path solvers.
     maxit : int, default=100000
-        Maximum number of iterations (wrapper only).
+        Maximum number of passes over the data for coordinate descent,
+        across all lambda values.
     thresh : float, default=1e-7
-        Threshold for convergence (wrapper only).
+        Convergence threshold for coordinate descent. Each inner loop runs
+        until the maximum change in the objective after any coefficient
+        update is less than ``thresh`` times the null deviance.
     logging : bool, default=False
-        Enable logging (wrapper only).
+        Enable debug logging.
     """
 
     fdev: float = 1e-5
@@ -72,7 +88,7 @@ class FastNetControl(object):
     mxit: int = 100
     epsnr: float = 1e-6
     mxitnr: int = 25
-    # thresh & logging not part of glmnet.control but used in the wrapper
+    # maxit, thresh & logging are not part of glmnet.control
     maxit: int = 100000
     thresh: float = 1e-7
     logging: bool = False
