@@ -21,8 +21,7 @@ dependencies = [
     "joblib",
     "statsmodels>=0.13",
     "coxdev>=0.1.7",
-    "tqdm",
-    "mpmath"
+    "tqdm"
 ]
 classifiers = ["Development Status :: 3 - Alpha",
                "Environment :: Console",
@@ -56,7 +55,8 @@ doc = [
     "jupytext",
     "jupyter-book",
     "sphinx",
-    "myst-parser"
+    "myst-parser",
+    "lassoinf"
 ]
 test = ["pytest",
         "rpy2",

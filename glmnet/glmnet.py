@@ -526,6 +526,68 @@ class GLMNet(BaseEstimator,
         else:
             return np.asarray(coefs_)[0], np.asarray(intercepts_)[0]
 
+    def refit_path(self,
+                   X,
+                   y,
+                   lambda_val):
+        """
+        Refit the path with `lambda_val` added to its lambda values.
+
+        As R's ``update(object, lambda=...)`` in ``predict.glmnet(...,
+        exact=TRUE)``: the new path is fit to the values of `lambda_values_`
+        and `lambda_val` combined, so its solutions at `lambda_val` are exact
+        rather than interpolated.
+
+        Parameters
+        ----------
+        X : Union[np.ndarray, scipy.sparse, DesignSpec]
+            Feature matrix used in `fit`.
+        y : np.ndarray or pd.DataFrame
+            Response used in `fit`, with any weight or offset columns.
+        lambda_val : float or np.ndarray
+            Value(s) of lambda to add to the path.
+
+        Returns
+        -------
+        GLMNet
+            A new fitted estimator; `self` is unchanged.
+        """
+        check_is_fitted(self, ["coefs_"])
+
+        lambda_val = np.atleast_1d(np.asarray(lambda_val, float))
+        if np.any(lambda_val < 0):
+            raise ValueError('lambda values must be non-negative')
+        refit = clone(self)
+        if np.all(np.isin(lambda_val, self.lambda_values_)):
+            refit.lambda_values = self.lambda_values_.copy()
+        else:
+            refit.lambda_values = np.unique(np.concatenate([lambda_val, self.lambda_values_]))[::-1]
+        return refit.fit(X, y)
+
+    def exact_coefs(self,
+                    X,
+                    y,
+                    lambda_val):
+        """
+        Coefficients at `lambda_val` from refitting the path, rather than
+        interpolating; R's ``coef(..., s=lambda_val, exact=TRUE)``.
+
+        Parameters
+        ----------
+        X : Union[np.ndarray, scipy.sparse, DesignSpec]
+            Feature matrix used in `fit`.
+        y : np.ndarray or pd.DataFrame
+            Response used in `fit`, with any weight or offset columns.
+        lambda_val : float or np.ndarray
+            Value(s) of lambda.
+
+        Returns
+        -------
+        tuple
+            (coefs, intercepts) at `lambda_val`, shaped as by `interpolate_coefs`.
+        """
+        return self.refit_path(X, y, lambda_val).interpolate_coefs(lambda_val)
+
     def cross_validation_path(self,
                               X,
                               y,
