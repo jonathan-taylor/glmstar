@@ -12,14 +12,17 @@ kernelspec:
   name: python3
 ---
 
-# Selective inference with `lassoinf`
+# Selective inference after a logistic lasso
 
 Once the lasso has chosen a set of variables, the usual confidence intervals
 and p-values for their coefficients are no longer valid: the same data chose
 the variables and estimate their effects. Selective inference accounts for the
-selection. These methods live in the separate
-[`lassoinf`](https://github.com/jonathan-taylor/lassoinf) package, which takes
-a fitted `glmstar` model directly.
+selection.
+
+`glmnet.inference` extracts what is needed from a fit: the problem the lasso
+solved and the distribution of the score used to select. The inference itself
+is done by the separate
+[`lassoinf`](https://github.com/jonathan-taylor/lassoinf) package.
 
 ```{code-cell} ipython3
 %pip install lassoinf
@@ -28,67 +31,50 @@ a fitted `glmstar` model directly.
 ## A logistic lasso
 
 We simulate $n=500$ observations of $p=10$ features, of which only the first
-three affect the response.
+three affect the response, and fit the lasso path with `LogNet`. The inference
+assumes the fit solves the lasso problem exactly, so we tighten the
+convergence threshold.
 
 ```{code-cell} ipython3
 import numpy as np
-import pandas as pd
-import statsmodels.api as sm
 from scipy.special import expit
 
-from glmnet import GLMNet
-from glmnet.glmnet import GLMNetControl
-from lassoinf import glmstar_inference
+from glmnet import LogNet
+from glmnet.paths.fastnet import FastNetControl
+from glmnet.inference import glmstar_inference_problem
+from lassoinf import LassoInference
 
 rng = np.random.default_rng(0)
 n, p = 500, 10
 X = rng.standard_normal((n, p))
 beta = np.zeros(p)
 beta[:3] = [1.0, -0.8, 0.6]
-df = pd.DataFrame({'y': rng.binomial(1, expit(X @ beta))})
+y = rng.binomial(1, expit(X @ beta))
+
+fit = LogNet(control=FastNetControl(thresh=1e-14)).fit(X, y)
 ```
 
-We fit the lasso path. `lassoinf` checks that the solution satisfies the KKT
-conditions of the lasso problem, so we tighten the convergence threshold.
+We pick one value of $\lambda$ on the path. These variables are selected:
 
 ```{code-cell} ipython3
-fit = GLMNet(family=sm.families.Binomial(),
-             response_id='y',
-             control=GLMNetControl(thresh=1e-14))
-fit.fit(X, df)
 lam = fit.lambda_values_[15]
 np.nonzero(fit.coefs_[15])[0]
 ```
 
 ## Inference after selection
 
-`glmstar_inference` gives confidence intervals and p-values for the
-coefficients of the variables selected at `lam` (the first row is the
-intercept), accounting for their selection.
+`glmstar_inference_problem` describes the selection at `lam`. All the data
+were used to select, so there is no randomization (`scalar_noise` is 0).
+`LassoInference` gives confidence intervals and p-values for the selected
+coefficients that account for their selection. The first row is the
+intercept.
 
 ```{code-cell} ipython3
-inference = glmstar_inference(fit, X, df, lambda_val=lam)
+info = glmstar_inference_problem(fit, X, y, lambda_val=lam)
+inference = LassoInference(**info.lasso_args(), level=0.95)
 inference.summary_
 ```
 
-## Carving
-
-Holding out some of the data from selection gives more powerful inference.
-Here the lasso selects on a random 70% of the observations, and inference uses
-all of them; `selection_rows` tells `glmstar_inference` which rows were used
-to select.
-
-```{code-cell} ipython3
-rows = rng.choice(n, int(0.7 * n), replace=False)
-fit_sel = GLMNet(family=sm.families.Binomial(),
-                 response_id='y',
-                 control=GLMNetControl(thresh=1e-14))
-fit_sel.fit(X[rows], df.iloc[rows])
-lam = fit_sel.lambda_values_[15]
-
-carved = glmstar_inference(fit_sel, X, df, lambda_val=lam, selection_rows=rows)
-carved.summary_
-```
-
 See the [`lassoinf` documentation](https://github.com/jonathan-taylor/lassoinf)
-for other families, weights and offsets, and other targets of inference.
+for other families, weights and offsets, and for carving (holding out data
+from selection).
