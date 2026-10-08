@@ -526,6 +526,42 @@ class GLMNet(BaseEstimator,
         else:
             return np.asarray(coefs_)[0], np.asarray(intercepts_)[0]
 
+    def nonzero(self,
+                interpolation_grid=None):
+        """
+        Indices of the nonzero coefficients along the path, as
+        `predict(fit, type="nonzero")` in R.
+
+        Parameters
+        ----------
+        interpolation_grid: np.ndarray, optional
+            Grid of lambda values. If provided, coefficients are interpolated
+            to these values first, as in `predict`.
+
+        Returns
+        -------
+        list or np.ndarray
+            For each lambda in `lambda_values_` (or in `interpolation_grid`),
+            the (0-based) indices of the features with a nonzero coefficient.
+            A single array if `interpolation_grid` is a scalar.
+        """
+        coefs_, squeeze = self._nonzero_coefs(interpolation_grid)
+        value = [np.nonzero(c)[0] for c in coefs_]
+        return value[0] if squeeze else value
+
+    def _nonzero_coefs(self,
+                       interpolation_grid):
+        """
+        Coefficients along the path, or interpolated to `interpolation_grid`,
+        with a leading lambda axis; and whether the grid was a scalar.
+        """
+        check_is_fitted(self, ["coefs_"])
+        if interpolation_grid is None:
+            return self.coefs_, False
+        grid_ = np.asarray(interpolation_grid)
+        coefs_, _ = self.interpolate_coefs(np.atleast_1d(grid_))
+        return coefs_, grid_.ndim == 0
+
     def refit_path(self,
                    X,
                    y,
