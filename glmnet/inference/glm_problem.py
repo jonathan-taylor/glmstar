@@ -348,7 +348,9 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
     else:
         scaling, y_scale = np.asarray(G.design_.scaling_), 1.
 
-    penalty_factor = G.penalty_factor
+    # the penalty factors used in this fit, if computed from the data
+    # (get_penalty_factor), else the constructor's
+    penalty_factor = getattr(G, 'penalty_factor_', G.penalty_factor)
     problem = glmnet_problem(X_arr,
                           response,
                           coef=G.coefs_[k],
