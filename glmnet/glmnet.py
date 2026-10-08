@@ -743,6 +743,11 @@ class GLMNet(BaseEstimator,
         predictions = self.predict(X, interpolation_grid=self.lambda_values_)
         response, offset, weight = clone(self).get_data_arrays(X, y, check=False)[2:]
 
+        # as in cross_validation_path: predictions are just X\beta
+        if offset is not None:
+            predictions = self._offset_predictions(predictions,
+                                                   offset)
+
         splits = [np.arange(X.shape[0])]
 
         scorer = PathScorer(predictions=predictions,
