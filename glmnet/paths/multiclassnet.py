@@ -14,6 +14,7 @@ from sklearn.metrics import (accuracy_score,
                              zero_one_loss)
 
 from .fastnet import MultiFastNetMixin
+from .._utils import _jerr_lognet
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -84,6 +85,7 @@ class MultiClassNet(MultiFastNetMixin):
     _family: MultiClassFamily = field(default_factory=MultiClassFamily)
     _dense = _dense
     _sparse = _sparse
+    _jerr_message = staticmethod(_jerr_lognet)
 
     def predict(self,
                 X,

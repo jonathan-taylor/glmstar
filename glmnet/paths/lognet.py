@@ -13,6 +13,7 @@ from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
 from ..glm import BinomFamilySpec
+from .._utils import _jerr_lognet
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -66,6 +67,7 @@ class LogNet(FastNetMixin):
     modified_newton: bool = False
     _dense = _dense
     _sparse = _sparse
+    _jerr_message = staticmethod(_jerr_lognet)
 
     def __post_init__(self):
         """Initialize the LogNet estimator and set the GLM family to Binomial."""
