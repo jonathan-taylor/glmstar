@@ -20,7 +20,8 @@ from ..glmnet import (GLMNet,
 from ..family import GLMFamilySpec
 
 from .._utils import (_jerr_elnetfit,
-                      _validate_cpp_args)
+                      _validate_cpp_args,
+                      _check_offset)
 
 class _NoProgress(object):
     """Stand-in for a tqdm progress bar that shows nothing."""
@@ -574,6 +575,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                 X,
                 prediction_type='link', # ignored except checking valid
                 interpolation_grid=None,
+                offset=None,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -584,6 +586,12 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             Feature matrix.
         prediction_type : str, optional
             Type of prediction ('response' or 'link').
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+        offset : array-like, optional
+            Offset for the rows of `X`, of shape `(n_samples, n_responses)`,
+            added to the linear predictor (R's `newoffset`). A vector is used
+            for every response. If omitted, no offset is used.
 
         Returns
         -------
@@ -610,6 +618,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                           X)
         fits = term1 + intercepts_[:, None, :]
         fits = np.transpose(fits, [1,0,2])
+        if offset is not None:
+            fits = fits + _check_offset(offset, X.shape[0], fits.shape[2])[:, None, :]
 
         # make return based on original
         # promised number of lambdas
