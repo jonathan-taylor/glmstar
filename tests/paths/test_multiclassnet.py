@@ -234,3 +234,17 @@ def test_multiclassnet_df_max(Rinfo, nobs, nvars, dfmax):
     assert C.shape[0] == L.coefs_.shape[0]
     assert np.linalg.norm(C[:,1:] - L.coefs_) / max(np.linalg.norm(L.coefs_), 1) < 1e-8
     assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
+
+
+def test_multiclassnet_scalar_interpolation_grid():
+    # a scalar interpolation_grid drops the lambda axis
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((100, 5))
+    y = rng.choice(3, size=100)
+    G = MultiClassNet().fit(X, y)
+    lam = G.lambda_values_[5]
+    for prediction_type in ['link', 'response', 'class']:
+        scalar = G.predict(X, interpolation_grid=lam, prediction_type=prediction_type)
+        vector = G.predict(X, interpolation_grid=[lam], prediction_type=prediction_type)
+        np.testing.assert_array_equal(scalar, vector[:, 0])
+    np.testing.assert_allclose(G.predict(X, interpolation_grid=lam).sum(-1), 1)

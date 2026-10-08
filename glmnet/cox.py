@@ -21,7 +21,7 @@ from .glm import (GLMFamilySpec,
 from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
-from ._utils import _get_data
+from ._utils import _get_data, _check_offset
 
 def c_index(pred,
             time,
@@ -736,7 +736,8 @@ class CoxNetIRLS(GLMNet):
     def predict(self,
                 X,
                 prediction_type='response',
-                interpolation_grid=None):
+                interpolation_grid=None,
+                offset=None):
         """
         Predict using the fitted CoxNetIRLS model.
 
@@ -753,6 +754,9 @@ class CoxNetIRLS(GLMNet):
         interpolation_grid : np.ndarray, optional
             Grid of lambda values for interpolation. If provided, coefficients are 
             interpolated to these values before prediction.
+        offset : np.ndarray, optional
+            Offset for the rows of `X`, of shape `(n_samples,)`, added to the
+            linear predictor (R's `newoffset`). If omitted, no offset is used.
 
         Returns
         -------
@@ -772,6 +776,8 @@ class CoxNetIRLS(GLMNet):
         coefs_ = np.atleast_2d(coefs_)
         linear_pred_ = coefs_ @ X.T + intercepts_[:, None]
         linear_pred_ = linear_pred_.T
+        if offset is not None:
+            linear_pred_ = linear_pred_ + _check_offset(offset, X.shape[0])[:, None]
 
         # make return based on original
         # promised number of lambdas

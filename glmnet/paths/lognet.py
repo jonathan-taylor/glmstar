@@ -13,6 +13,7 @@ from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
 from ..glm import BinomFamilySpec
+from .._utils import _jerr_lognet
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -66,6 +67,7 @@ class LogNet(FastNetMixin):
     modified_newton: bool = False
     _dense = _dense
     _sparse = _sparse
+    _jerr_message = staticmethod(_jerr_lognet)
 
     def __post_init__(self):
         """Initialize the LogNet estimator and set the GLM family to Binomial."""
@@ -234,7 +236,8 @@ class LogNet(FastNetMixin):
 
     def predict_proba(self,
                       X,
-                      interpolation_grid=None):
+                      interpolation_grid=None,
+                      offset=None):
         """
         Probability estimates for a LogNet model.
 
@@ -247,6 +250,9 @@ class LogNet(FastNetMixin):
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 
+        offset : array-like, optional
+            Offset for the rows of `X` (see `predict`).
+
         Returns
         -------
         T : array-like of shape (n_samples, n_classes)
@@ -255,7 +261,8 @@ class LogNet(FastNetMixin):
         """
         prob_1 = self.predict(X,
                               interpolation_grid=interpolation_grid,
-                              prediction_type='response')
+                              prediction_type='response',
+                              offset=offset)
         result = np.empty(prob_1.shape + (2,))
         result[:,:,1] = prob_1
         result[:,:,0] = 1 - prob_1
