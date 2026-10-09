@@ -42,20 +42,16 @@ dev = [
     "setuptools_scm"
 ]
 doc = [
-    "myst-parser",
-    "jupyter-book",
+    # narrative docs (docs/myst.yml); bundles the Jupyter server and kernel
+    "jupyter-book>=2,<3",
+    # API reference (docs/api, Sphinx autodoc)
+    "sphinx",
+    "sphinx-book-theme",
+    # used by the notebooks
     "pandas",
     "matplotlib",
     "rpy2",
-    "texext",
-    "numpydoc",
-    "myst_nb",
-    "sphinx-book-theme",
-    "sphinx_rtd_theme",
     "jupytext",
-    "jupyter-book",
-    "sphinx",
-    "myst-parser",
     "lassoinf"
 ]
 test = ["pytest",

@@ -85,12 +85,8 @@ print(f"First 5 probability scores (shape): {y_pred_proba[:5].shape}")
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.paths.multiclassnet.MultiClassNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `MultiClassNet` (all parameters, attributes and methods) is at
+[MultiClassNet API](https://jonathan-taylor.github.io/glmstar/api/MultiClassNet.html).
 
 ```{code-cell} ipython3
 

@@ -143,9 +143,5 @@ print(f"Coefficient shape: {model.intercepts_.shape}")
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.glmnet.GLMNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `GLMNet` (all parameters, attributes and methods) is at
+[GLMNet API](https://jonathan-taylor.github.io/glmstar/api/GLMNet.html).

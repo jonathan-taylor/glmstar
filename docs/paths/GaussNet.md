@@ -100,9 +100,5 @@ ax.set_title("Coefficient Path for Elastic Net (alpha=0.4)")
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.paths.gaussnet.GaussNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `GaussNet` (all parameters, attributes and methods) is at
+[GaussNet API](https://jonathan-taylor.github.io/glmstar/api/GaussNet.html).

@@ -1,0 +1,43 @@
+# Jupyter Book 2 (MyST) configuration
+# See https://jupyterbook.org and https://mystmd.org/guide/frontmatter
+version: 1
+project:
+  title: GLMStar Documentation
+  authors:
+    - name: GLMStar Team
+  github: jonathan-taylor/glmstar
+  numbering:
+    headings: true
+  # the API reference (Sphinx autodoc) is built separately into api/ ;
+  # see docs/api/conf.py and .github/workflows/build_docs.yml
+  exclude:
+    - api/**
+  toc:
+    - file: index.md
+    - title: Getting Started
+      children:
+        - file: quick_start.md
+        - file: input_data_rationale.md
+        - file: coxnet.md
+        - file: glmnet_family.md
+        - file: custom_family.md
+        - file: penalty_factor.md
+        - file: relax.md
+        - file: inference.md
+        - file: glmnet_vs_R.md
+    - title: GLMNet paths
+      children:
+        - file: paths/GLMNet.md
+        - file: paths/GaussNet.md
+        - file: paths/LogNet.md
+        - file: paths/FishNet.md
+        - file: paths/CoxNet.md
+        - file: paths/CoxNetIRLS.md
+        - file: paths/MultiClassNet.md
+        - file: paths/MultiGaussNet.md
+    - title: API Reference
+      url: https://jonathan-taylor.github.io/glmstar/api/
+site:
+  options:
+    folders: true
+  template: book-theme
