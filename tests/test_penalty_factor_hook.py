@@ -127,3 +127,65 @@ def test_hook_matches_R(Rinfo):
     fit = AdaptiveGaussNet(lambda_values=lambdaR).fit(X, y)
     np.testing.assert_allclose(fit.coefs_, coefR[:, 1:], rtol=1e-4, atol=1e-6)
     np.testing.assert_allclose(fit.intercepts_, coefR[:, 0], rtol=1e-4, atol=1e-6)
+
+
+# exclusions through get_penalty_factor: an infinite factor, as R's
+# exclude (fixed or a function) and penalty.factor = Inf
+
+EXCLUDED = [3, 5]
+ESTIMATORS = {'gaussnet': (GaussNet, {}, False),
+              'lognet': (LogNet, {}, True),
+              'irls': (GLMNet, {'family': sm.families.Binomial()}, True)}
+
+
+def _pf_with_inf():
+    pf = FIXED_PF.copy()
+    pf[4] = 1.
+    pf[EXCLUDED] = np.inf
+    return pf
+
+
+@pytest.mark.parametrize('name', list(ESTIMATORS))
+def test_infinite_factor_is_exclude(name):
+    cls, args, binary = ESTIMATORS[name]
+    X, y = _data(binary)
+    pf_inf = _pf_with_inf()
+    pf_fixed = pf_inf.copy()
+    pf_fixed[EXCLUDED] = 1.
+
+    class Hooked(cls):
+        def get_penalty_factor(self, X, y):
+            return pf_inf
+
+    hooked = Hooked(**args).fit(X, y)
+    excluded = cls(penalty_factor=pf_fixed, exclude=list(EXCLUDED), **args).fit(X, y)
+
+    np.testing.assert_allclose(hooked.lambda_values_, excluded.lambda_values_)
+    np.testing.assert_allclose(hooked.coefs_, excluded.coefs_)
+    assert np.all(hooked.coefs_[:, EXCLUDED] == 0)
+    assert sorted(np.asarray(hooked.excluded_).tolist()) == EXCLUDED
+    # the factors used by the solvers are finite; the hook's array is unchanged
+    assert np.all(np.isfinite(hooked.penalty_factor_))
+    np.testing.assert_array_equal(pf_inf, _pf_with_inf())
+
+
+@pytest.mark.parametrize('name', list(ESTIMATORS))
+def test_prefilter_deprecated(name):
+    cls, args, binary = ESTIMATORS[name]
+    X, y = _data(binary)
+
+    class Prefiltered(cls):
+        def prefilter(self, X, y):
+            return EXCLUDED
+
+    class Hooked(cls):
+        def get_penalty_factor(self, X, y):
+            pf = np.ones(X.shape[1])
+            pf[EXCLUDED] = np.inf
+            return pf
+
+    with pytest.warns(FutureWarning, match='prefilter is deprecated'):
+        prefiltered = Prefiltered(**args).fit(X, y)
+    hooked = Hooked(**args).fit(X, y)
+    np.testing.assert_allclose(prefiltered.coefs_, hooked.coefs_)
+    assert sorted(np.asarray(prefiltered.excluded_).tolist()) == EXCLUDED

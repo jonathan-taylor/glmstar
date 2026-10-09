@@ -688,40 +688,49 @@ fit_excluded.coef_path_.plot()
 assert np.allclose(fit_excluded.coefs_[:,exclude_vars], 0)
 ```
 
-## Dynamically prefiltering features
+## Penalty factors and exclusions that depend on the data
 
-You can also subclass any `GLMNet` class and override the `prefilter` method to dynamically exclude features.  
-Below, we exclude all features `j` for which $X_j'y < 0$:
+R's `glmnet` accepts a function of the data for `exclude` and for
+`penalty.factor`. In `glmnet` both are handled by one method,
+`get_penalty_factor(X, y)`, which you override in a subclass. It returns
+penalty factors, and an infinite factor excludes a variable. Below, we
+exclude all features `j` for which $X_j'y < 0$:
 
 ```{code-cell} ipython3
-class PrefilterGaussNet(GaussNet):
-    def prefilter(self, X, y):
-        # Exclude features where the sum of X[:, j] * y is negative
-        return np.nonzero(X.T @ y < 0)[0]
+class FilterGaussNet(GaussNet):
+    def get_penalty_factor(self, X, y):
+        # exclude the features where the sum of X[:, j] * y is negative
+        return np.where(X.T @ y < 0, np.inf, 1.)
 ```
 
-Let's now fit the model with prefiltering
+Let's now fit the model:
 
 ```{code-cell} ipython3
-model = PrefilterGaussNet()
+model = FilterGaussNet()
 model.fit(X_gaussian, y_gaussian)
 print("Excluded features:", model.excluded_)
 ```
 
-Let's check that the prefiltered features are indeed zeroed out:
+Let's check that the excluded features are indeed zeroed out:
 
 ```{code-cell} ipython3
 np.allclose(model.coefs_[:,model.excluded_], 0)
 ```
 
-The prefiltered features are combined with any specified by the `exclude` argument. 
+These exclusions are combined with any specified by the `exclude` argument:
 
 ```{code-cell} ipython3
-model = PrefilterGaussNet(exclude=[0])
+model = FilterGaussNet(exclude=[0])
 model.fit(X_gaussian, y_gaussian)
 print("Excluded features:", model.excluded_)
 np.allclose(model.coefs_[:,model.excluded_], 0)
 ```
+
+`get_penalty_factor` is called at the start of every `fit`, so
+`cross_validation_path` reruns it on each training fold, as R's
+`cv.glmnet` does. The older `prefilter` method, which returned indices to
+exclude, is deprecated. See [Excluding variables and penalty
+factors](exclude.md) for more.
 
 # Other Package Features
 

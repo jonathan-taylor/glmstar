@@ -222,9 +222,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         X_fit, y_fit = X, y # as passed, for the relaxed refits
 
-        self.excluded_ = copy(self.exclude)
-        self.excluded_.extend(list(self.prefilter(X, y)))
-        self.penalty_factor_ = self.get_penalty_factor(X, y)
+        self._set_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -568,25 +566,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # the `family` field is unused by the C++ paths; `_family` is set in
         # __post_init__ (e.g. binomial for LogNet) or by `fit`
         return self._family
-
-    def prefilter(self, X, y):
-        """
-        Method intended to be overwritten by subclasses to implement pre-filtering of features.
-        Allows dynamic computation of an excluded set of features based on X and y.
-
-        Parameters
-        ----------
-        X : array-like
-            Feature matrix.
-        y : array-like
-            Target vector.
-
-        Returns
-        -------
-        filtered : list
-            List of feature indices to exclude.
-        """
-        return []
 
 
 @dataclass

@@ -12,28 +12,36 @@ kernelspec:
   name: python3
 ---
 
-# Excluding variables
+# Excluding variables and penalty factors
 
-In R, `glmnet` has an `exclude` argument. It can be a fixed set of
-column indices, or a function of the data that returns the indices to
-drop. The R glmnet vignette gives this as a typical example: it drops
-every column that is zero in more than 80% of the observations.
+R's `glmnet` has two arguments that control how each variable is
+penalized:
 
-```r
-filter <- function(x, ...) which(colMeans(x == 0) > 0.8)
-fit <- glmnet(x, y, exclude = filter)
-cvfit <- cv.glmnet(x, y, exclude = filter)
+- `exclude`: column indices of variables to leave out of the model;
+- `penalty.factor`: a factor that multiplies the penalty on each
+  variable. A factor of 0 leaves the variable unpenalized, and an
+  infinite factor excludes it.
+
+Each can be fixed, or a function of the data. A function is called on the
+data passed to `glmnet`. In `cv.glmnet` it is called again on the training
+data of each fold, so the held-out rows never influence which variables
+are dropped or how they are penalized. `exclude` has accepted a function
+since glmnet 4.1-2 and `penalty.factor` since 5.1.
+
+In `glmnet`, the fixed versions are the constructor arguments `exclude=`
+and `penalty_factor=`. Both function versions are handled by a single
+method, `get_penalty_factor(X, y)`, which you override in a subclass. It
+returns penalty factors, as for `penalty_factor=`. Variables with an
+infinite factor are excluded, so R's `exclude` and `penalty.factor`
+functions are both written as `get_penalty_factor`. Like R's functions,
+it is called at the start of each `fit`, so it reruns on each training
+fold in cross-validation.
+
+```{note}
+`prefilter(X, y)`, which returned the indices of the variables to exclude,
+is deprecated. A `prefilter` override still works, with a `FutureWarning`;
+its indices get an infinite penalty factor.
 ```
-
-When `exclude` is a function, `cv.glmnet` calls it again on the
-training data of each fold. The filtering step is then part of what
-cross-validation evaluates, and the held-out data never decides which
-columns are dropped.
-
-In `glmnet`, a fixed set of columns is passed with `exclude=`. For the
-data-dependent version, subclass a `*Net` estimator and override its
-`prefilter(X, y)` method. The indices `prefilter` returns (0-based) are
-added to `exclude` each time `fit` is called.
 
 ```{code-cell} ipython3
 from dataclasses import dataclass
@@ -69,12 +77,21 @@ indexes from 1, so the Python indices are one smaller.
 fit_static = GaussNet(exclude=[3, 12, 17]).fit(X, y)
 ```
 
-## A filter function, via subclassing
+## `exclude` as a function
 
-R's `filter` becomes the body of `prefilter`. The cutoff is a dataclass
-field, so it can be set in the constructor and is kept by
-`sklearn.base.clone`, which cross-validation uses to refit the model on
-each fold.
+The R glmnet vignette gives this as a typical example: it drops every
+column that is zero in more than 80% of the observations.
+
+```r
+filter <- function(x, ...) which(colMeans(x == 0) > 0.8)
+fit <- glmnet(x, y, exclude = filter)
+cvfit <- cv.glmnet(x, y, exclude = filter)
+```
+
+In Python, `get_penalty_factor` gives those columns an infinite factor.
+The cutoff is a dataclass field, so it can be set in the constructor and
+is kept by `sklearn.base.clone`, which cross-validation uses to refit the
+model on each fold.
 
 ```{code-cell} ipython3
 @dataclass
@@ -82,16 +99,17 @@ class SparseFilterGaussNet(GaussNet):
 
     max_zero_frac: float = 0.8
 
-    def prefilter(self, X, y):
+    def get_penalty_factor(self, X, y):
         X = np.asarray(X)
-        return np.nonzero((X == 0).mean(0) > self.max_zero_frac)[0]
+        return np.where((X == 0).mean(0) > self.max_zero_frac, np.inf, 1.)
 
 fit_filter = SparseFilterGaussNet().fit(X, y)
 fit_filter.excluded_
 ```
 
-On the full data this filter picks the same three columns, so the path
-is the same as with the fixed list:
+The variables with an infinite factor are listed in `excluded_`, together
+with any given in `exclude=`. On the full data this filter picks the same
+three columns as the fixed list, so the path is the same:
 
 ```{code-cell} ipython3
 np.abs(fit_filter.coefs_ - fit_static.coefs_).max()
@@ -103,39 +121,42 @@ The excluded coefficients stay at zero along the whole path:
 ax = fit_filter.coef_path_.plot()
 ```
 
-## Cross-validation
+### Cross-validation
 
 This is the analogue of `cv.glmnet(x, y, exclude = filter)`.
-`cross_validation_path` clones the estimator and fits it on each
-training fold, so `prefilter` runs again on each fold's training rows.
-To show this, the subclass below records which columns it drops on
-each call:
+`cross_validation_path` clones the estimator and fits it on each training
+fold, so `get_penalty_factor` runs again on each fold's training rows. To
+show this, the subclass below prints which columns it drops on each
+call:
 
 ```{code-cell} ipython3
 @dataclass
 class LoggedFilterGaussNet(SparseFilterGaussNet):
 
-    def prefilter(self, X, y):
-        excluded = super().prefilter(X, y)
-        print(f'{X.shape[0]} rows: excluding {excluded.tolist()}')
-        return excluded
+    def get_penalty_factor(self, X, y):
+        pf = super().get_penalty_factor(X, y)
+        print(f'{X.shape[0]} rows: excluding {np.nonzero(np.isinf(pf))[0].tolist()}')
+        return pf
 
 cvfit = LoggedFilterGaussNet().fit(X, y)
 _, cvpath = cvfit.cross_validation_path(X, y, cv=5)
 ```
 
-The first line is the fit on all 100 rows. Each of the other five is
-the fit on an 80-row training fold.
+The first line is the fit on all 100 rows. Each of the other five is the
+fit on an 80-row training fold.
 
 ```{code-cell} ipython3
 ax = cvpath.plot(score='Mean Squared Error')
 ```
 
-## Penalty factors as a function
+If you instead want the variables chosen once, on all the data, compute
+the factors yourself and pass them as `penalty_factor=` (or the indices
+as `exclude=`). Constructor arguments are copied to each fold as they are.
 
-Since version 5.1, R's glmnet also accepts a function for
-`penalty.factor`. For example, the adaptive lasso divides each
-variable's penalty by the size of its least squares coefficient:
+## `penalty.factor` as a function
+
+The adaptive lasso divides each variable's penalty by the size of its
+least squares coefficient. In R 5.1:
 
 ```r
 pf <- function(x, y, ...) 1 / abs(coef(lm(y ~ x))[-1])
@@ -143,11 +164,7 @@ fit <- glmnet(x, y, penalty.factor = pf)
 cvfit <- cv.glmnet(x, y, penalty.factor = pf)
 ```
 
-The Python equivalent is to override `get_penalty_factor(X, y)`. As
-with `prefilter`, it is called at the start of each `fit`, so
-cross-validation recomputes the factors on each training fold. The
-constructor's `penalty_factor` is left unchanged; the factors used for
-the last fit are stored in `penalty_factor_`.
+This is the same method:
 
 ```{code-cell} ipython3
 @dataclass
@@ -162,24 +179,51 @@ fit_adaptive = AdaptiveGaussNet().fit(X, y)
 np.round(fit_adaptive.penalty_factor_, 2)
 ```
 
+The constructor's `penalty_factor` is left unchanged. The factors used
+for the last fit are in `penalty_factor_`.
+
 ```{code-cell} ipython3
 _, cvpath_adaptive = fit_adaptive.cross_validation_path(X, y, cv=5)
 ax = cvpath_adaptive.plot(score='Mean Squared Error')
 ```
 
+## Both at once
+
+Because exclusions are infinite factors, one method can do both: here,
+adaptive penalty factors for the variables that pass the sparsity
+filter.
+
+```{code-cell} ipython3
+@dataclass
+class FilteredAdaptiveGaussNet(GaussNet):
+
+    max_zero_frac: float = 0.8
+
+    def get_penalty_factor(self, X, y):
+        X = np.asarray(X)
+        X1 = np.column_stack([np.ones(X.shape[0]), X])
+        beta_ls = np.linalg.lstsq(X1, y, rcond=None)[0][1:]
+        pf = 1 / np.fabs(beta_ls)
+        pf[(X == 0).mean(0) > self.max_zero_frac] = np.inf
+        return pf
+
+fit_both = FilteredAdaptiveGaussNet().fit(X, y)
+fit_both.excluded_
+```
+
 ## Notes
 
-- The same approach works for any `*Net` estimator (`LogNet`,
-  `FishNet`, `CoxNet`, `MultiGaussNet`, ...) and for `GLMNet`. All of
-  them call `self.prefilter(X, y)` and `self.get_penalty_factor(X, y)`
-  at the start of `fit`.
-- `get_penalty_factor` returns factors as for `penalty_factor=`; an
-  infinite factor excludes the variable.
-- `prefilter` receives `X` and `y` exactly as they were passed to
-  `fit`, so `y` may be a DataFrame that also holds the weight or offset
-  columns. R's filter function receives `x`, `y` and `weights`; to use
-  the weights in Python, read them from `y` through `weight_id`.
-- `prefilter` returns 0-based column indices. They are combined with
-  any indices given in `exclude=`.
-- Excluding a column has the same effect as giving it an infinite
-  penalty factor.
+- The same approach works for any `*Net` estimator (`LogNet`, `FishNet`,
+  `CoxNet`, `MultiGaussNet`, ...) and for `GLMNet`. All of them call
+  `self.get_penalty_factor(X, y)` at the start of `fit`.
+- The default `get_penalty_factor` returns the constructor's
+  `penalty_factor`. An override replaces it, unless it starts from
+  `super().get_penalty_factor(X, y)`. Indices given in `exclude=` are
+  always excluded as well.
+- `get_penalty_factor` receives `X` and `y` exactly as they were passed
+  to `fit`, so `y` may be a DataFrame that also holds the weight or offset
+  columns. R's functions receive `x`, `y` and `weights`. To use the
+  weights in Python, read them from `y` through `weight_id`.
+- `penalty_factor_` holds the factors the solvers used, with each
+  infinite factor replaced by 1 (as R does internally). The variables
+  with infinite factors are listed in `excluded_`.
