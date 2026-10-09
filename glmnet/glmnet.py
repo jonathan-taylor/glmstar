@@ -342,9 +342,7 @@ class GLMNet(BaseEstimator,
 
         X_fit, y_fit = X, y # as passed, for the relaxed refits
 
-        self.excluded_ = copy(self.exclude)
-        self.excluded_.extend(list(self.prefilter(X, y)))
-        self.penalty_factor_ = self.get_penalty_factor(X, y)
+        self._set_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
@@ -1374,8 +1372,12 @@ class GLMNet(BaseEstimator,
 
     def prefilter(self, X, y):
         """
-        Method intended to be overwritten by subclasses to implement pre-filtering of features.
-        Allows dynamic computation of an excluded set of features based on X and y.
+        Deprecated: override `get_penalty_factor` instead, giving the
+        variables to exclude an infinite penalty factor.
+
+        The indices a `prefilter` override returns are still excluded (the
+        default `get_penalty_factor` gives them an infinite factor), with a
+        `FutureWarning`.
 
         Parameters
         ----------
@@ -1393,25 +1395,59 @@ class GLMNet(BaseEstimator,
 
     def get_penalty_factor(self, X, y):
         """
-        Method intended to be overwritten by subclasses to compute penalty
-        factors from the data, as R's glmnet allows a function for
-        `penalty.factor`. Called on the data passed to `fit`, so it is
-        re-run on each training fold in cross-validation.
+        Penalty factors for a fit, computed from its data. Override in a
+        subclass for penalty factors or exclusions that depend on the data,
+        as R's glmnet allows functions for `penalty.factor` and `exclude`.
+        It is called at the start of each `fit`, so it is re-run on each
+        training fold in cross-validation, as in R's `cv.glmnet`.
 
         Parameters
         ----------
         X : array-like
-            Feature matrix.
+            Feature matrix, as passed to `fit`.
         y : array-like
-            Target vector.
+            Response, as passed to `fit` (possibly with weight and offset
+            columns).
 
         Returns
         -------
         penalty_factor : Optional[Union[float, np.ndarray]]
-            Penalty factors, as for `penalty_factor` (infinite factors mark
-            exclusions). Defaults to `self.penalty_factor`.
+            Penalty factors, as for `penalty_factor`: variables with an
+            infinite factor are excluded. Defaults to `self.penalty_factor`
+            (and an infinite factor for the indices returned by a deprecated
+            `prefilter` override).
         """
-        return self.penalty_factor
+        penalty_factor = self.penalty_factor
+        if type(self).prefilter is not GLMNet.prefilter:
+            warnings.warn('prefilter is deprecated: override get_penalty_factor instead, '
+                          'giving the variables to exclude an infinite penalty factor',
+                          FutureWarning)
+            excluded = list(self.prefilter(X, y))
+            if excluded:
+                nvars = X.shape[1]
+                penalty_factor = (np.ones(nvars) if penalty_factor is None else
+                                  np.array(np.broadcast_to(penalty_factor, (nvars,)), dtype=float))
+                penalty_factor[excluded] = np.inf
+        return penalty_factor
+
+    def _set_penalty_factor(self, X, y):
+        """
+        Set `penalty_factor_` and `excluded_` for a fit from
+        `get_penalty_factor`: the variables in `exclude` or with an
+        infinite factor are in `excluded_`, and `penalty_factor_` has the
+        factors used by the solvers (an infinite factor replaced by 1, as in
+        R's glmnet).
+        """
+        penalty_factor = self.get_penalty_factor(X, y)
+        excluded = set(np.asarray(self.exclude, int).tolist())
+        if penalty_factor is not None:
+            penalty_factor = np.array(np.broadcast_to(np.asarray(penalty_factor, dtype=float),
+                                                      (X.shape[1],)))
+            infinite = np.isinf(penalty_factor)
+            excluded |= set(np.nonzero(infinite)[0].tolist())
+            penalty_factor[infinite] = 1
+        self.excluded_ = sorted(excluded)
+        self.penalty_factor_ = penalty_factor
 
 
 @dataclass
