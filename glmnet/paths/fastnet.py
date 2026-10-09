@@ -220,9 +220,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         else:
             self.feature_names_in_ = ['X{}'.format(i) for i in range(X.shape[1])]
 
-        self.excluded_ = copy(self.exclude)
-        self.excluded_.extend(list(self.prefilter(X, y)))
-        self.penalty_factor_ = self.get_penalty_factor(X, y)
+        X_fit, y_fit = X, y # as passed, for the relaxed refits
+
+        self._set_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -318,7 +318,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self.intercepts_ = result['intercepts']
             
         # single response: coefs_ has shape (nlambda, nfeatures)
-        if self.coefs_.ndim == 2:
+        if self.coefs_.shape[0] == 0:
+            pass # an empty model (no solution was found), already warned about
+        elif self.coefs_.ndim == 2:
             self.state_ = GLMState(self.coefs_[-1],
                                    self.intercepts_[-1])
         # multiple responses: coefs_ has shape (nlambda, nfeatures, nresponse)
@@ -334,7 +336,8 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                                                      name='lambda'))
 
         df = result['df']
-        df[0] = 0
+        if df.shape[0] > 0:
+            df[0] = 0
         self.summary_.insert(0, 'Degrees of Freedom', df)
 
         # set lambda_max
@@ -345,10 +348,13 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if len(self.lambda_values_) > 2 and self.lambda_values is None:
             self.lambda_values_[0] = self.lambda_values_[1]**2 / self.lambda_values_[2]
 
-        self.lambda_max_ = self.lambda_values_[0]
+        self.lambda_max_ = self.lambda_values_[0] if nfits > 0 else np.nan
+
+        if self.relax:
+            self._fit_relaxed(X_fit, y_fit)
 
         if interpolation_grid is not None:
-            self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
+            self._interpolate_fit(interpolation_grid)
 
         self.coef_path_ = CoefPath(
             coefs=self.coefs_,
@@ -579,25 +585,6 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # __post_init__ (e.g. binomial for LogNet) or by `fit`
         return self._family
 
-    def prefilter(self, X, y):
-        """
-        Method intended to be overwritten by subclasses to implement pre-filtering of features.
-        Allows dynamic computation of an excluded set of features based on X and y.
-
-        Parameters
-        ----------
-        X : array-like
-            Feature matrix.
-        y : array-like
-            Target vector.
-
-        Returns
-        -------
-        filtered : list
-            List of feature indices to exclude.
-        """
-        return []
-
 
 @dataclass
 class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
@@ -659,6 +646,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                 prediction_type='link', # ignored except checking valid
                 interpolation_grid=None,
                 offset=None,
+                gamma=1.,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -675,6 +663,9 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             Offset for the rows of `X`, of shape `(n_samples, n_responses)`,
             added to the linear predictor (R's `newoffset`). A vector is used
             for every response. If omitted, no offset is used.
+        gamma : float, optional
+            Blend of the lasso (1, the default) and relaxed (0) fits, as R's
+            `predict(..., gamma=)`; requires `relax=True` unless 1.
 
         Returns
         -------
@@ -686,11 +677,11 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             grid_ = np.asarray(interpolation_grid)
             squeeze = grid_.ndim == 0
             grid_ = np.atleast_1d(grid_)
-            coefs_, intercepts_ = self.interpolate_coefs(grid_)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_, gamma=gamma)
         else:
             grid_ = None
             squeeze = False
-            coefs_, intercepts_ = self.coefs_, self.intercepts_
+            coefs_, intercepts_ = self._blended_coefs(gamma)
 
             
         if prediction_type not in ['response', 'link']:
@@ -918,6 +909,7 @@ class FixedLambdaMultiNet(BaseEstimator):
             Fitted estimator.
         """
         path = clone(self.path_estimator)
+        path.relax = False # only the lasso solution is used
         path.lambda_values = np.asarray(self.lambda_values, float)
         path.fit(X, y)
         if not np.isclose(path.lambda_values_[-1], self.lambda_val):

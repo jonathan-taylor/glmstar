@@ -91,7 +91,8 @@ class MultiClassNet(MultiFastNetMixin):
                 X,
                 prediction_type='response', # ignored except checking valid
                 interpolation_grid=None,
-                offset=None
+                offset=None,
+                gamma=1.
                 ):
         """Predict class probabilities or logits for multinomial classification.
 
@@ -106,6 +107,9 @@ class MultiClassNet(MultiFastNetMixin):
         offset : array-like, optional
             Offset for the rows of `X`, of shape `(n_samples, n_classes)`,
             added to the logits (R's `newoffset`). If omitted, no offset is used.
+        gamma : float, optional
+            Blend of the lasso (1, the default) and relaxed (0) fits, as R's
+            `predict(..., gamma=)`; requires `relax=True` unless 1.
 
         Returns
         -------
@@ -116,7 +120,8 @@ class MultiClassNet(MultiFastNetMixin):
         value = super().predict(X,
                                 interpolation_grid=interpolation_grid,
                                 prediction_type='link',
-                                offset=offset)
+                                offset=offset,
+                                gamma=gamma)
         if prediction_type == 'response':
             # value is (n, nlambda, K), or (n, K) for a scalar interpolation_grid
             value = value - value.max(-1, keepdims=True)
@@ -199,7 +204,8 @@ class MultiClassNet(MultiFastNetMixin):
     def predict_proba(self,
                       X,
                       interpolation_grid=None,
-                      offset=None):
+                      offset=None,
+                      gamma=1.):
         """
         Probability estimates for a LogNet model.
 
@@ -215,6 +221,9 @@ class MultiClassNet(MultiFastNetMixin):
         offset : array-like, optional
             Offset for the rows of `X` (see `predict`).
 
+        gamma : float, optional
+            Blend of the lasso and relaxed fits (see `predict`).
+
         Returns
         -------
         T : array-like of shape (n_samples, n_classes)
@@ -224,7 +233,8 @@ class MultiClassNet(MultiFastNetMixin):
         return self.predict(X,
                             interpolation_grid=interpolation_grid,
                             prediction_type='response',
-                            offset=offset)
+                            offset=offset,
+                            gamma=gamma)
 
     def _extract_fits(self,
                       X_shape,

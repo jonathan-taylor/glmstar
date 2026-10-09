@@ -101,7 +101,7 @@ Second, the grouped CV partial likelihood for the $K$th fold is obtained by subt
 
 ### Handling of ties
 
-`CoxNet` supports both the Breslow and Efron approximations for handling tied survival times, chosen by `tie_breaking` in `CoxFamily`. The default is `'efron'`, matching statsmodels' `PHReg` and R's `survival::coxph`. (In R, `glmnet` chooses with `cox.ties`.)
+`CoxNet` supports both the Breslow and Efron approximations for handling tied survival times, chosen by `tie_breaking` in `CoxFamily`. The default is `'breslow'`, matching R's `glmnet` (`cox.ties="breslow"`); `'efron'` matches statsmodels' `PHReg` and R's `survival::coxph`. Survival curves (`survfit`) use `'efron'` by default, as R's `survfit.coxnet` does.
 
 With `lambda_values=[0]`, `CoxNet` fits the unpenalized Cox model, which we can compare with `PHReg` for data with many ties:
 

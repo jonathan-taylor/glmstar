@@ -464,3 +464,146 @@ class ScorePath(object):
                     scatter_c=scatter_c,
                     scatter_s=scatter_s,
                     **plot_args)
+
+
+def _tune_relaxed(score_paths,
+                  gamma,
+                  scorers):
+    """Choose (lambda, gamma) from cross-validated relaxed fits, as R's
+    `getOptcv.relaxed`.
+
+    The best pair minimizes the score (or maximizes it, for scores such as
+    AUC), with ties going to the largest lambda and then the largest gamma.
+    The 1SE pair is the one with the largest lambda, then the largest gamma,
+    whose score is within one standard error of the best.
+
+    Parameters
+    ----------
+    score_paths : list of ScorePath
+        Cross-validation results, one for each value of `gamma`.
+    gamma : sequence of float
+        Values of gamma.
+    scorers : list
+        Scorers, with `name` and `maximize` attributes.
+
+    Returns
+    -------
+    tuple
+        (index_best, index_1se): DataFrames indexed by score name, with
+        columns 'lambda' and 'gamma'.
+    """
+    lambdas = np.concatenate([np.asarray(path.lambda_values) for path in score_paths])
+    gammas = np.concatenate([np.full(len(path.lambda_values), g)
+                             for path, g in zip(score_paths, gamma)])
+    # largest lambda first, then largest gamma
+    order = np.lexsort((-gammas, -lambdas))
+
+    best, best_1se = {}, {}
+    for scorer in scorers:
+        name = scorer.name
+        if not all(name in path.scores.columns for path in score_paths):
+            continue
+        cvm = np.concatenate([np.asarray(path.scores[name], float) for path in score_paths])
+        if scorer.maximize:
+            cvm = -cvm
+        idx_best = order[np.nonzero(cvm[order] <= np.nanmin(cvm))[0][0]]
+        best[name] = (lambdas[idx_best], gammas[idx_best])
+        sd_name = f'SD({name})'
+        if all(sd_name in path.scores.columns for path in score_paths):
+            cvsd = np.concatenate([np.asarray(path.scores[sd_name], float)
+                                   for path in score_paths])
+            bound = (cvm + cvsd)[idx_best]
+            idx_1se = order[np.nonzero(cvm[order] <= bound)[0][0]]
+            best_1se[name] = (lambdas[idx_1se], gammas[idx_1se])
+
+    def frame(d, label):
+        return pd.DataFrame([v for v in d.values()],
+                            index=pd.Index(list(d.keys()), name=label),
+                            columns=['lambda', 'gamma'])
+
+    return frame(best, 'index_best'), frame(best_1se, 'index_1se')
+
+
+@dataclass
+class RelaxedScorePath(object):
+    """
+    Cross-validation results for a relaxed fit (R's `cv.glmnet(relax=TRUE)`).
+
+    Attributes
+    ----------
+    gamma : np.ndarray
+        Values of gamma that were cross-validated.
+    score_paths : list of ScorePath
+        Cross-validation results along the path for each value of `gamma`.
+    index_best : pd.DataFrame
+        For each score, the (lambda, gamma) pair with the best score (R's
+        `lambda.min` and `gamma.min`).
+    index_1se : pd.DataFrame
+        For each score, the (lambda, gamma) pair chosen by the one standard
+        error rule (R's `lambda.1se` and `gamma.1se`).
+    """
+
+    gamma: np.ndarray
+    score_paths: list
+    index_best: pd.DataFrame
+    index_1se: pd.DataFrame
+
+    def plot(self,
+             score=None,
+             xvar='-lambda',
+             ax=None,
+             legend=True,
+             cmap='viridis',
+             col_min='#909090',
+             ls_min='--',
+             se_bands=False,
+             alpha=0.2,
+             **plot_args):
+        """
+        Plot the cross-validated score against lambda, one curve for each
+        value of gamma, as R's `plot.cv.relaxed`, with the best and 1SE
+        lambda values marked. With `se_bands=True`, each curve is drawn with
+        a band of one standard error (R's `se.bands`), shaded with `alpha`.
+        """
+        import matplotlib.pyplot as plt
+
+        family = self.score_paths[0].family
+        if score is None:
+            score = family._default_scorers()[0].name
+        if ax is None:
+            ax = plt.gca()
+
+        def x(lambdas):
+            if xvar == 'lambda':
+                return np.log(lambdas)
+            elif xvar == '-lambda':
+                return -np.log(lambdas)
+            raise ValueError("xvar should be in ['lambda', '-lambda']")
+
+        colors = plt.get_cmap(cmap)(np.linspace(0, 0.9, len(self.gamma)))
+        for g, path, c in zip(self.gamma, self.score_paths, colors):
+            mean = np.asarray(path.scores[score])
+            ax.plot(x(path.lambda_values),
+                    mean,
+                    c=c,
+                    label=rf'$\gamma={g:g}$',
+                    **plot_args)
+            if se_bands and f'SD({score})' in path.scores.columns:
+                sd = np.asarray(path.scores[f'SD({score})'])
+                ax.fill_between(x(path.lambda_values),
+                                mean - sd,
+                                mean + sd,
+                                color=c,
+                                alpha=alpha)
+        for index, label in [(self.index_best, 'Best'), (self.index_1se, '1SE')]:
+            if score in index.index:
+                ax.axvline(x(index.loc[score, 'lambda']),
+                           c=col_min,
+                           ls=ls_min,
+                           label=label)
+        ax.set_xlabel({'lambda': r'$\log(\lambda)$',
+                       '-lambda': r'$-\log(\lambda)$'}[xvar])
+        ax.set_ylabel(score)
+        if legend:
+            ax.legend()
+        return ax

@@ -10,8 +10,11 @@ parts:
   - file: input_data_rationale.md
   - file: coxnet.md
   - file: glmnet_family.md
-  - file: exclude.md
+  - file: custom_family.md
+  - file: penalty_factor.md
+  - file: relax.md
   - file: inference.md
+  - file: glmnet_vs_R.md
 - caption: GLMNet paths
   chapters:
   - file: paths/GLMNet.md
