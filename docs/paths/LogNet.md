@@ -77,9 +77,5 @@ print(f"First 5 probability scores: {y_pred_proba[:5].shape}")
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.paths.lognet.LogNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `LogNet` (all parameters, attributes and methods) is at
+[LogNet API](https://jonathan-taylor.github.io/glmstar/api/LogNet.html).

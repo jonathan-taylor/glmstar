@@ -36,9 +36,5 @@ print(model.coefs_.shape)
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.paths.multigaussnet.MultiGaussNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `MultiGaussNet` (all parameters, attributes and methods) is at
+[MultiGaussNet API](https://jonathan-taylor.github.io/glmstar/api/MultiGaussNet.html).

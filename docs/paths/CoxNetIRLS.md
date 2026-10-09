@@ -38,9 +38,5 @@ print(model.coefs_.shape)
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.cox.CoxNetIRLS
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `CoxNetIRLS` (all parameters, attributes and methods) is at
+[CoxNetIRLS API](https://jonathan-taylor.github.io/glmstar/api/CoxNetIRLS.html).

@@ -1,21 +1,20 @@
-# API Reference
+Modules
+=======
 
-This section provides the API reference for the GLMStar Python package.
+Main classes and functions
+--------------------------
 
-## Main Classes and Functions
-
-```{eval-rst}
 .. automodule:: glmnet
    :members:
    :undoc-members:
    :show-inheritance:
-```
+   :no-index:
 
-## Paths Module
+Paths module
+------------
 
-```{eval-rst}
 .. automodule:: glmnet.paths.lognet
    :members:
    :undoc-members:
    :show-inheritance:
-```
+   :no-index:

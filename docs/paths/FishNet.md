@@ -35,9 +35,5 @@ print(model.coefs_.shape)
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.paths.fishnet.FishNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `FishNet` (all parameters, attributes and methods) is at
+[FishNet API](https://jonathan-taylor.github.io/glmstar/api/FishNet.html).

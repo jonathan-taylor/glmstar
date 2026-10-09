@@ -41,9 +41,5 @@ print(model.coefs_.shape)
 
 ## API Reference
 
-```{eval-rst}
-.. autoclass:: glmnet.paths.coxnet.CoxNet
-    :members:
-    :inherited-members:
-    :show-inheritance:
-```
+The full API reference for `CoxNet` (all parameters, attributes and methods) is at
+[CoxNet API](https://jonathan-taylor.github.io/glmstar/api/CoxNet.html).
