@@ -739,7 +739,8 @@ class CoxNetIRLS(GLMNet):
                 X,
                 prediction_type='link',
                 interpolation_grid=None,
-                offset=None):
+                offset=None,
+                gamma=1.):
         """
         Predict using the fitted CoxNetIRLS model.
 
@@ -759,6 +760,9 @@ class CoxNetIRLS(GLMNet):
         offset : np.ndarray, optional
             Offset for the rows of `X`, of shape `(n_samples,)`, added to the
             linear predictor (R's `newoffset`). If omitted, no offset is used.
+        gamma : float, optional
+            Blend of the lasso (1, the default) and relaxed (0) fits, as R's
+            `predict(..., gamma=)`; requires `relax=True` unless 1.
 
         Returns
         -------
@@ -772,10 +776,10 @@ class CoxNetIRLS(GLMNet):
 
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
-            coefs_, intercepts_ = self.interpolate_coefs(grid_)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_, gamma=gamma)
         else:
             grid_ = None
-            coefs_, intercepts_ = self.coefs_, self.intercepts_
+            coefs_, intercepts_ = self._blended_coefs(gamma)
 
         intercepts_ = np.atleast_1d(intercepts_)
         coefs_ = np.atleast_2d(coefs_)

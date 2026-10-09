@@ -30,8 +30,41 @@ from .glm import (GLM,
                   GLMFamilySpec)
 from ._utils import _get_data, _check_offset
 from .scorer import (PathScorer,
-                     ScorePath)
+                     ScorePath,
+                     RelaxedScorePath,
+                     _tune_relaxed)
 
+
+
+def _check_gamma(gamma):
+    """
+    Validate a single `gamma` for blending the lasso and relaxed fits; as
+    R's `checkgamma.relax`, it must lie in [0, 1].
+    """
+    gamma = float(gamma)
+    if not 0 <= gamma <= 1:
+        raise ValueError(f'gamma should be in [0, 1], got {gamma}')
+    return gamma
+
+
+class _RelaxedPredictor(BaseEstimator):
+    """
+    Fit a relaxed path estimator and predict for each value of `gamma`,
+    stacked along axis 1; lets `cross_validation_path` fit each fold once.
+    """
+
+    def __init__(self,
+                 estimator=None,
+                 gamma=(1.,)):
+        self.estimator = estimator
+        self.gamma = gamma
+
+    def fit(self, X, y, **fit_params):
+        self.estimator_ = clone(self.estimator).fit(X, y, **fit_params)
+        return self
+
+    def predict(self, X):
+        return np.stack([self.estimator_.predict(X, gamma=g) for g in self.gamma], axis=1)
 
 
 @dataclass
@@ -119,6 +152,14 @@ class GLMNetSpec(object):
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
+    relax: bool
+        If True, also fit the relaxed lasso (R's `relax=TRUE`): each
+        distinct active set along the path is refit without a penalty
+        (lambda 0, other variables excluded). Predictions can then
+        blend the two fits with `gamma`. Default is False.
+    relax_maxp: Optional[int]
+        Active sets with more than `relax_maxp` variables are not
+        refit (R's `maxp` in `relax.glmnet`); defaults to `nobs - 3`.
     """
     lambda_values: Optional[np.ndarray] = None
     lambda_min_ratio: float = None
@@ -136,6 +177,8 @@ class GLMNetSpec(object):
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
     exclude: list = field(default_factory=list)
+    relax: bool = False
+    relax_maxp: Optional[int] = None
 
 
 @dataclass
@@ -199,6 +242,14 @@ class GLMNet(BaseEstimator,
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
+    relax: bool
+        If True, also fit the relaxed lasso (R's `relax=TRUE`): each
+        distinct active set along the path is refit without a penalty
+        (lambda 0, other variables excluded). Predictions can then
+        blend the two fits with `gamma`. Default is False.
+    relax_maxp: Optional[int]
+        Active sets with more than `relax_maxp` variables are not
+        refit (R's `maxp` in `relax.glmnet`); defaults to `nobs - 3`.
     """
 
     def get_data_arrays(self,
@@ -288,6 +339,8 @@ class GLMNet(BaseEstimator,
         """
         if not hasattr(self, "_family"):
             self._family = self._finalize_family(response=y)
+
+        X_fit, y_fit = X, y # as passed, for the relaxed refits
 
         self.excluded_ = copy(self.exclude)
         self.excluded_.extend(list(self.prefilter(X, y)))
@@ -417,10 +470,13 @@ class GLMNet(BaseEstimator,
         nfit = self.coefs_.shape[0]
 
         self.lambda_values_ = self.lambda_values_[:nfit]
-        
+
+        if self.relax:
+            self._fit_relaxed(X_fit, y_fit)
+
         if interpolation_grid is not None:
-            self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
-           
+            self._interpolate_fit(interpolation_grid)
+
         self.coef_path_ = CoefPath(
             coefs=self.coefs_,
             intercepts=self.intercepts_,
@@ -435,7 +491,8 @@ class GLMNet(BaseEstimator,
                 X,
                 prediction_type='response',
                 interpolation_grid=None,
-                offset=None):
+                offset=None,
+                gamma=1.):
         """
         Predict using the fitted GLMNet model.
 
@@ -457,6 +514,9 @@ class GLMNet(BaseEstimator,
             predictor (R's `newoffset`). If the model was fit with `offset_id`,
             pass the offset for the new data here; if omitted, no offset is
             used.
+        gamma: float, optional
+            Blend of the lasso (1, the default) and relaxed (0) fits, as R's
+            `predict(..., gamma=)`; requires `relax=True` unless 1.
 
         Returns
         -------
@@ -466,10 +526,10 @@ class GLMNet(BaseEstimator,
 
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
-            coefs_, intercepts_ = self.interpolate_coefs(grid_)
+            coefs_, intercepts_ = self.interpolate_coefs(grid_, gamma=gamma)
         else:
             grid_ = None
-            coefs_, intercepts_ = self.coefs_, self.intercepts_
+            coefs_, intercepts_ = self._blended_coefs(gamma)
 
         intercepts_ = np.atleast_1d(intercepts_)
         coefs_ = np.atleast_2d(coefs_)
@@ -505,7 +565,8 @@ class GLMNet(BaseEstimator,
         return value
         
     def interpolate_coefs(self,
-                          interpolation_grid):
+                          interpolation_grid,
+                          gamma=1.):
         """
         Interpolate coefficients to a new lambda grid.
 
@@ -513,11 +574,27 @@ class GLMNet(BaseEstimator,
         ----------
         interpolation_grid: np.ndarray
             New lambda values for interpolation.
+        gamma: float
+            Blend of the lasso (`gamma=1`, the default) and relaxed
+            (`gamma=0`) fits, as R's `coef(..., gamma=)`; requires
+            `relax=True` unless 1.
 
         Returns
         -------
         tuple
             (coefs_, intercepts_) interpolated to the new grid.
+        """
+        coefs_, intercepts_ = self._blended_coefs(gamma)
+        return self._interpolate(coefs_, intercepts_, interpolation_grid)
+
+    def _interpolate(self,
+                     coefs,
+                     intercepts,
+                     interpolation_grid):
+        """
+        Interpolate `coefs` and `intercepts`, whose rows correspond to
+        `lambda_values_`, to `interpolation_grid` (linearly in the index
+        of the lambda values).
         """
         L = self.lambda_values_
         interpolation_grid = np.asarray(interpolation_grid)
@@ -528,22 +605,125 @@ class GLMNet(BaseEstimator,
         coefs_ = []
         intercepts_ = []
 
-        ws = []
         for v_ in idx_:
             v_ceil = int(np.ceil(v_))
             w_ = (v_ceil - v_)
-            ws.append(w_)
             if v_ceil > 0:
-                coefs_.append(self.coefs_[v_ceil] * (1 - w_) + w_ * self.coefs_[v_ceil-1])
-                intercepts_.append(self.intercepts_[v_ceil] * (1 - w_) + w_ * self.intercepts_[v_ceil-1])
+                coefs_.append(coefs[v_ceil] * (1 - w_) + w_ * coefs[v_ceil-1])
+                intercepts_.append(intercepts[v_ceil] * (1 - w_) + w_ * intercepts[v_ceil-1])
             else:
-                coefs_.append(self.coefs_[0])
-                intercepts_.append(self.intercepts_[0])
+                coefs_.append(coefs[0])
+                intercepts_.append(intercepts[0])
 
         if shape == interpolation_grid.shape:
             return np.asarray(coefs_), np.asarray(intercepts_)
         else:
             return np.asarray(coefs_)[0], np.asarray(intercepts_)[0]
+
+    def _interpolate_fit(self,
+                         interpolation_grid):
+        """
+        Replace the fitted path (and the relaxed fits, if any) by its
+        interpolation to `interpolation_grid`.
+        """
+        if self.relax:
+            relaxed = self._interpolate(self.relaxed_coefs_,
+                                        self.relaxed_intercepts_,
+                                        interpolation_grid)
+        self.coefs_, self.intercepts_ = self.interpolate_coefs(interpolation_grid)
+        if self.relax:
+            self.relaxed_coefs_, self.relaxed_intercepts_ = relaxed
+
+    def _blended_coefs(self,
+                       gamma):
+        """
+        Coefficients and intercepts along the path for `gamma`:
+        `gamma * lasso + (1 - gamma) * relaxed`, as R's `blend.relaxed`.
+        """
+        gamma = _check_gamma(gamma)
+        if gamma == 1:
+            return self.coefs_, self.intercepts_
+        if not hasattr(self, 'relaxed_coefs_'):
+            raise ValueError('gamma < 1 requires a relaxed fit: fit with relax=True')
+        # as R's blend.relaxed
+        gamma = max(gamma, 1e-5)
+        return (gamma * self.coefs_ + (1 - gamma) * self.relaxed_coefs_,
+                gamma * np.asarray(self.intercepts_) + (1 - gamma) * self.relaxed_intercepts_)
+
+    def _fit_relaxed(self,
+                     X,
+                     y):
+        """
+        The relaxed fits, as R's `relax.glmnet`: each distinct active set
+        along the path is refit at lambda 0 with the other variables
+        excluded, by a clone of this estimator (so weights, offsets, limits
+        and control carry over). Sets with more than `relax_maxp` variables
+        are not refit; lambdas with such sets use the relaxed fit of the
+        last lambda that was refit. Where a refit finds no solution (e.g.
+        separable classes) the lasso solution is kept, with a warning.
+
+        Sets `relaxed_coefs_`, `relaxed_intercepts_` (shaped as `coefs_` and
+        `intercepts_`), `relaxed_fracdev_` and `relaxed_omitted_` (True for
+        lambdas whose active set was not refit).
+        """
+        coefs = np.asarray(self.coefs_)
+        intercepts = np.asarray(self.intercepts_)
+        # active set at each lambda; for multi-response, the union over responses
+        active = coefs != 0
+        if active.ndim == 3:
+            active = active.any(-1)
+        nobs = X.shape[0]
+        maxp = nobs - 3 if self.relax_maxp is None else self.relax_maxp
+
+        relaxed_coefs = coefs.copy()
+        relaxed_intercepts = intercepts.astype(float)
+        fracdev = np.asarray(self.summary_['Fraction Deviance Explained'], float).copy()
+        omitted = active.sum(1) > maxp
+
+        refits = {}
+        failed = []
+        for k in np.nonzero(~omitted & active.any(1))[0]:
+            key = active[k].tobytes()
+            if key not in refits:
+                refit = clone(self)
+                refit.relax = False
+                refit.lambda_values = np.array([0.])
+                refit.exclude = sorted(set(self.exclude) |
+                                       set(np.nonzero(~active[k])[0].tolist()))
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter('always')
+                    refit.fit(X, y)
+                if np.asarray(refit.coefs_).shape[0] == 0:
+                    # no solution at lambda 0, e.g. separable classes
+                    refits[key] = None
+                else:
+                    for w in caught:
+                        warnings.warn(w.message, w.category)
+                    refits[key] = (refit.coefs_[-1],
+                                   refit.intercepts_[-1],
+                                   refit.summary_['Fraction Deviance Explained'].iloc[-1])
+            if refits[key] is None:
+                failed.append(k)
+            else:
+                relaxed_coefs[k], relaxed_intercepts[k], fracdev[k] = refits[key]
+
+        if failed:
+            warnings.warn(f'the unpenalized refit did not converge at {len(failed)} lambda values '
+                          f'(indices {failed}); the relaxed fit uses the lasso solution there')
+
+        if omitted.any():
+            kept = np.nonzero(~omitted)[0]
+            if kept.size == 0:
+                raise ValueError(f'every active set has more than relax_maxp={maxp} variables')
+            last = kept.max()
+            relaxed_coefs[omitted] = relaxed_coefs[last]
+            relaxed_intercepts[omitted] = relaxed_intercepts[last]
+            fracdev[omitted] = fracdev[last]
+
+        self.relaxed_coefs_ = relaxed_coefs
+        self.relaxed_intercepts_ = relaxed_intercepts
+        self.relaxed_fracdev_ = fracdev
+        self.relaxed_omitted_ = omitted
 
     def nonzero(self,
                 interpolation_grid=None):
@@ -653,7 +833,8 @@ class GLMNet(BaseEstimator,
                               fit_params={},
                               pre_dispatch='2*n_jobs',
                               alignment='lambda',
-                              scorers=[]): # GLMScorer instances
+                              scorers=[], # GLMScorer instances
+                              gamma=None):
         """
         Perform cross-validation along the regularization path.
 
@@ -682,6 +863,11 @@ class GLMNet(BaseEstimator,
             One of 'lambda' or 'fraction'. How to align predictions across folds.
         scorers: list
             List of GLMScorer instances.
+        gamma: sequence of float, optional
+            For a relaxed fit (`relax=True`), the values of `gamma` to
+            cross-validate along with lambda, as R's `cv.glmnet(relax=TRUE,
+            gamma=)`. Defaults to `(0, 0.25, 0.5, 0.75, 1)`. Only used with
+            `relax=True`.
 
         Returns
         -------
@@ -693,13 +879,22 @@ class GLMNet(BaseEstimator,
                 An object containing cross-validation results, including scores (as a DataFrame),
                 standard errors, best/1se indices, lambda values, and more. Access scores via
                 score_path_.scores, e.g. score_path_.scores['Mean Squared Error'].
+
+            For a relaxed fit, predictions has an axis for `gamma` after the
+            first, and a `RelaxedScorePath` is returned, with a `ScorePath`
+            for each value of `gamma` and the best (lambda, gamma) pairs. It
+            is also stored as `relaxed_score_path_`; `score_path_` holds the
+            results for the lasso (`gamma=1`), as without `relax`.
         """
         check_is_fitted(self, ["coefs_"])
 
         if alignment not in ['lambda', 'fraction']:
             raise ValueError("alignment must be one of 'lambda' or 'fraction'")
+        if gamma is not None and not self.relax:
+            raise ValueError('gamma requires a relaxed fit: fit with relax=True')
 
         cloned_path = clone(self)
+        fit_params = dict(fit_params)
         if alignment == 'lambda':
             fit_params.update(interpolation_grid=self.lambda_values_)
         else:
@@ -708,11 +903,22 @@ class GLMNet(BaseEstimator,
                 cloned_path.lambda_values = cloned_path.lambda_values[:self.lambda_values_.shape[0]]
             fit_params = {}
 
+        if self.relax:
+            if gamma is None:
+                gamma = (0, 0.25, 0.5, 0.75, 1)
+            gamma = sorted(set(_check_gamma(g) for g in np.atleast_1d(gamma)))
+            # as R's cv.relaxed, also compute the lasso's (gamma=1) scores
+            all_gamma = gamma + ([] if 1 in gamma else [1.])
+            estimator = _RelaxedPredictor(estimator=cloned_path,
+                                          gamma=tuple(all_gamma))
+        else:
+            estimator = cloned_path
+
         X, y, groups = indexable(X, y, groups)
         
         cv = check_cv(cv, y, classifier=False)
 
-        predictions = cross_val_predict(cloned_path,
+        predictions = cross_val_predict(estimator,
                                         X,
                                         y,
                                         groups=groups,
@@ -722,19 +928,63 @@ class GLMNet(BaseEstimator,
                                         params=fit_params,
                                         pre_dispatch=pre_dispatch)
 
-        # truncate to the size we got
-        predictions = predictions[:,:self.lambda_values_.shape[0]]
-
         response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
+        splits = [test for _, test in cv.split(np.arange(X.shape[0]))]
+        nlambda = self.lambda_values_.shape[0]
 
+        def score(predictions, gamma):
+            # truncate to the size we got
+            return self._cv_score_path(predictions[:,:nlambda],
+                                       response,
+                                       offset,
+                                       weight,
+                                       y,
+                                       splits,
+                                       scorers,
+                                       gamma)
+
+        if not self.relax:
+            predictions, self.score_path_ = score(predictions, 1.)
+            return predictions, self.score_path_
+
+        results = [score(predictions[:,i], g) for i, g in enumerate(all_gamma)]
+        self.score_path_ = results[all_gamma.index(1.)][1]
+        results = results[:len(gamma)]
+        score_paths = [path for _, path in results]
+        index_best_, index_1se_ = _tune_relaxed(score_paths,
+                                                gamma,
+                                                list(set(scorers).union(self._family._default_scorers())))
+        self.relaxed_score_path_ = RelaxedScorePath(gamma=np.asarray(gamma),
+                                                    score_paths=score_paths,
+                                                    index_best=index_best_,
+                                                    index_1se=index_1se_)
+        predictions = np.stack([preds for preds, _ in results], axis=1)
+        return predictions, self.relaxed_score_path_
+
+    def _cv_score_path(self,
+                       predictions,
+                       response,
+                       offset,
+                       weight,
+                       y,
+                       splits,
+                       scorers,
+                       gamma):
+        """
+        Score cross-validated `predictions` (of the path blended with
+        `gamma`), adding the offset of the held-out rows.
+
+        Returns
+        -------
+        tuple
+            (predictions, ScorePath), the predictions adjusted for the offset.
+        """
         # adjust for offset
         # because predictions are just X\beta
 
         if offset is not None:
             predictions = self._offset_predictions(predictions,
                                                    offset)
-
-        splits = [test for _, test in cv.split(np.arange(X.shape[0]))]
 
         scorer = PathScorer(predictions=predictions,
                             sample_weight=weight,
@@ -749,15 +999,20 @@ class GLMNet(BaseEstimator,
          index_best_,
          index_1se_) = scorer.compute_scores(scorers=scorers)
 
-        self.score_path_ = ScorePath(scores=cv_scores_,
-                                     index_best=index_best_,
-                                     index_1se=index_1se_,
-                                     lambda_values=self.lambda_values_,
-                                     norm=np.fabs(self.coefs_).sum(1),
-                                     fracdev=self.summary_['Fraction Deviance Explained'],
-                                     family=self._family)
+        coefs_, _ = self._blended_coefs(gamma)
+        fracdev = np.asarray(self.summary_['Fraction Deviance Explained'])
+        if gamma < 1:
+            # as R's blend.relaxed
+            g = max(gamma, 1e-5)
+            fracdev = g * fracdev + (1 - g) * self.relaxed_fracdev_[:fracdev.shape[0]]
 
-        return predictions, self.score_path_
+        return predictions, ScorePath(scores=cv_scores_,
+                                      index_best=index_best_,
+                                      index_1se=index_1se_,
+                                      lambda_values=self.lambda_values_,
+                                      norm=np.fabs(coefs_).sum(1),
+                                      fracdev=fracdev,
+                                      family=self._family)
     
     def score_path(self,
                    X,

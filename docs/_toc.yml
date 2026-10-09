@@ -11,6 +11,7 @@ parts:
   - file: coxnet.md
   - file: glmnet_family.md
   - file: exclude.md
+  - file: relax.md
   - file: inference.md
 - caption: GLMNet paths
   chapters:
