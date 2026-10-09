@@ -107,10 +107,6 @@ OPTIONS = {
     'offset': dict(offset_id='o'),
     'alpha_weights': dict(alpha=0.3, weight_id='w'),
     'exclude': dict(exclude=[3, 5]),
-}
-
-# known bugs in the IRLS GLMNet: fits with a penalty factor of 0 or inf fail
-GLMSTAR_BROKEN = {
     'unpenalized': dict(penalty_factor=np.r_[0., 2., np.ones(P - 2)]),
     'penalty_factor_inf': dict(penalty_factor=np.r_[1., 1., 1., np.inf, np.ones(P - 4)]),
 }
@@ -151,8 +147,8 @@ def test_glmstar_problem(data, family, standardize, fit_intercept, option):
 
 
 FAST_NETS = {'gaussian': GaussNet, 'binomial': LogNet, 'poisson': FishNet}
-# the C++ paths handle the penalty factors that break the IRLS GLMNet
-FAST_OPTIONS = {**OPTIONS, **GLMSTAR_BROKEN}
+# (the penalty factor 0 / inf cases are now in OPTIONS)
+FAST_OPTIONS = OPTIONS
 
 
 # standardize and fit_intercept are parametrized by tests/conftest.py
@@ -197,10 +193,6 @@ def test_fastnet_limits_not_modified(data):
     np.testing.assert_array_equal(G.upper_limits, np.r_[0.1, np.full(P - 1, np.inf)])
 
 
-@pytest.mark.xfail(strict=True, reason='IRLS GLMNet: penalty factor 0 / inf fails')
-@pytest.mark.parametrize('option', GLMSTAR_BROKEN)
-def test_glmstar_broken_options(data, option):
-    _check_glmstar(data, 'gaussian', True, True, GLMSTAR_BROKEN[option])
 
 
 def test_glmstar_unconverged_warns(data):
