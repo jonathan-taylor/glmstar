@@ -172,9 +172,7 @@ def test_offset_matches_R(Rinfo, family):
         # glmnet's multinomial intercepts are only identified up to a constant
         link = link - link.mean(-1)[:, :, None]
         link_R = link_R - link_R.mean(-1)[:, :, None]
-    if family == 'cox':
-        # R's type="response" is the relative risk exp(eta)
-        response = np.exp(link)
+    # (for cox, type="response" is the relative risk exp(eta) in both)
     nlam = link_R.shape[1]
     np.testing.assert_allclose(link[:, :nlam], link_R, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(response[:, :nlam], response_R, rtol=1e-4, atol=1e-4)
