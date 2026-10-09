@@ -213,7 +213,7 @@ class LogNet(FastNetMixin):
 
         _args['a0'] = np.asfortranarray(np.zeros((nc, self.nlambda), float))
         # from https://github.com/trevorhastie/glmnet/blob/master/R/lognet.R: ca=double(nx*nlam*nc)
-        _args['ca'] = np.zeros((_args['nx']*self.nlambda*nc, 1))
+        _args['ca'] = np.zeros(_args['nx']*self.nlambda*nc)
 
         # reshape y
         if np.issubdtype(_args['y'].dtype, np.floating) or len(np.unique(_args['y'])) > 2:

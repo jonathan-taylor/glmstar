@@ -51,17 +51,23 @@ def _coxnet(**args):
     return CoxNet(family=CoxFamily(event_id='stop', status_id='status'), **args)
 
 
+def _solver_args(L):
+    # fit hands the solver's `ca` buffer to the fitted coefficients, so
+    # re-entering the solver needs a fresh one
+    return dict(L._args, ca=np.zeros((L._args['nx'], L.nlambda), order='F'))
+
+
 def _gaussnet_solve():
     L = GaussNet(nlambda=200, lambda_min_ratio=1e-4)
     L.fit(*_problem(1000, 2000))
-    return L._dense, L._args
+    return L._dense, _solver_args(L)
 
 
 def _coxnet_solve(sparse):
     def build():
         L = _coxnet(nlambda=100, lambda_min_ratio=1e-3)
         L.fit(*_cox_problem(800, 400, sparse=sparse))
-        return (L._sparse if sparse else L._dense), L._args
+        return (L._sparse if sparse else L._dense), _solver_args(L)
     return build
 
 

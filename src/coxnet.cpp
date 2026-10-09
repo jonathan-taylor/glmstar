@@ -117,7 +117,7 @@ py::dict coxnet_exp(
   result["a0"] = a0;
   result["nin"] = nin;
   result["alm"] = alm;
-  result["ca"] = ca;
+  // ca is filled in place; returning it would copy the whole path
   result["ia"] = ia;
   result["lmu"] = lmu;
   result["nulldev"] = nulldev;
@@ -219,7 +219,7 @@ py::dict spcoxnet_exp(
   result["a0"] = a0;
   result["nin"] = nin;
   result["alm"] = alm;
-  result["ca"] = ca;
+  // ca is filled in place; returning it would copy the whole path
   result["ia"] = ia;
   result["lmu"] = lmu;
   result["nulldev"] = nulldev;

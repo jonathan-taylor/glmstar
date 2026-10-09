@@ -293,6 +293,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self._fit = fit_method(**self._args)
         self.pb.close()
 
+        # the solver fills `ca` in place; the C++ wrappers don't return it
+        # because pybind11 would copy it
+        self._fit['ca'] = self._args.pop('ca')
+
         # if error code > 0, fatal error occurred: stop immediately
         # if error code < 0, non-fatal error occurred: return error code
 
@@ -381,10 +385,17 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         -------
         dict
             Dictionary with keys 'coefs', 'intercepts', 'df', and 'lambda_values'.
+
+        Notes
+        -----
+        When the solver's ``ca`` buffer has a column per feature
+        (``nx == n_features``), ``coefs`` is built in place in it rather
+        than in a second ``(nfits, n_features)`` array.
         """
         _fit, _args = self._fit, self._args
         n_features = X_shape[1]
         nfits = _fit['lmu']
+        nx = _args['nx']
 
         if nfits < 1:
             # as in R's getcoef: a single all-zero fit at lambda = Inf
@@ -397,28 +408,35 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         nin = _fit['nin'][:nfits]
         ninmax = int(nin.max()) if nin.size else 0
         lambda_values = _fit['alm'][:nfits]
+        intercepts = _fit['a0'][:nfits]
+
+        ca = _fit.pop('ca') # `coefs` may be built in place in it, see below
 
         if ninmax > 0:
-            if _fit['ca'].ndim == 1: # logistic is like this
-                # flattened (nx, nlam) column-major: column k holds the k-th fit
-                nx = _args['nx']
-                unsort_coefs = _fit['ca'][:(nx*nfits)].reshape(nfits, nx)
-            else:
-                unsort_coefs = _fit['ca'][:,:nfits].T
-            df = (np.fabs(unsort_coefs) > 0).sum(1)
+            if ca.ndim == 1: # logistic is like this: one block of nx per lambda
+                unsort_coefs = ca[:(nx*nfits)].reshape(nfits, nx)
+            else: # (nx, nlambda) Fortran-ordered, so .T is a C-ordered view
+                unsort_coefs = ca[:,:nfits].T
 
             # this is order variables appear in the path
             # reorder to set original coords
 
             active_seq = _fit['ia'].reshape(-1)[:ninmax] - 1
+            active = unsort_coefs[:, :ninmax]
+            df = (np.fabs(active) > 0).sum(1)
 
-            coefs = np.zeros((nfits, n_features))
-            coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
-            intercepts = _fit['a0'][:nfits]
+            if nx == n_features:
+                # scatter in place instead of allocating a second copy
+                active = active.copy()
+                unsort_coefs[:] = 0
+                unsort_coefs[:, active_seq] = active
+                coefs = unsort_coefs
+            else: # df_max shrank the buffer, it can't hold the dense result
+                coefs = np.zeros((nfits, n_features))
+                coefs[:, active_seq] = active
         else:
             # No features selected; return zeros
             coefs = np.zeros((nfits, n_features))
-            intercepts = _fit['a0'][:nfits]
             df = np.zeros(nfits, dtype=int)
 
         return {'coefs':coefs,
@@ -550,7 +568,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  'pb':self.pb,
                  'lmu':0, # these asfortran calls not necessary -- nullop
                  'a0':np.asfortranarray(np.zeros((self.nlambda, 1), float)),
-                 'ca':np.asfortranarray(np.zeros((nx, self.nlambda))),
+                 'ca':np.zeros((nx, self.nlambda), order='F'),
                  'ia':np.zeros((nx, 1), np.int32),
                  'nin':np.zeros((self.nlambda, 1), np.int32),
                  'nulldev':0.,
@@ -761,13 +779,15 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         nin = _fit['nin'][:nfits]
         ninmax = int(nin.max()) if nin.size else 0
         lambda_values = _fit['alm'][:nfits]
+        intercepts = _fit['a0'][:,:nfits].T
+        ca = _fit.pop('ca')
 
         if ninmax > 0:
             # flattened (nx, nresp, nlam) column-major, as in R's getcoef.multinomial
             nx = _args['nx']
-            unsort_coefs = _fit['ca'][:(nresp*nx*nfits)].reshape(nfits,
-                                                            nresp,
-                                                            nx)
+            unsort_coefs = ca[:(nresp*nx*nfits)].reshape(nfits,
+                                                         nresp,
+                                                         nx)
             unsort_coefs = np.transpose(unsort_coefs, [0,2,1])
             df = ((unsort_coefs**2).sum(2) > 0).sum(1)
 
@@ -779,10 +799,9 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             coefs = np.zeros((nfits, n_features, nresp))
             coefs[:, active_seq] = unsort_coefs[:, :len(active_seq)]
         else:
-            # No features selected (or no fits); return zeros
+            # No features selected; return zeros
             coefs = np.zeros((nfits, n_features, nresp))
             df = np.zeros(nfits, dtype=int)
-        intercepts = _fit['a0'][:,:nfits].T
 
         return {'coefs':coefs,
                 'intercepts':intercepts,
@@ -827,7 +846,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         (n_samples, n_features), nr = design.X.shape, response.shape[1]
         _args['a0'] = np.asfortranarray(np.zeros((nr, self.nlambda), float))
-        _args['ca'] = np.zeros((self.nlambda * nr * _args['nx'], 1))
+        _args['ca'] = np.zeros(self.nlambda * nr * _args['nx'])
         _args['y'] = np.asfortranarray(_args['y'].reshape((n_samples, nr)))
 
         return _args
