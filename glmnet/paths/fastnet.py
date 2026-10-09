@@ -10,6 +10,9 @@ import pandas as pd
 import scipy.sparse
 from tqdm import tqdm
 
+from sklearn.base import BaseEstimator, clone
+from sklearn.utils.validation import check_is_fitted
+
 from ..base import _get_design
 from ..glm import GLMState
 from ..elnet import (_check_limits,
@@ -20,44 +23,89 @@ from ..glmnet import (GLMNet,
 from ..family import GLMFamilySpec
 
 from .._utils import (_jerr_elnetfit,
-                      _validate_cpp_args)
+                      _validate_cpp_args,
+                      _check_offset)
+
+class _NoProgress(object):
+    """Stand-in for a tqdm progress bar that shows nothing."""
+
+    def update(self, m):
+        pass
+
+    def close(self):
+        pass
+
+
+class _PathProgress(object):
+    """
+    Progress bar for the C++ paths. These call ``update(m)`` with the
+    (0-based) index of the lambda value just fit, as R's ``setpb``,
+    rather than an increment.
+    """
+
+    def __init__(self, total):
+        self.bar = tqdm(total=total)
+
+    def update(self, m):
+        self.bar.update(m + 1 - self.bar.n)
+
+    def close(self):
+        self.bar.close()
+
 
 @dataclass
 class FastNetControl(object):
     """Control parameters for FastNet path solvers.
 
+    Most fields mirror R's ``glmnet.control``. To change the convergence
+    tolerance or iteration limit of the coordinate descent solver, set
+    ``thresh`` and ``maxit`` (the analogues of the ``thresh`` and ``maxit``
+    arguments to R's ``glmnet``), not ``eps`` or ``mxit``.
+
     Parameters
     ----------
     fdev : float, default=1e-5
-        Fractional deviance tolerance for early stopping.
+        Minimum fractional change in deviance for stopping the path early.
     eps : float, default=1e-6
-        Convergence threshold for coordinate descent.
+        Minimum value of the lambda min ratio; only used when lambda
+        values are not supplied. Not a convergence tolerance.
     big : float, default=9.9e35
-        Large value used for numerical stability.
+        Large floating point number, effectively infinity.
     mnlam : int, default=5
-        Minimum number of lambda values.
+        Minimum number of path points (lambda values) fit before early
+        stopping is allowed.
     devmax : float, default=0.999
-        Maximum fraction of deviance explained.
+        Path stops early if the fraction of deviance explained reaches
+        this value.
     pmin : float, default=1e-9
-        Minimum value for probabilities.
+        Minimum fitted probability for binomial/multinomial models.
     exmx : float, default=250.
-        Maximum exponent value.
+        Maximum allowed value of the linear predictor (exponent).
     itrace : int, default=0
-        Trace level for logging.
+        If nonzero, show a progress bar along the path (R's ``trace.it``).
+        By default fits are silent.
     prec : float, default=1e-10
-        Precision for calculations.
+        Convergence threshold for the bounds adjustment in multi-response
+        (multinomial grouped, multi-Gaussian) fits.
     mxit : int, default=100
-        Maximum number of iterations.
+        Maximum iterations for the bounds adjustment in multi-response
+        (multinomial grouped, multi-Gaussian) fits. Not the coordinate
+        descent iteration limit.
     epsnr : float, default=1e-6
-        Convergence threshold for Newton-Raphson.
+        Convergence threshold for Newton-Raphson; kept for parity with
+        ``glmnet.control``, not used by the path solvers.
     mxitnr : int, default=25
-        Maximum Newton-Raphson iterations.
+        Maximum Newton-Raphson iterations; kept for parity with
+        ``glmnet.control``, not used by the path solvers.
     maxit : int, default=100000
-        Maximum number of iterations (wrapper only).
+        Maximum number of passes over the data for coordinate descent,
+        across all lambda values.
     thresh : float, default=1e-7
-        Threshold for convergence (wrapper only).
+        Convergence threshold for coordinate descent. Each inner loop runs
+        until the maximum change in the objective after any coefficient
+        update is less than ``thresh`` times the null deviance.
     logging : bool, default=False
-        Enable logging (wrapper only).
+        Enable debug logging.
     """
 
     fdev: float = 1e-5
@@ -72,11 +120,27 @@ class FastNetControl(object):
     mxit: int = 100
     epsnr: float = 1e-6
     mxitnr: int = 25
-    # thresh & logging not part of glmnet.control but used in the wrapper
+    # maxit, thresh & logging are not part of glmnet.control
     maxit: int = 100000
     thresh: float = 1e-7
     logging: bool = False
     
+@dataclass
+class MultiState(object):
+    """
+    Solution at one lambda value for multiple responses.
+
+    Parameters
+    ----------
+    coef: np.ndarray
+        Coefficients, of shape `(n_features, n_responses)`.
+    intercept: np.ndarray
+        Intercepts, of shape `(n_responses,)`.
+    """
+    coef: np.ndarray
+    intercept: np.ndarray
+
+
 @dataclass
 class FastNetMixin(GLMNet): # base class for C++ path methods
     """Mixin for fast path solvers using C++ backend.
@@ -92,6 +156,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         Number of lambda values.
     df_max : int, optional
         Maximum degrees of freedom.
+    pmax : int, optional
+        Maximum number of variables ever nonzero along the path. Defaults
+        to `min(2 * df_max + 20, n_features)`, as in R. If it is exceeded,
+        the path stops with a warning and the solutions for the larger
+        lambdas are returned.
     control : FastNetControl, optional
         Control parameters for the solver.
 
@@ -112,7 +181,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     lambda_min_ratio: Optional[float] = None
     nlambda: int = 100
     df_max: Optional[int] = None
+    pmax: Optional[int] = None
     control: FastNetControl = field(default_factory=FastNetControl)
+
+    # interprets the C++ error code (R's jerr.elnet / jerr.coxnet ...)
+    _jerr_message = staticmethod(_jerr_elnetfit)
 
     def fit(self,
             X,
@@ -149,6 +222,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         self.excluded_ = copy(self.exclude)
         self.excluded_.extend(list(self.prefilter(X, y)))
+        self.penalty_factor_ = self.get_penalty_factor(X, y)
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
@@ -176,7 +250,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         sample_weight = weight
         
-        self.pb = tqdm(total=self.nlambda)
+        # the C++ paths only advance the bar when itrace is nonzero,
+        # so only show one then (R's trace.it)
+        if self.control.itrace:
+            self.pb = _PathProgress(total=self.nlambda)
+        else:
+            self.pb = _NoProgress()
         self._args = self._wrapper_args(design,
                                         response,
                                         sample_weight,
@@ -212,6 +291,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         if msg is not None:
             raise ValueError(msg)
         self._fit = fit_method(**self._args)
+        self.pb.close()
 
         # the solver fills `ca` in place; the C++ wrappers don't return it
         # because pybind11 would copy it
@@ -221,8 +301,13 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         # if error code < 0, non-fatal error occurred: return error code
 
         if self._fit['jerr'] != 0:
-            errmsg = _jerr_elnetfit(self._fit['jerr'], self.control.maxit)
+            errmsg = type(self)._jerr_message(self._fit['jerr'],
+                                              self.control.maxit,
+                                              pmax=self._args['nx'])
             if self.control.logging: logging.debug(errmsg['msg'])
+            if not errmsg['fatal']:
+                # as R's glmnet, warn that solutions for larger lambdas were returned
+                warnings.warn(errmsg['msg'])
 
         # extract the coefficients
         
@@ -232,9 +317,14 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         self.coefs_ = result['coefs']
         self.intercepts_ = result['intercepts']
             
-        if self.coefs_.ndim == 1:
+        # single response: coefs_ has shape (nlambda, nfeatures)
+        if self.coefs_.ndim == 2:
             self.state_ = GLMState(self.coefs_[-1],
                                    self.intercepts_[-1])
+        # multiple responses: coefs_ has shape (nlambda, nfeatures, nresponse)
+        elif self.coefs_.ndim == 3:
+            self.state_ = MultiState(self.coefs_[-1],
+                                     self.intercepts_[-1])
 
         self.lambda_values_ = result['lambda_values']
         nfits = self.lambda_values_.shape[0]
@@ -302,7 +392,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         nx = _args['nx']
 
         if nfits < 1:
+            # as in R's getcoef: a single all-zero fit at lambda = Inf
             warnings.warn("an empty model has been returned; probably a convergence issue")
+            return {'coefs':np.zeros((1, n_features)),
+                    'intercepts':np.asarray(_fit['a0']).reshape(-1)[:1],
+                    'df':np.zeros(1, dtype=int),
+                    'lambda_values':np.array([np.inf])}
 
         nin = _fit['nin'][:nfits]
         ninmax = int(nin.max()) if nin.size else 0
@@ -403,7 +498,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             response = response.reshape((-1,1))
 
         # compute vp
-        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor,
+        penalty_factor_, excluded_ = _check_penalty_factor(self.penalty_factor_,
                                                                 n_features,
                                                                 exclude)
         self.excluded_ = np.asarray(excluded_) - 1
@@ -437,9 +532,12 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
 
         # all but the X -- this is set below
 
-        # isn't this always n_features?
-        # should have a df_max arg
-        if self.df_max is not None:
+        # nx is R's pmax: the maximum number of variables ever nonzero
+        if self.pmax is not None:
+            if int(self.pmax) != self.pmax or self.pmax < 1:
+                raise ValueError('pmax should be a positive integer')
+            nx = int(self.pmax)
+        elif self.df_max is not None:
             nx = min(self.df_max*2+20, n_features)
         else:
             nx = n_features
@@ -475,6 +573,11 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
                  }
 
         return _args
+
+    def _fixed_lambda_family(self):
+        # the `family` field is unused by the C++ paths; `_family` is set in
+        # __post_init__ (e.g. binomial for LogNet) or by `fit`
+        return self._family
 
     def prefilter(self, X, y):
         """
@@ -516,10 +619,46 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         Control parameters for the solver.
     """
 
+    def get_fixed_lambda(self,
+                         lambda_val):
+        """
+        Get an estimator for a fixed lambda value.
+
+        There is no single lambda solver for multiple responses, so the
+        estimator fits this path's lambda values above `lambda_val`, then
+        `lambda_val` itself, and keeps the last solution: the path supplies
+        the warm starts, as for R's ``coef(..., exact=TRUE)``.
+
+        Parameters
+        ----------
+        lambda_val: float
+            Lambda value.
+
+        Returns
+        -------
+        tuple
+            (estimator, state) where estimator is a `FixedLambdaMultiNet`
+            and state is a `MultiState` with the coefficients interpolated
+            from the path at `lambda_val`.
+        """
+        check_is_fitted(self, ["coefs_", "feature_names_in_"])
+
+        if lambda_val < 0:
+            raise ValueError('lambda_val must be non-negative')
+        lambda_values = self.lambda_values_[self.lambda_values_ > lambda_val]
+        estimator = FixedLambdaMultiNet(path_estimator=clone(self),
+                                        lambda_val=lambda_val,
+                                        lambda_values=np.hstack([lambda_values, lambda_val]))
+
+        coefs, intercepts = self.interpolate_coefs([lambda_val])
+        state = MultiState(coefs[0], intercepts[0])
+        return estimator, state
+
     def predict(self,
                 X,
                 prediction_type='link', # ignored except checking valid
                 interpolation_grid=None,
+                offset=None,
                 ):
         """
         Predict using the fitted model for multiple responses.
@@ -530,6 +669,12 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             Feature matrix.
         prediction_type : str, optional
             Type of prediction ('response' or 'link').
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+        offset : array-like, optional
+            Offset for the rows of `X`, of shape `(n_samples, n_responses)`,
+            added to the linear predictor (R's `newoffset`). A vector is used
+            for every response. If omitted, no offset is used.
 
         Returns
         -------
@@ -556,6 +701,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
                           X)
         fits = term1 + intercepts_[:, None, :]
         fits = np.transpose(fits, [1,0,2])
+        if offset is not None:
+            fits = fits + _check_offset(offset, X.shape[0], fits.shape[2])[:, None, :]
 
         # make return based on original
         # promised number of lambdas
@@ -578,6 +725,38 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
             return value
         else:
             return value[:,0,:]
+
+    def nonzero(self,
+                interpolation_grid=None):
+        """
+        Indices of the nonzero coefficients along the path, as
+        `predict(fit, type="nonzero")` in R.
+
+        Parameters
+        ----------
+        interpolation_grid : array-like, optional
+            Grid of lambda values. If provided, coefficients are interpolated
+            to these values first, as in `predict`.
+
+        Returns
+        -------
+        list
+            For each lambda in `lambda_values_` (or in `interpolation_grid`),
+            the (0-based) indices of the features with a nonzero coefficient
+            for any response. For an ungrouped multinomial fit (`grouped=False`)
+            this is instead a list with one such list per class, as in R.
+            If `interpolation_grid` is a scalar, each list of arrays is
+            replaced by its single array.
+        """
+        coefs_, squeeze = self._nonzero_coefs(interpolation_grid)
+        # coefs_ has shape (n_lambda, n_features, n_responses);
+        # MultiGaussNet has no `grouped` attribute and is always grouped
+        if getattr(self, 'grouped', True):
+            value = [np.nonzero(np.any(c != 0, axis=1))[0] for c in coefs_]
+            return value[0] if squeeze else value
+        value = [[np.nonzero(c[:, k])[0] for c in coefs_]
+                 for k in range(coefs_.shape[2])]
+        return [v[0] for v in value] if squeeze else value
 
     # private methods
 
@@ -613,9 +792,11 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         ca = _fit.pop('ca')
 
         if ninmax > 0:
-            unsort_coefs = ca[:(nresp*n_features*nfits)].reshape(nfits,
-                                                                    nresp,
-                                                                    n_features)
+            # flattened (nx, nresp, nlam) column-major, as in R's getcoef.multinomial
+            nx = _args['nx']
+            unsort_coefs = ca[:(nresp*nx*nfits)].reshape(nfits,
+                                                         nresp,
+                                                         nx)
             unsort_coefs = np.transpose(unsort_coefs, [0,2,1])
             df = ((unsort_coefs**2).sum(2) > 0).sum(1)
 
@@ -674,7 +855,100 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
 
         (n_samples, n_features), nr = design.X.shape, response.shape[1]
         _args['a0'] = np.asfortranarray(np.zeros((nr, self.nlambda), float))
-        _args['ca'] = np.zeros(self.nlambda * nr * n_features)
+        _args['ca'] = np.zeros(self.nlambda * nr * _args['nx'])
         _args['y'] = np.asfortranarray(_args['y'].reshape((n_samples, nr)))
 
         return _args
+
+
+@dataclass
+class FixedLambdaMultiNet(BaseEstimator):
+    """
+    Fit of a multiple response path estimator at one lambda value, as
+    returned by `MultiFastNetMixin.get_fixed_lambda`.
+
+    The path estimator is fit to `lambda_values`, which end at `lambda_val`,
+    and the solution at `lambda_val` is kept.
+
+    Parameters
+    ----------
+    path_estimator: MultiFastNetMixin
+        Unfitted path estimator (e.g. `MultiGaussNet` or `MultiClassNet`).
+    lambda_val: float
+        Lambda value.
+    lambda_values: np.ndarray
+        Decreasing lambda values of the path fit, ending at `lambda_val`.
+
+    Attributes
+    ----------
+    coef_: np.ndarray
+        Coefficients at `lambda_val`, of shape `(n_features, n_responses)`.
+    intercept_: np.ndarray
+        Intercepts at `lambda_val`, of shape `(n_responses,)`.
+    path_: MultiFastNetMixin
+        The fitted path estimator.
+    """
+    path_estimator: BaseEstimator
+    lambda_val: float
+    lambda_values: np.ndarray
+
+    def fit(self,
+            X,
+            y,
+            sample_weight=None,  # ignored
+            warm_state=None):
+        """
+        Fit at `lambda_val`.
+
+        Parameters
+        ----------
+        X : array-like or sparse matrix
+            Feature matrix.
+        y : array-like
+            Target matrix, with any weight or offset columns.
+        sample_weight : array-like, optional
+            Sample weights (ignored).
+        warm_state : MultiState, optional
+            Ignored: the C++ paths take no warm start, the path from the
+            largest lambda value supplies it.
+
+        Returns
+        -------
+        self : object
+            Fitted estimator.
+        """
+        path = clone(self.path_estimator)
+        path.lambda_values = np.asarray(self.lambda_values, float)
+        path.fit(X, y)
+        if not np.isclose(path.lambda_values_[-1], self.lambda_val):
+            warnings.warn('the path stopped before reaching lambda_val; '
+                          'returning the solution at the smallest lambda fitted')
+        self.path_ = path
+        self.coef_ = path.coefs_[-1]
+        self.intercept_ = path.intercepts_[-1]
+        self.state_ = MultiState(self.coef_, self.intercept_)
+        return self
+
+    def predict(self,
+                X,
+                prediction_type=None):
+        """
+        Predict at `lambda_val`.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix.
+        prediction_type : str, optional
+            As for the path estimator's `predict`, whose default is used
+            if None.
+
+        Returns
+        -------
+        np.ndarray
+            Predictions, of shape `(n_samples, n_responses)` (or
+            `(n_samples,)` for `prediction_type='class'`).
+        """
+        check_is_fitted(self, ["coef_"])
+        kwargs = {} if prediction_type is None else {'prediction_type': prediction_type}
+        return self.path_.predict(X, **kwargs)[:, len(self.path_.lambda_values_) - 1]

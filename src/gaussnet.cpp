@@ -78,7 +78,10 @@ py::dict gaussnet_exp(
 	       lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
 	       [&](int v) {update_pb(pb, v);}, params);
   };
-  run(f, jerr);
+  {
+    py::gil_scoped_release nogil;
+    run(f, jerr);
+  }
 
   py::dict result;
 
@@ -183,7 +186,10 @@ py::dict spgaussnet_exp(
 	       lmu, a0, ca, ia, nin, rsq, alm, nlp, jerr, 
 	       [&](int v) {update_pb(pb, v);}, params);
   };
-  run(f, jerr);
+  {
+    py::gil_scoped_release nogil;
+    run(f, jerr);
+  }
 
   py::dict result;
 

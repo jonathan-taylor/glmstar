@@ -140,9 +140,9 @@ def test_multiclassnet(Rinfo, standardize,
                         fit_intercept=fit_intercept,
                         offset=offsetR)
 
-    assert np.linalg.norm(C[:,1:] - L.coefs_) / np.linalg.norm(L.coefs_) < 1e-5
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / max(np.linalg.norm(L.coefs_), 1) < 1e-8
     if fit_intercept:
-        assert np.linalg.norm(C[:,0] - L.intercepts_) / np.linalg.norm(L.intercepts_) < 1e-5
+        assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
 
 def test_CV(Rinfo, offset,
             sample_weight,
@@ -207,5 +207,44 @@ def test_CV(Rinfo, offset,
 
     print(CVM)
     print(np.asarray(CVM_))
-    assert np.allclose(CVM[:15], CVM_.iloc[:15])
-    assert np.allclose(CVSD[:15], CVSD_.iloc[:15])
+    assert CVM.shape == CVM_.shape
+    assert np.allclose(CVM, CVM_, rtol=1e-8, atol=1e-12)
+    assert np.allclose(CVSD, CVSD_, rtol=1e-8, atol=1e-12)
+
+@pytest.mark.parametrize('nobs, nvars, dfmax', [(100, 50, 3), (50, 200, 10)])
+def test_multiclassnet_df_max(Rinfo, nobs, nvars, dfmax):
+    # df_max small enough that nx = min(2*df_max+20, p) < p, so that the
+    # flattened coefficient array returned from C++ has stride nx, not p
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+
+    q = 3
+
+    X, Y, D, col_args, weightsR, offsetR = get_data(nobs, nvars, q, None, None)
+
+    L = MultiClassNet(df_max=dfmax, **col_args)
+    L.fit(X, D)
+
+    C = get_glmnet_soln(Rinfo, get_RMultiClassNet(Rinfo),
+                        X,
+                        Y,
+                        df_max=dfmax)
+
+    assert C.shape[0] == L.coefs_.shape[0]
+    assert np.linalg.norm(C[:,1:] - L.coefs_) / max(np.linalg.norm(L.coefs_), 1) < 1e-8
+    assert np.linalg.norm(C[:,0] - L.intercepts_) / max(np.linalg.norm(L.intercepts_), 1) < 1e-8
+
+
+def test_multiclassnet_scalar_interpolation_grid():
+    # a scalar interpolation_grid drops the lambda axis
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((100, 5))
+    y = rng.choice(3, size=100)
+    G = MultiClassNet().fit(X, y)
+    lam = G.lambda_values_[5]
+    for prediction_type in ['link', 'response', 'class']:
+        scalar = G.predict(X, interpolation_grid=lam, prediction_type=prediction_type)
+        vector = G.predict(X, interpolation_grid=[lam], prediction_type=prediction_type)
+        np.testing.assert_array_equal(scalar, vector[:, 0])
+    np.testing.assert_allclose(G.predict(X, interpolation_grid=lam).sum(-1), 1)

@@ -1,6 +1,6 @@
 [submodule "eigen"]
 	path = eigen
-	url = https://gitlab.com/libeigen/eigen.git
+	url = https://github.com/eigen-mirror/eigen.git
 [submodule "src/glmnetpp"]
 	path = src/glmnetpp
 	url = git@github.com:intro-stat-learning/glmnetpp.git

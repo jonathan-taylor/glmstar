@@ -54,7 +54,10 @@ py::dict elnet_point_exp(
 			      ia, iy, iz, mm, nino, rsqc, nlp);
     elnet_point.fit(m, jerr);
   };
-  run(f, jerr);
+  {
+    py::gil_scoped_release nogil;
+    run(f, jerr);
+  }
 
   py::dict result;
   
@@ -142,7 +145,10 @@ py::dict spelnet_point_exp(
                 ia, iy, iz, mm, nino, rsqc, nlp);
         elnet_point.fit(m, jerr);
     };
-    run(f, jerr);
+    {
+      py::gil_scoped_release nogil;
+      run(f, jerr);
+    }
 
     py::dict result;
     

@@ -11,15 +11,16 @@ import numpy as np
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
 from sklearn.metrics import (accuracy_score,
-                             zero_one_loss,
-                             log_loss)
+                             zero_one_loss)
 
 from .fastnet import MultiFastNetMixin
+from .._utils import _jerr_lognet
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
 
-from ..scoring import Scorer
+from ..scoring import (Scorer,
+                       multinomial_deviance_scorer)
 
 @dataclass
 class MultiClassFamily(object):
@@ -35,7 +36,9 @@ class MultiClassFamily(object):
         """
         return [accuracy_scorer,
                 misclass_scorer,
-                deviance_scorer]
+                deviance_scorer,
+                mse_scorer,
+                mae_scorer]
 
 @dataclass
 class MultiClassNet(MultiFastNetMixin):
@@ -82,11 +85,13 @@ class MultiClassNet(MultiFastNetMixin):
     _family: MultiClassFamily = field(default_factory=MultiClassFamily)
     _dense = _dense
     _sparse = _sparse
+    _jerr_message = staticmethod(_jerr_lognet)
 
     def predict(self,
                 X,
                 prediction_type='response', # ignored except checking valid
-                interpolation_grid=None
+                interpolation_grid=None,
+                offset=None
                 ):
         """Predict class probabilities or logits for multinomial classification.
 
@@ -96,6 +101,11 @@ class MultiClassNet(MultiFastNetMixin):
             Feature matrix.
         prediction_type : str, default='response'
             Type of prediction ('response' for probabilities, 'link' for logits).
+        interpolation_grid : array-like, optional
+            Grid for coefficient interpolation.
+        offset : array-like, optional
+            Offset for the rows of `X`, of shape `(n_samples, n_classes)`,
+            added to the logits (R's `newoffset`). If omitted, no offset is used.
 
         Returns
         -------
@@ -105,12 +115,13 @@ class MultiClassNet(MultiFastNetMixin):
 
         value = super().predict(X,
                                 interpolation_grid=interpolation_grid,
-                                prediction_type='link')
+                                prediction_type='link',
+                                offset=offset)
         if prediction_type == 'response':
-            _max = value.max(-1)
-            value = value - _max[:,:,None]
+            # value is (n, nlambda, K), or (n, K) for a scalar interpolation_grid
+            value = value - value.max(-1, keepdims=True)
             exp_value = np.exp(value)
-            value = exp_value / exp_value.sum(-1)[:,:,None]
+            value = exp_value / exp_value.sum(-1, keepdims=True)
         elif prediction_type == 'class':
             int_class = np.argmax(value, -1)
             value = self.categories_[int_class]
@@ -187,7 +198,8 @@ class MultiClassNet(MultiFastNetMixin):
 
     def predict_proba(self,
                       X,
-                      interpolation_grid=None):
+                      interpolation_grid=None,
+                      offset=None):
         """
         Probability estimates for a LogNet model.
 
@@ -200,6 +212,9 @@ class MultiClassNet(MultiFastNetMixin):
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 
+        offset : array-like, optional
+            Offset for the rows of `X` (see `predict`).
+
         Returns
         -------
         T : array-like of shape (n_samples, n_classes)
@@ -208,7 +223,8 @@ class MultiClassNet(MultiFastNetMixin):
         """
         return self.predict(X,
                             interpolation_grid=interpolation_grid,
-                            prediction_type='response')
+                            prediction_type='response',
+                            offset=offset)
 
     def _extract_fits(self,
                       X_shape,
@@ -336,25 +352,6 @@ def _accuracy_score(y, p_hat, sample_weight):
                           sample_weight=sample_weight,
                           normalize=True)
 
-def _deviance(y, p_hat, sample_weight):
-    """Compute deviance for multinomial classification.
-    
-    Parameters
-    ----------
-    y : array-like
-        True one-hot encoded labels.
-    p_hat : array-like
-        Predicted probabilities.
-    sample_weight : array-like
-        Sample weights.
-        
-    Returns
-    -------
-    float
-        Deviance value.
-    """
-    return 2 * log_loss(y, p_hat, sample_weight=sample_weight)
-
 misclass_scorer = Scorer(name='Misclassification Error',
                          score=_misclass,
                          maximize=False)
@@ -363,6 +360,21 @@ accuracy_scorer = Scorer(name='Accuracy',
                          score=_accuracy_score,
                          maximize=True)
 
-deviance_scorer = Scorer(name="Multinomial Deviance",
-                         score=_deviance,
-                         maximize=False)
+# clamps predicted probabilities as in R's cv.glmnet
+deviance_scorer = multinomial_deviance_scorer()
+
+def _mse(y, p_hat, sample_weight):
+    """Squared error summed over classes, as R's cv.glmnet(type.measure="mse")."""
+    return np.average(((y - p_hat)**2).sum(-1), weights=sample_weight)
+
+def _mae(y, p_hat, sample_weight):
+    """Absolute error summed over classes, as R's cv.glmnet(type.measure="mae")."""
+    return np.average(np.fabs(y - p_hat).sum(-1), weights=sample_weight)
+
+mse_scorer = Scorer(name='Mean Squared Error',
+                    score=_mse,
+                    maximize=False)
+
+mae_scorer = Scorer(name='Mean Absolute Error',
+                    score=_mae,
+                    maximize=False)
