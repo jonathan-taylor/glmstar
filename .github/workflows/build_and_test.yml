@@ -40,7 +40,7 @@ jobs:
 
       - name: Test pyglmnet
         run: |
-          pip install pytest 
+          pip install pytest matplotlib
           pytest tests --test-size=small
 
   build-linux:
@@ -70,7 +70,7 @@ jobs:
 
       - name: Test pyglmnet
         run: |
-          pip install pytest 
+          pip install pytest matplotlib
           pytest tests --test-size=small
 
 

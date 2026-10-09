@@ -46,6 +46,11 @@ class Design(LinearOperator):
         intercept: bool
             Whether to include an intercept.
         """
+        # sparse arrays, not matrices: `*` is elementwise and `sum(0)` is 1-D
+        # below only for scipy.sparse arrays
+        if scipy.sparse.issparse(self.X):
+            self.X = scipy.sparse.csc_array(self.X)
+
         # sets shape and dtype (and, in recent SciPy, the array namespace used by @)
         LinearOperator.__init__(self, dtype=self.dtype, shape=(self.X.shape[0], self.X.shape[1]+1))
         n = self.shape[0]
