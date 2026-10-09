@@ -12,30 +12,36 @@ kernelspec:
   name: python3
 ---
 
-# Excluding variables and penalty factors
+# Penalty factors (and excluding variables)
 
-R's `glmnet` has two arguments that control how each variable is
-penalized:
+A **penalty factor** multiplies the penalty on one variable:
 
-- `exclude`: column indices of variables to leave out of the model;
-- `penalty.factor`: a factor that multiplies the penalty on each
-  variable. A factor of 0 leaves the variable unpenalized, and an
-  infinite factor excludes it.
+- factor 1: the usual penalty;
+- factor 0: the variable is not penalized;
+- **infinite factor: the variable is excluded.** In `glmnet`, an infinite
+  penalty factor is how a variable is excluded.
 
-Each can be fixed, or a function of the data. A function is called on the
-data passed to `glmnet`. In `cv.glmnet` it is called again on the training
-data of each fold, so the held-out rows never influence which variables
-are dropped or how they are penalized. `exclude` has accepted a function
-since glmnet 4.1-2 and `penalty.factor` since 5.1.
+R's `glmnet` has separate `exclude` and `penalty.factor` arguments, and
+each can be fixed or a function of the data. `exclude` has accepted a
+function since glmnet 4.1-2, and `penalty.factor` since 5.1. In
+`cv.glmnet` the function is called again on the training data of each
+fold, so the held-out rows never influence which variables are dropped or
+how they are penalized.
 
-In `glmnet`, the fixed versions are the constructor arguments `exclude=`
-and `penalty_factor=`. Both function versions are handled by a single
-method, `get_penalty_factor(X, y)`, which you override in a subclass. It
-returns penalty factors, as for `penalty_factor=`. Variables with an
-infinite factor are excluded, so R's `exclude` and `penalty.factor`
-functions are both written as `get_penalty_factor`. Like R's functions,
-it is called at the start of each `fit`, so it reruns on each training
-fold in cross-validation.
+In `glmnet`:
+
+| R | `glmnet` |
+|---|---|
+| `penalty.factor = pf` (fixed) | `penalty_factor=pf` |
+| `exclude = idx` (fixed) | `exclude=idx`, the same as giving those variables `np.inf` in `penalty_factor` |
+| `penalty.factor = function(x, y, ...)` | override `get_penalty_factor(X, y)` |
+| `exclude = function(x, y, ...)` | override `get_penalty_factor(X, y)`, returning `np.inf` for the variables to exclude |
+
+So **R's `exclude` and `penalty.factor` are both handled by one method,
+`get_penalty_factor`.** It returns penalty factors as for
+`penalty_factor=`, and exclusions are the infinite ones. Like R's
+functions, it is called at the start of each `fit`, so it reruns on each
+training fold in cross-validation.
 
 ```{note}
 `prefilter(X, y)`, which returned the indices of the variables to exclude,

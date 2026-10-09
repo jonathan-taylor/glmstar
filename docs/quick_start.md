@@ -729,8 +729,8 @@ np.allclose(model.coefs_[:,model.excluded_], 0)
 `get_penalty_factor` is called at the start of every `fit`, so
 `cross_validation_path` reruns it on each training fold, as R's
 `cv.glmnet` does. The older `prefilter` method, which returned indices to
-exclude, is deprecated. See [Excluding variables and penalty
-factors](exclude.md) for more.
+exclude, is deprecated. See [Penalty factors (and excluding
+variables)](penalty_factor.md) for more.
 
 # Other Package Features
 
