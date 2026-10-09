@@ -150,11 +150,15 @@ PEAK_SCRIPT = textwrap.dedent('''
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='needs resource.getrusage')
-def test_peak_memory_is_about_one_copy():
+def test_peak_memory_is_about_one_copy(tmp_path):
     # peak RSS over the fit / size of the (nlambda, n_features) path:
     # ~3.2 before, ~1.2 now
+    # run outside the source tree: `python -c` puts the working directory
+    # first on sys.path, which from the repository root would import the
+    # uncompiled glmnet/ instead of the installed package
     out = subprocess.run([sys.executable, '-c', PEAK_SCRIPT], check=True,
                          capture_output=True, text=True,
-                         env={'TQDM_DISABLE': '1', 'PATH': ''})
+                         env={'TQDM_DISABLE': '1', 'PATH': ''},
+                         cwd=tmp_path)
     ratio = float(out.stdout.strip().splitlines()[-1])
     assert ratio < 2.0, f'peak RSS was {ratio:.2f}x the coefficient path'
