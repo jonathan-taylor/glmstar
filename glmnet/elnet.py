@@ -354,8 +354,9 @@ def _check_limits(lower_limits,
     ValueError
         If the provided limits are not compatible with n_features.
     """
-    lower_limits = np.asarray(lower_limits)
-    upper_limits = np.asarray(upper_limits)
+    # copies: the sentinel substitution below must not modify the caller's arrays
+    lower_limits = np.array(lower_limits, dtype=float)
+    upper_limits = np.array(upper_limits, dtype=float)
 
     if lower_limits.shape in [(), (1,)]:
         lower_limits = lower_limits * np.ones(n_features)

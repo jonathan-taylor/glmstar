@@ -73,7 +73,7 @@ class CoxNet(FastNetMixin):
     _sparse = _sparse
     _jerr_message = staticmethod(_jerr_coxnet)
 
-    # predictions are the linear predictor (risk score), as in CoxNetIRLS
+    # the linear predictor (risk score) or relative risk, as in CoxNetIRLS
     predict = CoxNetIRLS.predict
 
     def fit(self,
@@ -123,7 +123,7 @@ class CoxNet(FastNetMixin):
                 newX=None,
                 new_offset=None,
                 new_strata=None,
-                tie_breaking=None):
+                tie_breaking='efron'):
         """Survival curves at one or more points on the path.
 
         The analogue of R's ``survfit.coxnet``: the baseline hazard is
@@ -146,9 +146,10 @@ class CoxNet(FastNetMixin):
             Offsets for `newX`; required if the model was fit with an offset.
         new_strata : array-like, optional
             Strata labels for `newX`; required if the model is stratified.
-        tie_breaking : {'efron', 'breslow'}, optional
-            Hazard estimate for tied event times. Defaults to the family's
-            `tie_breaking`. R's ``survfit.coxnet`` always uses 'efron'.
+        tie_breaking : {'efron', 'breslow'}, default='efron'
+            Hazard estimate for tied event times. The default is 'efron', as
+            R's ``survfit.coxnet`` always uses (it refits with ``coxph``'s
+            default ties), whatever the family's `tie_breaking`.
 
         Returns
         -------
@@ -172,9 +173,6 @@ class CoxNet(FastNetMixin):
                 raise ValueError('new_strata is required for a stratified model')
             if new_offset is None:
                 new_offset = np.zeros(newX.shape[0])
-
-        if tie_breaking is None:
-            tie_breaking = self.family.tie_breaking
 
         if lambda_val is None:
             lambda_val = self.lambda_values_

@@ -339,32 +339,33 @@ def test_CV(Rinfo, offset,
     assert np.allclose(CVSD, CVSD_)
 
 
-def test_prefilter_excludes_features(Rinfo, n, p):
+def test_infinite_penalty_factor_excludes_features(Rinfo, n, p):
 
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
     from glmnet.paths.gaussnet import GaussNet
 
-    class PrefilterGaussNet(GaussNet):
-        def prefilter(self, X, y):
-            # Exclude features where the sum of X[:, j] * y is negative
-            print(np.nonzero(X.T @ y > 0)[0].shape)
-            return np.nonzero(X.T @ y > 0)[0]
+    class FilterGaussNet(GaussNet):
+        def get_penalty_factor(self, X, y):
+            # exclude features where the sum of X[:, j] * y is positive
+            return np.where(X.T @ y > 0, np.inf, 1.)
 
     X = rng.standard_normal((n, p))
     y = rng.standard_normal(n)
     X[:,:2] *= np.sign(X.T @ y)[:2][None,:]
-    model = PrefilterGaussNet()
+    model = FilterGaussNet()
     model.fit(X, y)
 
     # All excluded features should have all-zero coefficients for all lambdas
     excluded = model.excluded_
-    assert excluded.shape, "No features were excluded by prefilter"
+    assert excluded.shape, "No features were excluded by get_penalty_factor"
+    np.testing.assert_array_equal(excluded, np.nonzero(X.T @ y > 0)[0])
     coefs = model.coefs_
     assert np.allclose(coefs[:, excluded], 0)
 
 
 def test_prefilter_and_explicit_exclude(Rinfo):
+    # prefilter is deprecated, but its exclusions are still applied
 
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
@@ -381,9 +382,11 @@ def test_prefilter_and_explicit_exclude(Rinfo):
 
     # Explicitly exclude feature 0, and let prefilter exclude others
     model = PrefilterGaussNet(exclude=[0])
-    model.fit(X, y)
+    with pytest.warns(FutureWarning, match='prefilter is deprecated'):
+        model.fit(X, y)
     excluded = model.excluded_
     assert 0 in excluded, "Explicitly excluded feature 0 not in exclude list"
+    assert set(np.nonzero(X.T @ y > 0)[0]) <= set(excluded)
     coefs = model.coefs_
     assert np.allclose(coefs[:, excluded], 0)
 

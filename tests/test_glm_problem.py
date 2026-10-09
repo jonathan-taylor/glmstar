@@ -107,10 +107,6 @@ OPTIONS = {
     'offset': dict(offset_id='o'),
     'alpha_weights': dict(alpha=0.3, weight_id='w'),
     'exclude': dict(exclude=[3, 5]),
-}
-
-# known bugs in the IRLS GLMNet: fits with a penalty factor of 0 or inf fail
-GLMSTAR_BROKEN = {
     'unpenalized': dict(penalty_factor=np.r_[0., 2., np.ones(P - 2)]),
     'penalty_factor_inf': dict(penalty_factor=np.r_[1., 1., 1., np.inf, np.ones(P - 4)]),
 }
@@ -151,14 +147,16 @@ def test_glmstar_problem(data, family, standardize, fit_intercept, option):
 
 
 FAST_NETS = {'gaussian': GaussNet, 'binomial': LogNet, 'poisson': FishNet}
+# (the penalty factor 0 / inf cases are now in OPTIONS)
+FAST_OPTIONS = OPTIONS
 
 
 # standardize and fit_intercept are parametrized by tests/conftest.py
-@pytest.mark.parametrize('family,option', list(itertools.product(FAST_NETS, OPTIONS)))
+@pytest.mark.parametrize('family,option', list(itertools.product(FAST_NETS, FAST_OPTIONS)))
 def test_glmstar_fastnet_problem(data, family, standardize, fit_intercept, option):
     # the C++ paths standardize internally, so their design_.scaling_ is all ones
     X, df = data
-    opts = OPTIONS[option]
+    opts = FAST_OPTIONS[option]
     G = FAST_NETS[family](standardize=standardize, fit_intercept=fit_intercept, response_id=family,
                           nlambda=20, control=FastNetControl(thresh=1e-14, fdev=0),
                           **{k: np.copy(v) if isinstance(v, np.ndarray) else v for k, v in opts.items()})
@@ -175,11 +173,26 @@ def test_glmstar_fastnet_problem(data, family, standardize, fit_intercept, optio
                    alpha=opts.get('alpha', 1.), pf=opts.get('penalty_factor'),
                    exclude=opts.get('exclude', ()), standardize=standardize, y_scale=y_scale)
 
+    # the bounds are the user's limits, with excluded variables fixed at 0,
+    # not glmnet's sentinel +-control.big
+    _, excluded = _penalty_factor(opts.get('penalty_factor'), opts.get('exclude', ()))
+    lower = np.where(excluded, 0., np.broadcast_to(opts.get('lower_limits', -np.inf), (P,)))
+    upper = np.where(excluded, 0., np.broadcast_to(opts.get('upper_limits', np.inf), (P,)))
+    np.testing.assert_array_equal(prob.L[-P:], lower)
+    np.testing.assert_array_equal(prob.U[-P:], upper)
 
-@pytest.mark.xfail(strict=True, reason='IRLS GLMNet: penalty factor 0 / inf fails')
-@pytest.mark.parametrize('option', GLMSTAR_BROKEN)
-def test_glmstar_broken_options(data, option):
-    _check_glmstar(data, 'gaussian', True, True, GLMSTAR_BROKEN[option])
+
+def test_fastnet_limits_not_modified(data):
+    # fit replaces infinite limits by +-control.big in its own copies only
+    X, df = data
+    lower = np.r_[-np.inf, -0.1, np.full(P - 2, -np.inf)]
+    upper = np.r_[0.1, np.full(P - 1, np.inf)]
+    G = LogNet(response_id='binomial', lower_limits=lower, upper_limits=upper)
+    G.fit(X, df)
+    np.testing.assert_array_equal(G.lower_limits, np.r_[-np.inf, -0.1, np.full(P - 2, -np.inf)])
+    np.testing.assert_array_equal(G.upper_limits, np.r_[0.1, np.full(P - 1, np.inf)])
+
+
 
 
 def test_glmstar_unconverged_warns(data):
