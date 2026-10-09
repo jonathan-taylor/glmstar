@@ -129,21 +129,31 @@ class ElNetRegularizer(Penalty):
             Control parameters.
         """
 
+        # as R's glmnet: variables with an infinite penalty factor are
+        # excluded, excluded variables get factor 1, and the factors are
+        # rescaled to sum to nvars (on a copy: the argument is not changed)
         if self.penalty_factor is None:
             penalty_factor_ = np.ones(nvars)
         else:
-            penalty_factor_ = self.penalty_factor
+            penalty_factor_ = np.array(np.broadcast_to(self.penalty_factor, (nvars,)), dtype=float)
 
-        penalty_factor_ *= nvars / penalty_factor_.sum() 
-        self.penalty_factor_ = penalty_factor_
-        
+        exclude = set(np.asarray(self.exclude, int).tolist())
+        exclude |= set(np.nonzero(np.isinf(penalty_factor_))[0].tolist())
+        self.exclude = sorted(exclude)
+        penalty_factor_[self.exclude] = 1
+        penalty_factor_ = np.maximum(penalty_factor_, 0)
+        self.penalty_factor_ = penalty_factor_ * nvars / penalty_factor_.sum()
+
+        # ElNet rescales the factors it is given itself (after setting the
+        # excluded ones to 1), so pass them before rescaling: rescaling
+        # twice would change them
         self.elnet_estimator = ElNet(lambda_val=self.lambda_val,
                                      alpha=self.alpha,
                                      control=control,
                                      lower_limits=self.lower_limits,
                                      upper_limits=self.upper_limits,
                                      fit_intercept=self.fit_intercept,
-                                     penalty_factor=self.penalty_factor,
+                                     penalty_factor=penalty_factor_,
                                      standardize=False,
                                      exclude=self.exclude)
 
@@ -240,7 +250,8 @@ class ElNetRegularizer(Penalty):
 
     def objective(self, state):
         """
-        Compute objective value (elastic net penalty).
+        Compute objective value (elastic net penalty), weighted by the
+        penalty factors as R's `pen_function`.
         
         Parameters
         ----------
@@ -252,8 +263,9 @@ class ElNetRegularizer(Penalty):
         float
             Objective value (elastic net penalty).
         """
-        lasso = self.alpha * np.fabs(state.coef).sum()
-        ridge = (1 - self.alpha) * (state.coef**2).sum() / 2
+        pf = self.penalty_factor_
+        lasso = self.alpha * (pf * np.fabs(state.coef)).sum()
+        ridge = (1 - self.alpha) * (pf * state.coef**2).sum() / 2
         return self.lambda_val * (lasso + ridge)
 
 

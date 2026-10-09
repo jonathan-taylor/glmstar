@@ -76,10 +76,19 @@ class GLMNetControl(RegGLMControl):
     ----------
     fdev: float
         Fractional deviance tolerance for early stopping.
+    mnlam: int
+        Minimum number of lambda values fit before the path may stop early.
+    devmax: float
+        The path stops once the fraction of deviance explained exceeds this.
     logging: bool
         Write info and debug messages to log?
+
+    As in R's `glmnet.path`, the early stopping rules are not used when
+    `lambda_values` are given.
     """
     fdev: float = 1e-5
+    mnlam: int = 5
+    devmax: float = 0.999
     logging: bool = False
 
 
@@ -377,19 +386,25 @@ class GLMNet(BaseEstimator,
                                                y,
                                                self.excluded_)
 
-        state.update(self.reg_glm_est_.design_,
+        # _get_initial_state fits the unpenalized variables on the original
+        # scale: put the state in the coordinates of the (standardized) design
+        design = self.reg_glm_est_.design_
+        state = state.__class__(state.coef * design.scaling_,
+                                state.intercept + (state.coef * design.centers_).sum())
+        state.update(design,
                      self._family,
                      offset)
-        self.design_ = self.reg_glm_est_.design_
+        self.design_ = design
         
         logl_score = state.logl_score(self._family,
                                       response,
                                       normed_sample_weight)
 
-        score_ = (self.reg_glm_est_.design_.T @ logl_score)[1:]
+        score_ = (design.T @ logl_score)[1:]
         pf = regularizer_.penalty_factor_
         score_ /= (pf + (pf <= 0))
-        score_[self.excluded_] = 0
+        # excluded variables, including those with an infinite penalty factor
+        score_[regularizer_.exclude] = 0
         self.lambda_max_ = np.fabs(score_).max() / max(self.alpha, 1e-3)
 
         if self.lambda_values is None:
@@ -438,13 +453,8 @@ class GLMNet(BaseEstimator,
             coefs_.append(self.reg_glm_est_.coef_.copy())
             intercepts_.append(self.reg_glm_est_.intercept_)
             dev_ratios_.append(1 - self.reg_glm_est_.deviance_ / self.null_deviance_)
-            if len(dev_ratios_) > 1:
-                if self._family.is_gaussian:
-                    if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev * dev_ratios_[-1]:
-                        break
-                else: # TODO Poisson case
-                    if dev_ratios_[-1] - dev_ratios_[-2] < self.control.fdev:
-                        break
+            if self._stop_path(dev_ratios_):
+                break
             
         self.coefs_ = np.array(coefs_)
         self.intercepts_ = np.array(intercepts_)
@@ -1218,6 +1228,32 @@ class GLMNet(BaseEstimator,
         linpred = self._family.link(predictions) + offset[:, None]
         return self._family.predict(linpred, prediction_type='response')
    
+    def _stop_path(self,
+                   dev_ratios):
+        """
+        Whether to stop the path after the fits with fractions of deviance
+        explained `dev_ratios`, as R's `glmnet.path`: never before
+        `control.mnlam` fits or when `lambda_values` were given; otherwise
+        once the fraction exceeds `control.devmax`, or it stops increasing
+        (relative to `control.fdev`, with R's rules for the gaussian and
+        poisson families).
+        """
+        control = self.control
+        k = len(dev_ratios)
+        mnl = min(self.nlambda, getattr(control, 'mnlam', 5))
+        if self.lambda_values is not None or k < mnl:
+            return False
+        if dev_ratios[-1] > getattr(control, 'devmax', 0.999):
+            return True
+        if k == 1:
+            return False
+        base = getattr(self._family, 'base', None) # e.g. Cox has none
+        if isinstance(base, sm_family.Gaussian):
+            return dev_ratios[-1] - dev_ratios[-2] < control.fdev * dev_ratios[-1]
+        if isinstance(base, sm_family.Poisson):
+            return dev_ratios[-1] - dev_ratios[k - mnl] < 10 * control.fdev * dev_ratios[-1]
+        return dev_ratios[-1] - dev_ratios[-2] < control.fdev
+
     def _get_initial_state(self,
                            X,
                            y,
