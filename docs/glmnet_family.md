@@ -193,6 +193,10 @@ ax = newfit.coef_path_.plot()
 ax.set_title('Gamma regression with log link');
 ```
 
+A family that statsmodels does not provide can be written by specifying
+its link, variance function and deviance; see
+[Custom GLM families](custom_family.md).
+
 ## Fitted `GLMNet` objects
 
 `GLMNet` and the built-in estimators share their interface: the fitted path is in `coefs_`, `intercepts_` and `lambda_values_`, a summary of degrees of freedom and fraction of deviance explained is in `summary_`, and `predict`, `interpolate_coefs`, `cross_validation_path` and `coef_path_.plot()` work the same way. For example, cross-validation for the probit model:
