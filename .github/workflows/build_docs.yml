@@ -43,6 +43,8 @@ jobs: # This workflow contains a single
         run: |
           cd docs
           jupyter-book build .
+          # fail here, not at deploy, if the build produced nothing
+          test -f _build/html/index.html
 
       # Store the output
       - name: Upload docs
@@ -51,6 +53,7 @@ jobs: # This workflow contains a single
           name: glmstar_docs
           path: docs/_build/html
           retention-days: 5
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest

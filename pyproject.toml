@@ -43,7 +43,8 @@ dev = [
 ]
 doc = [
     "myst-parser",
-    "jupyter-book",
+    # the docs use Jupyter Book 1 (Sphinx) config and autodoc; v2 can't build them
+    "jupyter-book>=1.0,<2",
     "pandas",
     "matplotlib",
     "rpy2",
@@ -53,9 +54,7 @@ doc = [
     "sphinx-book-theme",
     "sphinx_rtd_theme",
     "jupytext",
-    "jupyter-book",
     "sphinx",
-    "myst-parser",
     "lassoinf"
 ]
 test = ["pytest",

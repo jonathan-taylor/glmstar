@@ -12,7 +12,7 @@ html:
   use_repository_button: true
   use_edit_page_button: true
 repository:
-  url: https://github.com/your-org/glmstar
+  url: https://github.com/jonathan-taylor/glmstar
   path_to_book: docs
   branch: main
 
