@@ -76,12 +76,24 @@ cvpath.index_best
 cvpath.index_1se
 ```
 
-The coefficients at the best pair:
+`cv_coefs` and `cv_predict` use the chosen pair directly, as R's
+`coef(cvfit, s="lambda.min")` and `predict(cvfit, newx, s="lambda.min")`
+do. Their default is the one standard error choice (`which='1se'`), as
+in R:
 
 ```{code-cell} ipython3
-lam_best, gamma_best = cvpath.index_best.loc['Mean Squared Error']
-coef_best, intercept_best = fit.interpolate_coefs(lam_best, gamma=gamma_best)
+coef_best, intercept_best = fit.cv_coefs(which='best')
 np.nonzero(coef_best)[0]
+```
+
+```{code-cell} ipython3
+fit.cv_predict(X[:5], which='best')
+```
+
+The coefficient path of a blend can be plotted with `relaxed_coef_path`:
+
+```{code-cell} ipython3
+ax = fit.relaxed_coef_path(gamma=0).plot()
 ```
 
 The lasso's cross-validation results ($\gamma=1$) are still in
