@@ -398,7 +398,9 @@ class GLMRegularizer(object):
                            alpha=self.ridge_coef)
             lm.fit(design.X, z, sample_weight=w)
             coefnew = lm.coef_
-            intnew = lm.intercept_
+            # the state is in the design's (centered) coordinates, as in
+            # the dense case; design.X is the raw (uncentered) sparse matrix
+            intnew = lm.intercept_ + coefnew @ design.centers_
 
         else:
             sqrt_w = np.sqrt(w)

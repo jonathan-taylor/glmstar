@@ -377,8 +377,9 @@ class CoxFamily(object):
     
     Parameters
     ----------
-    tie_breaking : {'breslow', 'efron'}, default='efron'
-        Method for handling ties in survival times.
+    tie_breaking : {'breslow', 'efron'}, default='breslow'
+        Method for handling ties in survival times. The default is
+        'breslow', as R's glmnet (``cox.ties="breslow"``).
     event_id : str, optional, default='event'
         Column name for event times.
     status_id : str, optional, default='status'
@@ -388,7 +389,7 @@ class CoxFamily(object):
     strata_id : str, optional, default=None
         Column name for strata (for stratified Cox models).
     """
-    tie_breaking: Literal['breslow', 'efron'] = 'efron'
+    tie_breaking: Literal['breslow', 'efron'] = 'breslow'
     event_id: Optional[str] = 'event'
     status_id: Optional[str] = 'status'
     start_id: Optional[str] = None
@@ -403,8 +404,9 @@ class CoxFamilySpec(object):
     ----------
     event_data : InitVar[np.ndarray]
         Survival data containing event times, status, and optionally start times.
-    tie_breaking : {'breslow', 'efron'}, default='efron'
-        Method for handling ties in survival times.
+    tie_breaking : {'breslow', 'efron'}, default='breslow'
+        Method for handling ties in survival times. The default is
+        'breslow', as R's glmnet (``cox.ties="breslow"``).
     event_id : str, optional, default='event'
         Column name for event times.
     status_id : str, optional, default='status'
@@ -417,7 +419,7 @@ class CoxFamilySpec(object):
         Family name.
     """
     event_data: InitVar[np.ndarray]
-    tie_breaking: Literal['breslow', 'efron'] = 'efron'
+    tie_breaking: Literal['breslow', 'efron'] = 'breslow'
     event_id: Optional[str] = 'event'
     status_id: Optional[str] = 'status'
     start_id: Optional[str] = None
@@ -735,7 +737,7 @@ class CoxNetIRLS(GLMNet):
 
     def predict(self,
                 X,
-                prediction_type='response',
+                prediction_type='link',
                 interpolation_grid=None,
                 offset=None,
                 gamma=1.):
@@ -749,9 +751,9 @@ class CoxNetIRLS(GLMNet):
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized. If it is not a sparse matrix, a copy is made and
             standardized.
-        prediction_type : str, default='response'
-            Type of prediction to return. For Cox models, this is always the
-            linear predictor (risk score), so this parameter is ignored.
+        prediction_type : {'link', 'response'}, default='link'
+            As R's `predict.coxnet`: 'link' gives the linear predictor (risk
+            score), 'response' the relative risk `exp(link)`.
         interpolation_grid : np.ndarray, optional
             Grid of lambda values for interpolation. If provided, coefficients are 
             interpolated to these values before prediction.
@@ -769,6 +771,9 @@ class CoxNetIRLS(GLMNet):
             where n_lambdas is the number of lambda values in the fitted path
             or the length of interpolation_grid if provided.
         """
+        if prediction_type not in ['link', 'response']:
+            raise ValueError("prediction_type should be one of 'link' or 'response' for Cox models")
+
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
             coefs_, intercepts_ = self.interpolate_coefs(grid_, gamma=gamma)
@@ -799,6 +804,9 @@ class CoxNetIRLS(GLMNet):
             else:
                 nlambda = self.nlambda
             squeeze = False
+
+        if prediction_type == 'response':
+            linear_pred_ = np.exp(linear_pred_)
 
         value = np.zeros((linear_pred_.shape[0], nlambda), float) * np.nan
         value[:,:linear_pred_.shape[1]] = linear_pred_
