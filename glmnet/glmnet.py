@@ -579,8 +579,10 @@ class GLMNet(BaseEstimator,
 
         Returns
         -------
-        tuple
-            (coefs_, intercepts_) interpolated to the new grid.
+        coefs: np.ndarray
+            Coefficients (as in `coefs_`) interpolated to the new grid.
+        intercepts: np.ndarray
+            Intercepts (as in `intercepts_`) interpolated to the new grid.
         """
         coefs_, intercepts_ = self._blended_coefs(gamma)
         return self._interpolate(coefs_, intercepts_, interpolation_grid)
@@ -995,20 +997,20 @@ class GLMNet(BaseEstimator,
 
         Returns
         -------
-        tuple
-            (predictions, score_path_)
-            predictions: np.ndarray
-                Cross-validated predictions for each sample and lambda value.
-            score_path_: ScorePath
-                An object containing cross-validation results, including scores (as a DataFrame),
-                standard errors, best/1se indices, lambda values, and more. Access scores via
-                score_path_.scores, e.g. score_path_.scores['Mean Squared Error'].
+        predictions: np.ndarray
+            Cross-validated predictions for each sample and lambda value.
+            For a relaxed fit, it has an axis for `gamma` after the first.
+        score_path: ScorePath or RelaxedScorePath
+            Cross-validation results, including scores (as a DataFrame),
+            standard errors, best/1se indices, lambda values, and more.
+            Access scores via ``score_path.scores``, e.g.
+            ``score_path.scores['Mean Squared Error']``. Also stored as
+            `score_path_`.
 
-            For a relaxed fit, predictions has an axis for `gamma` after the
-            first, and a `RelaxedScorePath` is returned, with a `ScorePath`
-            for each value of `gamma` and the best (lambda, gamma) pairs. It
-            is also stored as `relaxed_score_path_`; `score_path_` holds the
-            results for the lasso (`gamma=1`), as without `relax`.
+            For a relaxed fit, a `RelaxedScorePath` is returned, with a
+            `ScorePath` for each value of `gamma` and the best (lambda, gamma)
+            pairs. It is also stored as `relaxed_score_path_`; `score_path_`
+            holds the results for the lasso (`gamma=1`), as without `relax`.
         """
         check_is_fitted(self, ["coefs_"])
 

@@ -30,9 +30,10 @@ html_theme_options = {
 
 
 def _skip_sklearn_metadata_routing(app, what, name, obj, skip, options):
-    # scikit-learn adds set_{fit,predict,score,...}_request methods to every
-    # estimator subclass; they are not part of the GLMStar API
-    if name.startswith('set_') and name.endswith('_request'):
+    # scikit-learn's metadata-routing plumbing (set_{fit,predict,score,...}_request,
+    # added to every estimator subclass, and get_metadata_routing) is not part of
+    # the GLMStar API
+    if (name.startswith('set_') and name.endswith('_request')) or name == 'get_metadata_routing':
         return True
     return None
 
