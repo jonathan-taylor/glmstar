@@ -802,7 +802,8 @@ class GLMNet(BaseEstimator,
     def exact_coefs(self,
                     X,
                     y,
-                    lambda_val):
+                    lambda_val,
+                    gamma=1.):
         """
         Coefficients at `lambda_val` from refitting the path, rather than
         interpolating; R's ``coef(..., s=lambda_val, exact=TRUE)``.
@@ -815,13 +816,138 @@ class GLMNet(BaseEstimator,
             Response used in `fit`, with any weight or offset columns.
         lambda_val : float or np.ndarray
             Value(s) of lambda.
+        gamma : float
+            Blend of the lasso (1, the default) and relaxed (0) fits, as
+            in `interpolate_coefs`; requires `relax=True` unless 1.
 
         Returns
         -------
         tuple
             (coefs, intercepts) at `lambda_val`, shaped as by `interpolate_coefs`.
         """
-        return self.refit_path(X, y, lambda_val).interpolate_coefs(lambda_val)
+        return self.refit_path(X, y, lambda_val).interpolate_coefs(lambda_val, gamma=gamma)
+
+    def relaxed_coef_path(self,
+                          gamma=0.):
+        """
+        The coefficient path of the fit blended with `gamma` (the relaxed
+        fit for `gamma=0`), for plotting as R's ``plot(fit, gamma=)``.
+
+        Parameters
+        ----------
+        gamma : float
+            Blend of the lasso (1) and relaxed (0, the default) fits.
+
+        Returns
+        -------
+        CoefPath
+        """
+        check_is_fitted(self, ["coefs_"])
+        coefs_, intercepts_ = self._blended_coefs(gamma)
+        fracdev = np.asarray(self.summary_['Fraction Deviance Explained'])
+        if gamma < 1:
+            # as R's blend.relaxed
+            g = max(gamma, 1e-5)
+            fracdev = g * fracdev + (1 - g) * self.relaxed_fracdev_[:fracdev.shape[0]]
+        return CoefPath(coefs=coefs_,
+                        intercepts=intercepts_,
+                        lambda_values=self.lambda_values_,
+                        feature_names=self.feature_names_in_,
+                        fracdev=fracdev)
+
+    def cv_choice(self,
+                  which='1se',
+                  score=None):
+        """
+        The lambda (and gamma) chosen by the last `cross_validation_path`,
+        as R's ``lambda.1se`` / ``lambda.min`` of a `cv.glmnet` fit (and
+        ``gamma.1se`` / ``gamma.min`` for a relaxed fit).
+
+        Parameters
+        ----------
+        which : str
+            '1se' (the default, as R's ``s="lambda.1se"``) or 'best'
+            (R's ``"lambda.min"``).
+        score : str, optional
+            Name of the score the choice is based on; defaults to the
+            family's first default score (as in `ScorePath.plot`).
+
+        Returns
+        -------
+        tuple
+            (lambda, gamma); gamma is 1 unless the cross-validation was of a
+            relaxed fit.
+        """
+        if which not in ['1se', 'best']:
+            raise ValueError("which should be one of '1se' or 'best'")
+        if not hasattr(self, 'score_path_'):
+            raise ValueError('run cross_validation_path first')
+        if score is None:
+            score = self._family._default_scorers()[0].name
+        relaxed = getattr(self, 'relaxed_score_path_', None)
+        if self.relax and relaxed is not None:
+            index = relaxed.index_1se if which == '1se' else relaxed.index_best
+            if score not in index.index:
+                raise ValueError(f'no cross-validated score named {score!r}')
+            return float(index.loc[score, 'lambda']), float(index.loc[score, 'gamma'])
+        index = self.score_path_.index_1se if which == '1se' else self.score_path_.index_best
+        if index is None or score not in index.index:
+            raise ValueError(f'no cross-validated score named {score!r}')
+        return float(index[score]), 1.
+
+    def cv_coefs(self,
+                 which='1se',
+                 score=None):
+        """
+        Coefficients at the lambda (and gamma) chosen by the last
+        `cross_validation_path`, as R's ``coef(cvfit, s="lambda.1se")``.
+
+        Parameters
+        ----------
+        which : str
+            '1se' (the default) or 'best'; see `cv_choice`.
+        score : str, optional
+            Score the choice is based on; see `cv_choice`.
+
+        Returns
+        -------
+        tuple
+            (coefs, intercepts), as from `interpolate_coefs` at a single lambda.
+        """
+        lambda_val, gamma = self.cv_choice(which=which, score=score)
+        return self.interpolate_coefs(lambda_val, gamma=gamma)
+
+    def cv_predict(self,
+                   X,
+                   which='1se',
+                   score=None,
+                   **predict_args):
+        """
+        Predictions at the lambda (and gamma) chosen by the last
+        `cross_validation_path`, as R's ``predict(cvfit, newx,
+        s="lambda.1se")``.
+
+        Parameters
+        ----------
+        X : Union[np.ndarray, scipy.sparse, DesignSpec]
+            Feature matrix to predict.
+        which : str
+            '1se' (the default) or 'best'; see `cv_choice`.
+        score : str, optional
+            Score the choice is based on; see `cv_choice`.
+        predict_args :
+            Other arguments of `predict`, e.g. `prediction_type` or `offset`.
+
+        Returns
+        -------
+        np.ndarray
+            Predictions, as from `predict` with a scalar `interpolation_grid`.
+        """
+        lambda_val, gamma = self.cv_choice(which=which, score=score)
+        return self.predict(X,
+                            interpolation_grid=lambda_val,
+                            gamma=gamma,
+                            **predict_args)
 
     def cross_validation_path(self,
                               X,

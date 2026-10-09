@@ -556,11 +556,14 @@ class RelaxedScorePath(object):
              cmap='viridis',
              col_min='#909090',
              ls_min='--',
+             se_bands=False,
+             alpha=0.2,
              **plot_args):
         """
         Plot the cross-validated score against lambda, one curve for each
         value of gamma, as R's `plot.cv.relaxed`, with the best and 1SE
-        lambda values marked.
+        lambda values marked. With `se_bands=True`, each curve is drawn with
+        a band of one standard error (R's `se.bands`), shaded with `alpha`.
         """
         import matplotlib.pyplot as plt
 
@@ -579,11 +582,19 @@ class RelaxedScorePath(object):
 
         colors = plt.get_cmap(cmap)(np.linspace(0, 0.9, len(self.gamma)))
         for g, path, c in zip(self.gamma, self.score_paths, colors):
+            mean = np.asarray(path.scores[score])
             ax.plot(x(path.lambda_values),
-                    np.asarray(path.scores[score]),
+                    mean,
                     c=c,
                     label=rf'$\gamma={g:g}$',
                     **plot_args)
+            if se_bands and f'SD({score})' in path.scores.columns:
+                sd = np.asarray(path.scores[f'SD({score})'])
+                ax.fill_between(x(path.lambda_values),
+                                mean - sd,
+                                mean + sd,
+                                color=c,
+                                alpha=alpha)
         for index, label in [(self.index_best, 'Best'), (self.index_1se, '1SE')]:
             if score in index.index:
                 ax.axvline(x(index.loc[score, 'lambda']),
