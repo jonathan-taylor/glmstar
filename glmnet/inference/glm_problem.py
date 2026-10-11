@@ -128,10 +128,23 @@ class GLMProblem:
     U: np.ndarray
     fit_intercept: bool
     linear_term: Optional[np.ndarray] = None   # in the same coordinates; None if 0
+    ridge: np.ndarray = None   # the elastic net's ridge term, in the coordinates of beta_hat
 
     def lasso_args(self):
         """Keyword arguments for lassoinf.LassoInference (add Z_full, Sigma, ...)."""
-        return {k: v for k, v in asdict(self).items() if k not in ('fit_intercept', 'linear_term')}
+        return {k: v for k, v in asdict(self).items() if k not in ('fit_intercept', 'linear_term', 'ridge')}
+
+    def information(self):
+        """
+        Q_hat without the ridge term of the elastic net: the information, whose multiple
+        dispersion / sum(weights) is the covariance of the score. The ridge term is in the
+        Hessian Q_hat but is not random.
+        """
+        if self.ridge is None or not np.any(self.ridge):
+            return self.Q_hat
+        if isinstance(self.Q_hat, LinearOperator):
+            return aslinearoperator(self.Q_hat) - aslinearoperator(sp.diags(self.ridge))
+        return self.Q_hat - np.diag(self.ridge)
 
     def kkt_violation(self):
         """Largest violation of the KKT conditions at beta_hat (0 at the exact solution)."""
@@ -391,7 +404,8 @@ def glmnet_problem(X,
     else:
         lin_vec = lin.coef
     return GLMProblem(beta_hat=beta_hat, G_hat=G_hat, Q_hat=Q, D=D, L=L, U=U,
-                      fit_intercept=fit_intercept, linear_term=lin_vec)
+                      fit_intercept=fit_intercept, linear_term=lin_vec,
+                      ridge=np.r_[0., ridge] if fit_intercept else ridge)
 
 
 def _glmstar_family(glmnet_obj):

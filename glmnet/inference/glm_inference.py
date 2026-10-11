@@ -298,7 +298,9 @@ def glm_inference_problem(problem,
             dispersion = 1.
     return GLMInferenceProblem(problem=problem,
                                Z_full=np.asarray(Z_full),
-                               Sigma=_scale(Q, dispersion / weights.sum()),
+                               # the ridge term is not random: the score's covariance is the
+                               # information without it
+                               Sigma=_scale(problem.information(), dispersion / weights.sum()),
                                scalar_noise=scalar_noise,
                                dispersion=dispersion)
 

@@ -99,7 +99,25 @@ def test_weights_offset_ridge(data):
     ridge = np.r_[0., lam * (1 - alpha) * scale**2]
     G_full = X1.T @ (wn * (np.exp(o + X1 @ b) - y)) + ridge * b
     np.testing.assert_allclose(li.Z_full, -G_full + prob.Q_hat @ b, atol=1e-10)
-    np.testing.assert_allclose(li.Sigma, prob.Q_hat / w.sum())
+    # the ridge term is not random: Sigma is the information without it
+    np.testing.assert_allclose(prob.ridge, ridge)
+    np.testing.assert_allclose(prob.Q_hat - prob.information(), np.diag(ridge), atol=1e-14)
+    np.testing.assert_allclose(li.Sigma, prob.information() / w.sum())
+
+
+def test_elastic_net_operator_information(data):
+    # information() for the matrix-free Hessian matches the dense one
+    X, df, rows = data
+    y = df['binomial'].values
+    coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
+    kw = dict(family='binomial', alpha=0.3)
+    dense = glmnet_problem(X, y, coef, 0.1, 0.05, **kw)
+    op = glmnet_problem(X, y, coef, 0.1, 0.05, hessian='operator', **kw)
+    np.testing.assert_allclose(op.information() @ np.eye(P + 1), dense.information(), atol=1e-12)
+    assert np.all(dense.ridge[1:] > 0) and dense.ridge[0] == 0
+    # with alpha = 1 the information is Q_hat
+    lasso = glmnet_problem(X, y, coef, 0.1, 0.05, family='binomial')
+    assert lasso.information() is lasso.Q_hat
 
 
 def test_gaussian_dispersion(data):
