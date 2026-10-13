@@ -212,6 +212,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             Fitted estimator.
         """
     
+        if self.linear_term is not None:
+            raise NotImplementedError('linear_term is not supported by the C++ path solvers; '
+                                      'use GLMNet with the corresponding family')
+
         if not hasattr(self, "_family"):
             self._family = GLMFamilySpec.from_family(self.family, response=y)
 

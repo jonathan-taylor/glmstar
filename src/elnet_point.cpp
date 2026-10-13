@@ -37,7 +37,8 @@ py::dict elnet_point_exp(
 		 int nino,
 		 double rsqc,
 		 int nlp,
-		 int jerr
+		 int jerr,
+		 const Eigen::Ref<const Eigen::VectorXd> lin
 		 ) {
   using internal_t = ElnetPointInternal<
     util::glm_type::gaussian,
@@ -51,7 +52,7 @@ py::dict elnet_point_exp(
     elnet_point_t elnet_point(
 			      alm0, almc, alpha, x, r, xv, v, intr, ju, vp,
 			      cl, nx, thr, maxit, a, aint, g, 
-			      ia, iy, iz, mm, nino, rsqc, nlp);
+			      ia, iy, iz, mm, nino, rsqc, nlp, lin);
     elnet_point.fit(m, jerr);
   };
   {
@@ -116,7 +117,8 @@ py::dict spelnet_point_exp(
     int nino,
     double rsqc,
     int nlp,
-    int jerr
+    int jerr,
+    const Eigen::Ref<const Eigen::VectorXd> lin
     )
 {
 
@@ -142,7 +144,7 @@ py::dict spelnet_point_exp(
         elnet_point_t elnet_point(
                 alm0, almc, alpha, eigen_x, r, xm, xs, xv, v, intr, ju, vp,
                 cl, nx, thr, maxit, a, aint, g, 
-                ia, iy, iz, mm, nino, rsqc, nlp);
+                ia, iy, iz, mm, nino, rsqc, nlp, lin);
         elnet_point.fit(m, jerr);
     };
     {
@@ -204,7 +206,8 @@ PYBIND11_MODULE(_elnet_point, m) {
 	  py::arg("nino"),
 	  py::arg("rsqc"),
 	  py::arg("nlp"),
-	  py::arg("jerr"));
+	  py::arg("jerr"),
+	  py::arg("lin") = Eigen::VectorXd());
     
     m.def("spelnet_point", &spelnet_point_exp,
 	  py::arg("alm0"),
@@ -238,7 +241,8 @@ PYBIND11_MODULE(_elnet_point, m) {
 	  py::arg("nino"),
 	  py::arg("rsqc"),
 	  py::arg("nlp"),
-	  py::arg("jerr"));
+	  py::arg("jerr"),
+	  py::arg("lin") = Eigen::VectorXd());
 
 }
 

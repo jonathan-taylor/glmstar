@@ -23,8 +23,11 @@ project:
         - file: custom_family.md
         - file: penalty_factor.md
         - file: relax.md
-        - file: inference.md
         - file: glmnet_vs_R.md
+    - title: Inference
+      children:
+        - file: inference.md
+        - file: score_bootstrap.md
     - title: GLMNet paths
       children:
         - file: paths/GLMNet.md
