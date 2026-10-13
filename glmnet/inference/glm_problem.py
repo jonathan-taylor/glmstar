@@ -37,6 +37,10 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 from scipy.special import expit
+import statsmodels.genmod.families as sm_family
+
+from ..family import is_link
+from ..paths.fastnet import FastNetMixin
 
 FAMILIES = ('gaussian', 'binomial', 'poisson')
 
@@ -305,8 +309,6 @@ def glmnet_problem(X,
 
 
 def _glmstar_family(glmnet_obj):
-    import statsmodels.genmod.families as sm_family
-    from ..family import is_link
     base = glmnet_obj._family.base
     for name, cls in [('gaussian', sm_family.Gaussian),
                       ('binomial', sm_family.Binomial),
@@ -343,7 +345,6 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
     # The C++ paths (LogNet, GaussNet, FishNet) fit with an unstandardized design_ and
     # standardize internally, as R's glmnet does, so design_.scaling_ is all ones: use
     # glmnet's conventions for the column scales and the gaussian response scale.
-    from ..paths.fastnet import FastNetMixin
     if isinstance(G, FastNetMixin):
         scaling, y_scale = None, None
     else:

@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 import statsmodels.api as sm
+from sklearn.model_selection import KFold
 from statsmodels.genmod.families import links as sm_links
 
 from glmnet import GLMNet
@@ -313,7 +314,6 @@ def test_cv_deviance_noncanonical(Rinfo, link, R_link):
 
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
-    from sklearn.model_selection import KFold
     rpy = Rinfo['rpy']
 
     G, X, D = fit_noncanonical(link)
