@@ -11,6 +11,7 @@ except PackageNotFoundError:
         __version__ = "unknown"
 
 from .glmnet import GLMNet
+from .elnet import LinearTerm
 from .glm import GLM
 from .cox import CoxNetIRLS
 from .paths.gaussnet import GaussNet
