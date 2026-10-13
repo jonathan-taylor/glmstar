@@ -38,6 +38,7 @@ project:
       children:
         - file: inference.md
         - file: score_bootstrap.md
+        - file: overdispersed_poisson.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:
