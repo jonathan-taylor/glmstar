@@ -39,6 +39,7 @@ project:
         - file: inference.md
         - file: score_bootstrap.md
         - file: overdispersed_poisson.md
+        - file: probit_regression.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:
