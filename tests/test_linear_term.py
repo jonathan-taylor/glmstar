@@ -254,35 +254,127 @@ def test_path_solvers_refuse():
         GaussNet(linear_term=np.ones(P), response_id='y').fit(X, Y)
 
 
-def test_randomized_inference_problem():
-    from glmnet.inference import glmnet_problem, glm_inference_problem, glmstar_problem
+PROBIT = sm.families.Binomial(link=sm.families.links.Probit())
+
+
+def test_intercept_kkt():
+    # KKT conditions of -loglik / sum(w) + G^T beta + G_0 beta_0 + lambda * penalty,
+    # for a canonical and a non-canonical link
+    from glmnet import LinearTerm
+    X, Y = _data('binomial', weights=True)
+    v = np.asarray(Y['w']) / Y['w'].sum()
+    y = np.asarray(Y['y'])
+    lam = 0.02
+    for fam in [sm.families.Binomial(), PROBIT]:
+        lt = LinearTerm(coef=0.02 * rng.standard_normal(P), intercept=0.05)
+        fit = GLMNet(family=fam, response_id='y', weight_id='w', standardize=False,
+                     lambda_values=np.array([lam]), linear_term=lt,
+                     control=GLMNetControl(epsnr=1e-12, thresh=1e-14)).fit(X, Y)
+        b, a0 = fit.coefs_[0], fit.intercepts_[0]
+        eta = a0 + X @ b
+        mu = fam.link.inverse(eta)
+        r = v * (y - mu) * fam.link.inverse_deriv(eta) / fam.variance(mu)
+        grad = X.T @ r - lt.coef
+        viol = np.where(b != 0, np.fabs(grad - lam * np.sign(b)), np.maximum(np.fabs(grad) - lam, 0))
+        assert viol.max() < 1e-6
+        np.testing.assert_allclose(r.sum(), lt.intercept, atol=1e-6)
+
+
+def test_intercept_requires_intercept():
+    from glmnet import LinearTerm
+    X, Y = _data('gaussian')
+    with pytest.raises(ValueError, match='intercept'):
+        _glmnet(fit_intercept=False, linear_term=LinearTerm(np.zeros(P), 0.1)).fit(X, Y)
+
+
+@pytest.mark.parametrize('family', ['gaussian', 'poisson'])
+def test_perturbed_response_is_linear_term(family):
+    # for the canonical link the response y + omega is the linear term
+    # (-X^T V omega, -sum(v omega)), with its intercept entry
+    from glmnet import LinearTerm
+    from glmnet.inference import glmstar_problem
+    X, Y = _data(family, weights=True)
+    v = np.asarray(Y['w']) / Y['w'].sum()
+    omega = 0.3 * rng.standard_normal(N)
+    if family == 'poisson':
+        omega = np.maximum(omega, -Y['y'].values)
+    tight = GLMNetControl(epsnr=1e-13, thresh=1e-15)
+    Y_prime = Y.assign(y=Y['y'] + omega)
+    direct = _glmnet(family, lambda_values=np.array([0.05]), control=tight).fit(X, Y_prime)
+    lt = LinearTerm(coef=-X.T @ (v * omega), intercept=-(v * omega).sum())
+    via_lt = _glmnet(family, lambda_values=np.array([0.05]), linear_term=lt, control=tight).fit(X, Y)
+    np.testing.assert_allclose(direct.coefs_[0], via_lt.coefs_[0], atol=1e-8)
+    np.testing.assert_allclose(direct.intercepts_[0], via_lt.intercepts_[0], atol=1e-8)
+    # and the problems agree (Q_hat at the LASSO solution does not depend on the response)
+    p1 = glmstar_problem(direct, X, Y_prime, information='lasso')
+    p2 = glmstar_problem(via_lt, X, Y, information='lasso')
+    np.testing.assert_allclose(p1.G_hat, p2.G_hat, atol=1e-8)
+    np.testing.assert_allclose(p1.Q_hat, p2.Q_hat, rtol=1e-6)
+
+
+def test_probit_is_not_logit():
+    # statsmodels' Probit subclasses Logit
+    from glmnet.inference import resolve_family
+    assert resolve_family(sm.families.Binomial()).canonical
+    fam = resolve_family(PROBIT)
+    assert fam.name == 'binomial' and not fam.canonical
+
+
+def test_probit_information():
+    # at the MLE (lambda = 0) the gradient vanishes and n Q_hat is statsmodels' Fisher information
+    from glmnet.inference import glmnet_problem
     X, Y = _data('binomial')
     y = np.asarray(Y['y'])
-    omega = 0.3 * (rng.binomial(1, 0.4, N) - rng.binomial(1, 0.4, N)) / np.sqrt(2)
-    y_prime = y + omega
-    v = np.ones(N) / N
+    mle = sm.GLM(y, sm.add_constant(X), family=PROBIT).fit(tol=1e-12)
+    problem = glmnet_problem(X, y, mle.params[1:], mle.params[0], 0., family=PROBIT,
+                             information='lasso')
+    assert np.abs(problem.G_hat).max() < 1e-8
+    np.testing.assert_allclose(np.linalg.inv(N * problem.Q_hat), mle.cov_params(), rtol=1e-5)
+
+
+@pytest.mark.parametrize('method', ['replicates', 'gaussian'])
+def test_score_perturbation_covariance(method):
+    # Var(omega) = scalar_noise * dispersion * Q / sum(w), Q the Fisher information at eta
+    from glmnet.inference import score_perturbation, glmnet_problem
+    X = rng.standard_normal((50, 3))
+    eta = 0.3 + X @ np.array([0.5, -0.3, 0.])
+    w = rng.integers(1, 4, 50).astype(float)
+    draws = np.array([(lambda lt: np.r_[lt.intercept, lt.coef])(
+        score_perturbation(X, eta, PROBIT, 0.25, weights=w, dispersion=2., method=method, rng=rng))
+        for _ in range(20000)])
+    # Q_hat at the LASSO solution 0 + eta: the information at eta
+    problem = glmnet_problem(X, np.full(50, 0.5), np.zeros(3), 0., 0., family=PROBIT, weights=w,
+                             offset=eta, information='lasso')
+    Sigma = 0.25 * 2. * problem.Q_hat / w.sum()
+    # within 5 Monte Carlo standard errors (about sqrt(Sigma_jj Sigma_kk / ndraw))
+    se = np.sqrt(np.outer(np.diag(Sigma), np.diag(Sigma)) / draws.shape[0])
+    assert np.all(np.abs(np.cov(draws.T) - Sigma) < 5 * se)
+    assert np.all(np.abs(draws.mean(0)) < 5 * np.sqrt(np.diag(Sigma) / draws.shape[0]))
+
+
+def test_randomized_inference_problem():
+    from glmnet import LinearTerm
+    from glmnet.inference import glmstar_problem, glm_inference_problem, glmnet_problem, score_perturbation
+    X, Y = _data('binomial')
+    y = np.asarray(Y['y'])
     lam = 0.03
-    y_tilde = y_prime.mean()
-    fit = GLMNet(family=sm.families.Binomial(), lambda_values=np.array([lam]),
-                 linear_term=-X.T @ (v * (y_prime - y_tilde))).fit(X, np.full(N, y_tilde))
-    # glmstar_problem would leave out the linear term
-    with pytest.raises(NotImplementedError):
-        glmstar_problem(fit, X, np.full(N, y_tilde))
-    problem = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam,
-                             family='binomial', scaling=fit.design_.scaling_, y_scale=1.)
+    pilot = sm.GLM(y, sm.add_constant(X), family=PROBIT).fit()
+    lt = score_perturbation(X, sm.add_constant(X) @ pilot.params, PROBIT, 0.25, rng=rng)
+    fit = GLMNet(family=PROBIT, lambda_values=np.array([lam]), linear_term=lt,
+                 control=GLMNetControl(epsnr=1e-12, thresh=1e-14)).fit(X, y)
+    problem = glmstar_problem(fit, X, y)
     assert problem.kkt_violation() < 1e-4 * lam
+    np.testing.assert_allclose(problem.linear_term, np.r_[lt.intercept, lt.coef])
     with pytest.raises(ValueError, match='scalar_noise'):
-        glm_inference_problem(problem, X, y, 'binomial', selection_response=y_prime)
-    info = glm_inference_problem(problem, X, y, 'binomial',
-                                 selection_response=y_prime, scalar_noise=0.25)
+        glm_inference_problem(problem, X, y, PROBIT)
+    info = glm_inference_problem(problem, X, y, PROBIT, scalar_noise=0.25)
     assert info.scalar_noise == 0.25
-    # Z_full linearizes the score of the unperturbed y: with Q_hat at the LASSO solution
-    # (which does not depend on the response), it is the same whichever response the
-    # selection problem was built with
-    kw = dict(family='binomial', scaling=fit.design_.scaling_, y_scale=1., information='lasso')
-    problem_lasso = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
-    problem_y = glmnet_problem(X, y, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
-    info = glm_inference_problem(problem_lasso, X, y, 'binomial',
-                                 selection_response=y_prime, scalar_noise=0.25)
-    info_y = glm_inference_problem(problem_y, X, y, 'binomial', scalar_noise=0.25)
-    np.testing.assert_allclose(info.Z_full, info_y.Z_full, rtol=1e-12, atol=1e-14)
+    # Z_full linearizes the score of y without the linear term: with Q_hat at the LASSO
+    # solution, it is the same as for the problem without it at the same solution
+    kw = dict(family=PROBIT, scaling=fit.design_.scaling_, y_scale=1., information='lasso')
+    with_lt = glmnet_problem(X, y, fit.coefs_[0], fit.intercepts_[0], lam, linear_term=lt, **kw)
+    without = glmnet_problem(X, y, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
+    np.testing.assert_allclose(with_lt.G_hat - without.G_hat, np.r_[lt.intercept, lt.coef], atol=1e-14)
+    info = glm_inference_problem(with_lt, X, y, PROBIT, scalar_noise=0.25)
+    info_0 = glm_inference_problem(without, X, y, PROBIT, scalar_noise=0.25)
+    np.testing.assert_allclose(info.Z_full, info_0.Z_full, rtol=1e-12, atol=1e-14)

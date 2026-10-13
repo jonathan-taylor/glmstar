@@ -25,14 +25,12 @@ variances change: the score has $\phi$ times its Poisson variance.
 This vignette repeats the inference after selection of
 [Score bootstraps with a linear term](score_bootstrap.md) for an
 overdispersed Poisson regression. As there, we select with the lasso
-fit to a randomized response $y + \omega$, and then either combine two
-fits or carve with `lassoinf`. The randomization and the inference both
+fit to the counts with a random linear term $-\omega$, which perturbs
+the score, and then either combine two fits or carve with `lassoinf`. The randomization and the inference both
 have to account for $\phi$. We show what happens when they do, and when
 they do not.
 
 ```{code-cell} ipython3
-import warnings
-
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -40,7 +38,7 @@ from scipy.stats import norm
 
 from glmnet import GLMNet
 from glmnet.glmnet import GLMNetControl
-from glmnet.inference import glmnet_problem, glm_inference_problem
+from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
 ```
 
@@ -84,20 +82,18 @@ def poisson_fit(X, y):
 def dispersion(X, y):
     fit = poisson_fit(X, y)
     phi_hat = (fit.resid_pearson**2).sum() / (len(y) - X.shape[1] - 1)
-    return phi_hat, fit.fittedvalues
+    return phi_hat, np.log(fit.fittedvalues)
 
-phi_hat, mu_hat = dispersion(X, y)
+phi_hat, eta_hat = dispersion(X, y)
 phi_hat
 ```
 
 ## The randomized lasso
 
-The Poisson log-likelihood $y\,\eta - e^\eta$ is linear in $y$. So, as
-for logistic regression, the lasso fit to any response $y'$ is the
-lasso fit to the constant response $\tilde y = \sum_i v_i y'_i$ with the
-linear term $G = -X^TV(y' - \tilde y)$. Here $v_i = 1/n$ and
-$V = \mathrm{diag}(v)$. The response $y'$ need not be a count, or even
-nonnegative: only its score is used.
+`poisson_lasso` fits the lasso at one value of $\lambda$, with an
+optional linear term `LinearTerm(coef=G, intercept=G_0)` adding
+$G_0\beta_0 + G^T\beta$ to the objective. The counts themselves are
+never changed.
 
 ```{code-cell} ipython3
 pi = 0.9
@@ -105,31 +101,12 @@ lam = 2 * np.sqrt(2 * np.log(p) / (pi * n))
 q = norm.ppf(0.95)  # for nominal 90% intervals
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
-def poisson_lasso(X, response, linear_term=None, relax=False, control=None):
-    with warnings.catch_warnings():
-        # a constant response has null deviance 0: its deviance ratio is undefined
-        warnings.simplefilter('ignore', RuntimeWarning)
-        return GLMNet(family=sm.families.Poisson(),
-                      lambda_values=np.array([lam]),
-                      linear_term=linear_term,
-                      relax=relax,
-                      control=control or GLMNetControl()).fit(X, response)
-
-def randomized_lasso(X, y_prime, relax=False, control=None):
-    v = np.ones(X.shape[0]) / X.shape[0]
-    y_tilde = (v * y_prime).sum()
-    return poisson_lasso(X, np.full(X.shape[0], y_tilde),
-                         linear_term=-X.T @ (v * (y_prime - y_tilde)),
-                         relax=relax, control=control)
-```
-
-With tight convergence tolerances, fitting the counts directly and
-fitting them through the linear term agree to rounding error:
-
-```{code-cell} ipython3
-direct = poisson_lasso(X, y, control=tight).coefs_[0]
-via_linear_term = randomized_lasso(X, y, control=tight).coefs_[0]
-np.abs(direct - via_linear_term).max()
+def poisson_lasso(X, y, linear_term=None, relax=False, control=None):
+    return GLMNet(family=sm.families.Poisson(),
+                  lambda_values=np.array([lam]),
+                  linear_term=linear_term,
+                  relax=relax,
+                  control=control or GLMNetControl()).fit(X, y)
 ```
 
 ## A perturbation for overdispersed counts
@@ -140,19 +117,22 @@ means. As for logistic regression, $(\check y_1 - \check y_2)/\sqrt 2$
 has mean 0 and the Poisson variance $\hat\mu_i$. The data have
 $\phi$ times this variance, so we scale it by $\sqrt{\hat\phi}$:
 
-$$\omega = \sqrt{\hat\phi}\;\sqrt{\frac{1-\pi}{\pi}}\;\frac{\check y_1 - \check y_2}{\sqrt 2}, \qquad \mathrm{Var}(\omega_i \mid \hat\mu) = \hat\phi\,\frac{1-\pi}{\pi}\,\hat\mu_i.$$
+$$e = \sqrt{\hat\phi}\;\sqrt{\frac{1-\pi}{\pi}}\;\frac{\check y_1 - \check y_2}{\sqrt 2}, \qquad \mathrm{Var}(e_i \mid \hat\mu) = \hat\phi\,\frac{1-\pi}{\pi}\,\hat\mu_i.$$
 
-The score perturbation $X^TV\omega$ then has $(1-\pi)/\pi$ times the
-covariance of the score, $\hat\phi\,X^TV\,\mathrm{diag}(\hat\mu)\,VX$.
-This is the relation that makes selection with $y + \omega$ imitate
-selection on a random fraction $\pi$ of the data. Without the factor
+The score perturbation $\omega = \sum_i v_i e_i\,(1, x_i)$, with
+$v_i = 1/n$, then has $(1-\pi)/\pi$ times the covariance of the score,
+$\hat\phi\,X_1^TV\,\mathrm{diag}(\hat\mu)\,VX_1$ with
+$X_1 = [\mathbf{1}, X]$ and $V = \mathrm{diag}(v)$. This is the relation
+that makes selection with the linear term $-\omega$ imitate selection
+on a random fraction $\pi$ of the data. Without the factor
 $\sqrt{\hat\phi}$, the perturbation is too small by a factor of $\phi$
-in variance.
+in variance. `score_perturbation` draws $-\omega$ from the pilot fit
+$\hat\eta = \log\hat\mu$, with `dispersion` the factor $\hat\phi$:
 
 ```{code-cell} ipython3
-def omega(mu_hat, phi_hat):
-    y1, y2 = rng.poisson(mu_hat), rng.poisson(mu_hat)
-    return np.sqrt(phi_hat) * np.sqrt((1 - pi) / pi) * (y1 - y2) / np.sqrt(2)
+def perturbation(X, eta_hat, phi_hat):
+    return score_perturbation(X, eta_hat, sm.families.Poisson(), (1 - pi) / pi,
+                              dispersion=phi_hat, rng=rng)
 ```
 
 ## Inference with the dispersion
@@ -164,8 +144,8 @@ the dispersion in the variances.
   where $\hat\beta_E$ is the Poisson fit of $y$ on $X_E$ and
   $\hat\beta^*_E$ the relaxed fit of the randomized lasso. Its
   standard errors are the Poisson ones times $\sqrt{\hat\phi/(1-\pi)}$.
-- **Carving.** The selection problem is the lasso problem for
-  $y' = y + \omega$. `glm_inference_problem` gets
+- **Carving.** The selection problem is the lasso problem for $y$ with
+  the linear term $-\omega$. `glmstar_inference_problem` gets
   `dispersion=phi_hat`, which multiplies the covariance of the score,
   and the same `scalar_noise = (1 - pi) / pi`.
 
@@ -174,9 +154,9 @@ sets of intervals. With `phi_hat=1` it ignores the overdispersion, in
 the perturbation and in the inference.
 
 ```{code-cell} ipython3
-def randomized_inference(X, y, mu_hat, phi_hat):
-    y_prime = y + omega(mu_hat, phi_hat)
-    fit = randomized_lasso(X, y_prime, relax=True, control=tight)
+def randomized_inference(X, y, eta_hat, phi_hat):
+    omega = perturbation(X, eta_hat, phi_hat)
+    fit = poisson_lasso(X, y, linear_term=omega, relax=True, control=tight)
     E = np.nonzero(fit.coefs_[0])[0]
     if len(E) == 0:
         return E, None
@@ -188,10 +168,7 @@ def randomized_inference(X, y, mu_hat, phi_hat):
     combination = (T, T - q * se, T + q * se)
 
     # carving
-    problem = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam,
-                             family='poisson', scaling=fit.design_.scaling_, y_scale=1.)
-    info = glm_inference_problem(problem, X, y, 'poisson', dispersion=phi_hat,
-                                 selection_response=y_prime, scalar_noise=(1 - pi) / pi)
+    info = glmstar_inference_problem(fit, X, y, dispersion=phi_hat, scalar_noise=(1 - pi) / pi)
     # row 0 is the intercept
     summary = LassoInference(**info.lasso_args(), level=0.9).summary_.loc[E + 1]
     carved = (summary['beta_hat'].values, summary['lower_conf'].values,
@@ -217,7 +194,7 @@ def target(E):
 ### One data set
 
 ```{code-cell} ipython3
-E, intervals = randomized_inference(X, y, mu_hat, phi_hat)
+E, intervals = randomized_inference(X, y, eta_hat, phi_hat)
 table = pd.concat({m: pd.DataFrame({'estimate': est, 'lower': lower, 'upper': upper},
                                    index=[f'X{j}' for j in E])
                    for m, (est, lower, upper) in intervals.items()}, axis=1)
@@ -227,10 +204,10 @@ table.round(3)
 
 ## What ignoring the overdispersion does
 
-Suppose we draw $\omega$ without the factor $\sqrt{\hat\phi}$ and use
+Suppose we draw $e$ without the factor $\sqrt{\hat\phi}$ and use
 $\phi = 1$ in the inference. Write $\Sigma$ for the Poisson covariance
 of the score $S$, so that $\mathrm{Var}(S) = \phi\Sigma$, while
-$\mathrm{Var}(X^TV\omega) = \frac{1-\pi}{\pi}\Sigma$.
+$\mathrm{Var}(\omega) = \frac{1-\pi}{\pi}\Sigma$.
 
 - **Combination.** $T_E$ was independent of the selection because
   $S - \frac{\pi}{1-\pi}\omega$ is uncorrelated with the selection score
@@ -276,7 +253,7 @@ def poisson_intervals(X, y, E, phi_hat):
 
 for _ in range(300):
     X, y = sim_data(n)
-    phi_hat, mu_hat = dispersion(X, y)
+    phi_hat, eta_hat = dispersion(X, y)
 
     E = np.nonzero(poisson_lasso(X, y).coefs_[0])[0]
     if len(E):
@@ -290,7 +267,7 @@ for _ in range(300):
         record('split', E, *poisson_intervals(X[held_out], y[held_out], E, phi_held_out))
 
     for suffix, phi_used in [('', phi_hat), (' (phi = 1)', 1.)]:
-        E, intervals = randomized_inference(X, y, mu_hat, phi_used)
+        E, intervals = randomized_inference(X, y, eta_hat, phi_used)
         if len(E):
             for method, (_, lower, upper) in intervals.items():
                 record(method + suffix, E, lower, upper)

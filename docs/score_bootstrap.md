@@ -14,19 +14,21 @@ kernelspec:
 
 # Score bootstraps with a linear term
 
-`GLMNet` takes a `linear_term` $G$, one entry per feature, and adds
-$G^T\beta$ to the objective:
+`GLMNet` takes a `linear_term`, a `LinearTerm(coef=G, intercept=G_0)`
+with one entry per feature and one for the intercept, and adds
+$G_0\beta_0 + G^T\beta$ to the objective:
 
-$$-\frac{1}{\sum_i w_i}\sum_i w_i\,\ell_i(\beta_0 + x_i^T\beta) \;+\; G^T\beta \;+\; \lambda\,P_\alpha(\beta),$$
+$$-\frac{1}{\sum_i w_i}\sum_i w_i\,\ell_i(\beta_0 + x_i^T\beta) \;+\; G_0\beta_0 + G^T\beta \;+\; \lambda\,P_\alpha(\beta),$$
 
 where $\ell_i$ is the log-likelihood of observation $i$, $w_i$ its
-weight and $\beta$ the coefficients on the original scale of the
-features. The penalty $P_\alpha$ is applied as usual, and the design is
-standardized as usual if `standardize=True`.
+weight and $\beta_0, \beta$ the intercept and coefficients on the
+original scale of the features. The penalty $P_\alpha$ is applied as
+usual, and the design is standardized as usual if `standardize=True`.
 
-For the GLMs here the data enter this objective only through the score
-$\sum_i v_i\, x_i\, y_i$, where $v_i = w_i/\sum_j w_j$ are the normalized
-weights. Changing the response is therefore the same as changing $G$.
+For the GLMs here, with their canonical links, the data enter this
+objective only through the score $\sum_i v_i\, y_i\,(1, x_i)$, where
+$v_i = w_i/\sum_j w_j$ are the normalized weights. Changing the response
+is therefore the same as changing $(G_0, G)$.
 This means a bootstrap can perturb the score directly, drawing a
 $p$-vector instead of a new response vector of length $n$, and refit
 each replicate on the original data. This is the idea behind
@@ -41,16 +43,14 @@ model, without holding any data out, either by combining two fits or by
 carving with `lassoinf`.
 
 ```{code-cell} ipython3
-import warnings
-
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import norm
 
-from glmnet import GLMNet
+from glmnet import GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
-from glmnet.inference import glmnet_problem, glm_inference_problem
+from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
 ```
 
@@ -106,25 +106,21 @@ def lasso(D, linear_term=None):
 
 The least squares residuals satisfy $\sum_i v_i \hat r_i = 0$ and
 $X^TV\hat r = 0$, with $V = \mathrm{diag}(v)$. Expanding the square, the
-lasso objective for $y^*$ is the objective for $y + \bar\epsilon^*$
-with the linear term
+lasso objective for $y^*$ is the objective for $y$ with the linear term
 
-$$G^* = -\tilde X^T V \epsilon^*, \qquad \tilde X = X - \mathbf{1}\bar x^T, \quad \bar x = X^T v, \quad \bar\epsilon^* = \textstyle\sum_i v_i \epsilon^*_i,$$
+$$G^* = -X^T V \epsilon^*, \qquad G^*_0 = -\textstyle\sum_i v_i \epsilon^*_i,$$
 
-up to a constant. Shifting the response by the constant $\bar\epsilon^*$
-only shifts the (unpenalized) intercept. So the bootstrap coefficients
-are those of the original data with linear term $G^*$, and the
-intercept is shifted by $\bar\epsilon^*$:
+up to a constant. So the bootstrap fit, intercept included, is the fit
+to the original data with this linear term:
 
 ```{code-cell} ipython3
-Xc = X - v @ X
 eps = rng.standard_normal(n) * np.sqrt(sigma2 / w)
 
 coef_star, int_star = lasso(pd.DataFrame({'y': fitted + eps, 'w': w}))
-coef_lin, int_lin = lasso(D, linear_term=-Xc.T @ (v * eps))
+coef_lin, int_lin = lasso(D, linear_term=LinearTerm(coef=-X.T @ (v * eps),
+                                                    intercept=-(v * eps).sum()))
 
-print(np.abs(coef_star - coef_lin).max(),
-      np.abs(int_star - (int_lin + (v * eps).sum())).max())
+print(np.abs(coef_star - coef_lin).max(), np.abs(int_star - int_lin))
 ```
 
 The two agree even though `GLMNet` standardizes the design. Both
@@ -134,34 +130,40 @@ itself.
 
 ### The score bootstrap
 
-The replicate enters only through the $p$-vector
-$U^* = \tilde X^T V\epsilon^*$. Since $v_i^2/w_i = v_i/\sum_j w_j$,
+The replicate enters only through the $(p+1)$-vector
+$U^* = X_1^T V\epsilon^*$, with $X_1 = [\mathbf{1}, X]$. Since
+$v_i^2/w_i = v_i/\sum_j w_j$,
 
-$$U^* \sim N\Big(0,\ \frac{\hat\sigma^2}{\sum_j w_j}\,\tilde X^T V \tilde X\Big),$$
+$$U^* \sim N\Big(0,\ \frac{\hat\sigma^2}{\sum_j w_j}\,X_1^T V X_1\Big),$$
 
-so we can draw $U^*$ directly and fit with `linear_term=-U*`. For
-weighted least squares $U^*$ is exactly Gaussian, so this is exactly
-the parametric bootstrap, not an approximation to it.
+so we can draw $U^*$ directly and fit with the linear term $-U^*$, its
+first entry the intercept's. For weighted least squares $U^*$ is
+exactly Gaussian, so this is exactly the parametric bootstrap, not an
+approximation to it.
 
 The wild score bootstrap of Kline and Santos instead uses
-$U^* = \tilde X^T V(\hat r \circ \xi)$ with independent Rademacher signs
+$U^* = X_1^T V(\hat r \circ \xi)$ with independent Rademacher signs
 $\xi_i$. This keeps the heteroskedasticity of the residuals instead of
 assuming $\mathrm{Var}(y_i) = \sigma^2/w_i$. Only the draw of $U^*$
 changes.
 
 ```{code-cell} ipython3
 B = 200
-cov_U = sigma2 / w.sum() * Xc.T @ (v[:, None] * Xc)
+cov_U = sigma2 / w.sum() * X1.T @ (v[:, None] * X1)
 L = np.linalg.cholesky(cov_U)
+
+def minus(U):
+    """The linear term -U, for U = (intercept entry, coefficient entries)."""
+    return LinearTerm(coef=-U[1:], intercept=-U[0])
 
 boot = {'refit y*': [], 'score': [], 'wild score': []}
 for _ in range(B):
     eps = rng.standard_normal(n) * np.sqrt(sigma2 / w)
     boot['refit y*'].append(lasso(pd.DataFrame({'y': fitted + eps, 'w': w}))[0])
-    U = L @ rng.standard_normal(p)
-    boot['score'].append(lasso(D, linear_term=-U)[0])
+    U = L @ rng.standard_normal(p + 1)
+    boot['score'].append(lasso(D, linear_term=minus(U))[0])
     xi = rng.choice([-1., 1.], n)
-    boot['wild score'].append(lasso(D, linear_term=-Xc.T @ (v * resid * xi))[0])
+    boot['wild score'].append(lasso(D, linear_term=minus(X1.T @ (v * resid * xi)))[0])
 boot = {k: np.array(b) for k, b in boot.items()}
 ```
 
@@ -178,18 +180,21 @@ summary.round(3)
 
 ## Logistic regression
 
-### The response enters only through the score
+### Randomizing the score, not the response
+
+We randomize the selection by perturbing the score: the lasso is fit
+to the data $y$ with the linear term $-\omega$, for a random
+$(p+1)$-vector $\omega$. The response is never changed, so it stays
+binary.
 
 The logistic log-likelihood $y\,\eta - \log(1 + e^\eta)$ is linear in
-$y$. So fitting the lasso to any response $y'$ is the same as fitting it
-to another response $\tilde y$ with the linear term
-
-$$G = -X^T V (y' - \tilde y),$$
-
-provided $\sum_i v_i \tilde y_i = \sum_i v_i y'_i$ (this keeps the
-intercept's part of the score). The simplest choice is the constant
-$\tilde y = \sum_i v_i y'_i$. Then $y'$ need not be binary, or even lie in
-$[0, 1]$: only its score is used.
+$y$, so a perturbation $e$ of the response would change the score by
+exactly $\omega = \sum_i v_i e_i\,(1, x_i)$. For a link that is not
+canonical the score is $\sum_i v_i a_i (y_i - \mu_i)(1, x_i)$ with
+$a = h/V$ ($h = d\mu/d\eta$, $V$ the variance function), and
+`score_perturbation` freezes the weights $a$ at a pilot fit. Either
+way the randomization is a fixed linear term, and the objective
+stays that of the binary data.
 
 We simulate from a logistic model with correlated features: two strong
 signals, six weak ones near the selection threshold, and 22 nulls. The
@@ -216,42 +221,24 @@ X, y = sim_data(n)
 
 `logistic_lasso` fits the lasso at one value of $\lambda$, on the
 average-loss scale `GLMNet` uses. With `relax=True` it also refits the
-selected model without a penalty, as R's `relax.glmnet` does.
-`randomized_lasso` fits the lasso to a response $y'$ by way of the
-constant response and the linear term:
+selected model without a penalty, as R's `relax.glmnet` does; the
+refit keeps the linear term. The randomized fit uses tight convergence
+tolerances, as the conditional inference below assumes the lasso was
+solved exactly.
 
 ```{code-cell} ipython3
 pi = 0.9
 lam = 0.5 * np.sqrt(2 * np.log(p) / (pi * n))
 q = norm.ppf(0.95)  # for nominal 90% intervals
 
-def logistic_lasso(X, response, linear_term=None, relax=False, control=None):
-    with warnings.catch_warnings():
-        # a constant response has null deviance 0: its deviance ratio is undefined
-        warnings.simplefilter('ignore', RuntimeWarning)
-        return GLMNet(family=sm.families.Binomial(),
-                      lambda_values=np.array([lam]),
-                      linear_term=linear_term,
-                      relax=relax,
-                      control=control or GLMNetControl()).fit(X, response)
-
-def randomized_lasso(X, y_prime, relax=False, control=None):
-    v = np.ones(X.shape[0]) / X.shape[0]
-    y_tilde = (v * y_prime).sum()
-    return logistic_lasso(X, np.full(X.shape[0], y_tilde),
-                          linear_term=-X.T @ (v * (y_prime - y_tilde)),
-                          relax=relax, control=control)
-```
-
-With tight convergence tolerances, the two ways of fitting a binary
-response agree to rounding error, although the features are on very
-different scales:
-
-```{code-cell} ipython3
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
-direct = logistic_lasso(X, y, control=tight).coefs_[0]
-via_linear_term = randomized_lasso(X, y, control=tight).coefs_[0]
-np.abs(direct - via_linear_term).max()
+
+def logistic_lasso(X, y, linear_term=None, relax=False, control=None):
+    return GLMNet(family=sm.families.Binomial(),
+                  lambda_values=np.array([lam]),
+                  linear_term=linear_term,
+                  relax=relax,
+                  control=control or GLMNetControl()).fit(X, y)
 ```
 
 ### A parametric score perturbation
@@ -260,25 +247,26 @@ Let $\hat\mu$ be the fitted means of the unpenalized logistic regression
 on all $p$ features. Draw two independent parametric replicates
 $y^*_1, y^*_2 \sim \mathrm{Bernoulli}(\hat\mu)$ and set
 
-$$\omega = \sqrt{\frac{1-\pi}{\pi}}\;\frac{y^*_1 - y^*_2}{\sqrt 2}, \qquad 0 < \pi < 1.$$
+$$e = \sqrt{\frac{1-\pi}{\pi}}\;\frac{y^*_1 - y^*_2}{\sqrt 2}, \qquad \omega = \sum_i v_i\, e_i\,(1, x_i), \qquad 0 < \pi < 1.$$
 
-Given $\hat\mu$, $\omega_i$ has mean 0 and variance
+Given $\hat\mu$, $e_i$ has mean 0 and variance
 $\frac{1-\pi}{\pi}\,\hat\mu_i(1-\hat\mu_i)$. This is the Bernoulli
 variance of $y_i$ under the fitted model, scaled by $(1-\pi)/\pi$, with
 no Gaussian approximation. Taking the difference of two replicates
-centers $\omega$ exactly.
+centers $e$ exactly. So $\omega$ has $(1-\pi)/\pi$ times the covariance
+of the score, including the intercept's part $\sum_i v_i e_i$.
 
-We select variables with the lasso fit to $y' = y + \omega$, using all
-$n$ observations. Its score is the data's score plus the perturbation
-$X^TV\omega$, including the intercept's part $\sum_i v_i\omega_i$.
+We select variables with the lasso fit to $y$ with the linear term
+$-\omega$, using all $n$ observations. `score_perturbation` draws it,
+given the pilot linear predictor $\hat\eta$:
 
 ```{code-cell} ipython3
-def fitted_means(X, y):
-    return sm.GLM(y, sm.add_constant(X), family=sm.families.Binomial()).fit().fittedvalues
+def pilot_eta(X, y):
+    X1 = sm.add_constant(X)
+    return X1 @ sm.GLM(y, X1, family=sm.families.Binomial()).fit().params
 
-def omega(mu_hat):
-    y1, y2 = rng.binomial(1, mu_hat), rng.binomial(1, mu_hat)
-    return np.sqrt((1 - pi) / pi) * (y1 - y2) / np.sqrt(2)
+def perturbation(X, eta_hat):
+    return score_perturbation(X, eta_hat, sm.families.Binomial(), (1 - pi) / pi, rng=rng)
 ```
 
 ### How this imitates data splitting
@@ -293,9 +281,10 @@ $$S_I = S + \omega_I, \qquad \omega_I \text{ uncorrelated with } S, \quad \mathr
 
 To first order, the lasso on the selection part of the split is the
 lasso on all the data with the linear term $-\omega_I$. Under the
-logistic model, the perturbation $X^TV\omega$ above has (given
-$\hat\mu$) the same covariance as $\omega_I$. Selecting with $y + \omega$
-therefore behaves like selecting on a random $\pi$-fraction of the data.
+logistic model, the perturbation $\omega$ above has (given
+$\hat\mu$) the same covariance as $\omega_I$. Selecting with the linear
+term $-\omega$ therefore behaves like selecting on a random
+$\pi$-fraction of the data.
 
 Splitting then does inference on the held-out fraction $1-\pi$. Its
 score is, to first order, $S - \frac{\pi}{1-\pi}\,\omega_I$. The
@@ -309,7 +298,8 @@ Gaussian, so it is independent of the selection.
 
 Linearizing the unpenalized estimators of a selected model $E$ turns
 this into a statement about estimators. Let $\hat\beta_E$ be the fit of
-model $E$ to $y$ and $\hat\beta^*_E$ its fit to $y + \omega$. Then
+model $E$ to $y$ and $\hat\beta^*_E$ its fit to $y$ with the linear term
+$-\omega$. Then
 
 $$T_E = \hat\beta_E - \frac{\pi}{1-\pi}\big(\hat\beta^*_E - \hat\beta_E\big) = \frac{\hat\beta_E - \pi\,\hat\beta^*_E}{1-\pi} \;\approx\; N\Big(\beta_E,\ \frac{\mathrm{Var}(\hat\beta_E)}{1-\pi}\Big),$$
 
@@ -344,13 +334,12 @@ with $(1-\pi)/\pi$ times its variance. So the same conditional inference
 applies, with the same `scalar_noise`, and no rows are removed or
 resampled:
 
-- the selection problem is the lasso problem for the response
-  $y' = y + \omega$, which `glmnet_problem` builds from the randomized
-  fit;
-- `glm_inference_problem`, with `selection_response=y'` and
-  `scalar_noise=(1 - pi) / pi`, linearizes the full-data score $S$ of
-  the unperturbed $y$ at the selected model, as it does when carving
-  with a split.
+- the selection problem is the lasso problem for $y$ with the linear
+  term $-\omega$, which `glmstar_inference_problem` builds from the
+  randomized fit, linear term included;
+- with `scalar_noise=(1 - pi) / pi`, it linearizes the full-data score
+  $S$ of $y$ (without the linear term) at the selected model, as it
+  does when carving with a split.
 
 This is randomized selective inference
 ({ref}`Tian and Taylor, 2018 <score-bootstrap-refs>`) with the
@@ -359,21 +348,20 @@ costs depends on how surprising it was. A strong signal would be
 selected for almost any $\omega$, so conditioning on its selection
 changes little: its interval should be close to the full-data one. A
 variable near the selection threshold pays more, but it still uses all
-of $S$. The conditional inference assumes the lasso was solved exactly,
-so the randomized fit uses tight convergence tolerances.
+of $S$.
 
 ### The recipe
 
-1. Draw $\omega$ and fit the lasso to $y' = y + \omega$ with
-   `relax=True`. Its selected set is $E$. Its relaxed coefficients are
-   $\hat\beta^*_E$, the unpenalized refit on $E$ with the same
+1. Draw $\omega$ and fit the lasso to $y$ with `linear_term=-omega`
+   and `relax=True`. Its selected set is $E$. Its relaxed coefficients
+   are $\hat\beta^*_E$, the unpenalized refit on $E$ with the same
    randomized score, because the refit carries over the linear term.
 2. **Combination.** Fit the logistic regression of $y$ on $X_E$, giving
    $\hat\beta_E$ and its standard errors. Report
    $T_E = (\hat\beta_E - \pi\hat\beta^*_E)/(1-\pi)$, with standard
    errors $\widehat{\mathrm{se}}(\hat\beta_E)/\sqrt{1-\pi}$.
-3. **Carving.** Pass the selection problem for $y'$ and the full data
-   $(X, y)$ to `lassoinf`.
+3. **Carving.** Pass the randomized fit and the data $(X, y)$ to
+   `glmstar_inference_problem`, and its output to `lassoinf`.
 
 ```{code-cell} ipython3
 def logit_fit(X, y):
@@ -381,9 +369,9 @@ def logit_fit(X, y):
     return fit.params[1:], fit.bse[1:]
 
 def randomized_selection(X, y):
-    y_prime = y + omega(fitted_means(X, y))
-    fit = randomized_lasso(X, y_prime, relax=True, control=tight)
-    return fit, y_prime, np.nonzero(fit.coefs_[0])[0]
+    omega = perturbation(X, pilot_eta(X, y))
+    fit = logistic_lasso(X, y, linear_term=omega, relax=True, control=tight)
+    return fit, np.nonzero(fit.coefs_[0])[0]
 
 def combination_intervals(fit, E, X, y):
     beta_star = fit.relaxed_coefs_[0][E]
@@ -392,11 +380,8 @@ def combination_intervals(fit, E, X, y):
     se = se / np.sqrt(1 - pi)
     return T, T - q * se, T + q * se
 
-def carved_intervals(fit, y_prime, E, X, y):
-    problem = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam,
-                             family='binomial', scaling=fit.design_.scaling_, y_scale=1.)
-    info = glm_inference_problem(problem, X, y, 'binomial',
-                                 selection_response=y_prime, scalar_noise=(1 - pi) / pi)
+def carved_intervals(fit, E, X, y):
+    info = glmstar_inference_problem(fit, X, y, scalar_noise=(1 - pi) / pi)
     # row 0 is the intercept
     summary = LassoInference(**info.lasso_args(), level=0.9).summary_.loc[E + 1]
     return (summary['beta_hat'].values, summary['lower_conf'].values,
@@ -420,9 +405,9 @@ def target(E):
 ### One data set
 
 ```{code-cell} ipython3
-fit, y_prime, E = randomized_selection(X, y)
+fit, E = randomized_selection(X, y)
 intervals = {'combination': combination_intervals(fit, E, X, y),
-             'carved': carved_intervals(fit, y_prime, E, X, y)}
+             'carved': carved_intervals(fit, E, X, y)}
 table = pd.concat({m: pd.DataFrame({'estimate': est, 'lower': lower, 'upper': upper},
                                    index=[f'X{j}' for j in E])
                    for m, (est, lower, upper) in intervals.items()}, axis=1)
@@ -442,9 +427,10 @@ We repeat the experiment and compare four methods:
   intervals from the same data;
 - **split**: select on a random 90% of the data, then form intervals on
   the other 10%;
-- **combination**: select with $y + \omega$, then use $T_E$;
-- **carved**: select with $y + \omega$, then condition on the
-  selection.
+- **combination**: select with the linear term $-\omega$, then use
+  $T_E$;
+- **carved**: select with the linear term $-\omega$, then condition on
+  the selection.
 
 For every selected coefficient we record whether its nominal 90%
 interval covers $\beta_{E,j}$, and the interval's length. The length is
@@ -474,10 +460,10 @@ for _ in range(300):
         b, se = logit_fit(X[held_out][:, E], y[held_out])
         record('split', E, b - q * se, b + q * se)
 
-    fit, y_prime, E = randomized_selection(X, y)
+    fit, E = randomized_selection(X, y)
     if len(E):
         record('combination', E, *combination_intervals(fit, E, X, y)[1:])
-        record('carved', E, *carved_intervals(fit, y_prime, E, X, y)[1:])
+        record('carved', E, *carved_intervals(fit, E, X, y)[1:])
 
 results = pd.DataFrame(rows)
 results['method'] = pd.Categorical(results['method'],
@@ -516,7 +502,7 @@ badly. The carved intervals widen there, by the cost of conditioning on
 a selection that might easily have gone the other way, but remain
 calibrated and shorter than the split and combination intervals.
 
-The calibration relies on the logistic model. $\omega$ has the
+The calibration relies on the logistic model. $e$ has the
 variance of $y$ under the fitted model, and both the cancellation in
 the covariance above and the `scalar_noise` used for carving need that
 to match the true variance of the score. Without the model, the

@@ -6,13 +6,15 @@ glmnet (R) and glmstar (Python) solve, for family log-likelihood ``l``,
 .. math::
 
     \\min_{\\beta_0, \\beta} -\\frac{1}{\\sum_i w_i} \\sum_i w_i \\, l(y_i, \\eta_i)
+    + G_0 \\beta_0 + G^T \\beta
     + \\lambda \\sum_j pf_j \\left[\\frac{1-\\alpha}{2} (s_j \\beta_j)^2 + \\alpha |s_j \\beta_j|\\right]
     \\quad \\text{s.t.} \\quad L_j \\leq \\beta_j \\leq U_j
 
 with :math:`\\eta = \\text{offset} + \\beta_0 + X\\beta`. Here :math:`s_j` is the standardization
 scale of column :math:`j` (its weighted standard deviation, 1 if ``standardize=False``),
 :math:`pf` the penalty factors rescaled to sum to the number of variables, and excluded
-variables are fixed at 0.
+variables are fixed at 0. The linear term :math:`(G, G_0)` (``GLMNet``'s ``linear_term``, 0 by
+default) randomizes the selection.
 
 For the gaussian family R's glmnet fits the standardized response :math:`y / s_y`, which
 divides the ridge term by :math:`s_y` (the weighted standard deviation of :math:`y`, or its
@@ -20,17 +22,22 @@ weighted root mean square without an intercept); glmstar does not. See ``y_scale
 
 In the original coordinates :math:`(\\beta_0, \\beta)` this is a bounded LASSO with weights
 :math:`D_j = \\lambda \\alpha pf_j s_j` (0 for the intercept) and smooth part
-:math:`f` = negative log-likelihood plus the ridge term. :func:`glmnet_problem` returns the
+:math:`f` = negative log-likelihood plus the ridge and linear terms. :func:`glmnet_problem` returns the
 solution, the gradient and Hessian of :math:`f` at it, and ``D``, ``L``, ``U``: the inputs
 of ``lassoinf.LassoInference``. Standardization only enters through ``D`` and the
 ridge term, so coefficients and limits stay on the original scale.
 
-Supported families: gaussian, binomial and poisson (canonical links).
+Supported families: gaussian, binomial and poisson, with any link. With
+:math:`h = d\\mu / d\\eta` and variance function :math:`V`, the gradient of the loss is
+:math:`X^T \\mathrm{diag}(w h / V)(\\mu - y) / \\sum_i w_i` and ``Q_hat`` is the Fisher information
+:math:`X^T \\mathrm{diag}(w h^2 / V) X / \\sum_i w_i`. The Hessian of the loss differs from it by a
+term with mean 0 that vanishes for the canonical link (:math:`h = V`), where the two agree.
 
 Adapted from ``lassoinf/glm_problem.py`` (github.com/jonathan-taylor/lassoinf).
 """
 
 from dataclasses import dataclass, asdict
+from typing import Optional
 import warnings
 
 import numpy as np
@@ -38,7 +45,45 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 from scipy.special import expit
 
+from ..elnet import _check_linear_term
+
 FAMILIES = ('gaussian', 'binomial', 'poisson')
+
+
+@dataclass(frozen=True)
+class GLMFamily:
+    """
+    A family and link: ``name`` one of FAMILIES, ``link`` a statsmodels link, or None for the
+    canonical link.
+    """
+    name: str
+    link: object = None
+
+    @property
+    def canonical(self):
+        return self.link is None
+
+
+def resolve_family(family):
+    """
+    GLMFamily for ``family``: a GLMFamily, a name in FAMILIES (canonical link) or a statsmodels
+    family (Gaussian, Binomial or Poisson) with any link.
+    """
+    if isinstance(family, GLMFamily):
+        return family
+    if isinstance(family, str):
+        if family not in FAMILIES:
+            raise ValueError(f'family must be one of {FAMILIES}, got {family!r}')
+        return GLMFamily(family)
+    import statsmodels.genmod.families as sm_family
+    for name, cls in [('gaussian', sm_family.Gaussian),
+                      ('binomial', sm_family.Binomial),
+                      ('poisson', sm_family.Poisson)]:
+        if isinstance(family, cls):
+            # compare types exactly: statsmodels' Probit and CLogLog subclass Logit
+            canonical = type(family.link) is type(cls().link)
+            return GLMFamily(name, None if canonical else family.link)
+    raise ValueError(f'unsupported family {type(family).__name__}; supported: {FAMILIES}')
 
 
 class XTVXOperator(LinearOperator):
@@ -79,10 +124,11 @@ class GLMProblem:
     L: np.ndarray
     U: np.ndarray
     fit_intercept: bool
+    linear_term: Optional[np.ndarray] = None   # in the same coordinates; None if 0
 
     def lasso_args(self):
         """Keyword arguments for lassoinf.LassoInference (add Z_full, Sigma, ...)."""
-        return {k: v for k, v in asdict(self).items() if k != 'fit_intercept'}
+        return {k: v for k, v in asdict(self).items() if k not in ('fit_intercept', 'linear_term')}
 
     def kkt_violation(self):
         """Largest violation of the KKT conditions at beta_hat (0 at the exact solution)."""
@@ -156,32 +202,57 @@ def glmnet_penalty_factor(penalty_factor, p, exclude=()):
     return pf * p / pf.sum(), excluded
 
 
-def _mean_and_variance(family, eta):
-    if family == 'gaussian':
-        return eta, np.ones_like(eta)
-    if family == 'binomial':
-        mu = expit(eta)
-        return mu, mu * (1 - mu)
-    if family == 'poisson':
-        mu = np.exp(eta)
-        return mu, mu
-    raise ValueError(f'family must be one of {FAMILIES}, got {family!r}')
+def _variance(name, mu):
+    if name == 'gaussian':
+        return np.ones_like(mu)
+    if name == 'binomial':
+        return mu * (1 - mu)
+    return mu
 
 
-def _relaxed_mean_and_variance(X_active, y, w, eta, mu, var, family):
+def glm_moments(family, eta):
     """
-    Mean and variance at the one-step relaxed fit on the columns of X_active: one Newton
-    step for the unpenalized loss from the LASSO solution, with the Hessian there,
-    beta_E - H_EE^{-1} grad_E (for the LASSO grad_E = -D_E sign(beta_E), so this undoes the
-    shrinkage). None if H_EE is singular.
+    (mu, a, W) at the linear predictor eta: the mean, the score weight a = h / V and the
+    Fisher weight W = h^2 / V, with h = d mu / d eta and V the variance function. The
+    gradient of -l_i in eta_i is a_i (mu_i - y_i) and the Fisher information is W_i.
+    For the canonical link a = 1 and W = V.
     """
-    grad = X_active.T @ (w * (mu - y))
-    hess = X_active.T @ (X_active * (w * var)[:, None])
+    family = resolve_family(family)
+    eta = np.asarray(eta, dtype=float)
+    if family.canonical:
+        if family.name == 'gaussian':
+            mu = eta
+        elif family.name == 'binomial':
+            mu = expit(eta)
+        else:
+            mu = np.exp(eta)
+        return mu, np.ones_like(eta), _variance(family.name, mu)
+    mu = family.link.inverse(eta)
+    h = family.link.inverse_deriv(eta)
+    var = _variance(family.name, mu)
+    return mu, h / var, h**2 / var
+
+
+def _relaxed_fisher_weight(X_active, y, w, eta, family):
+    """
+    Fisher weight W at the one-step relaxed fit on the columns of X_active: one Fisher scoring
+    step for the unpenalized loss (without the linear term) from the LASSO solution,
+    beta_E - I_EE^{-1} grad_E (for the LASSO grad_E = -D_E sign(beta_E) - G_E, so this undoes
+    the shrinkage and the randomization). None if I_EE is singular or the step leaves the
+    domain of the family.
+    """
+    mu, a, W = glm_moments(family, eta)
+    grad = X_active.T @ (w * a * (mu - y))
+    info = X_active.T @ (X_active * (w * W)[:, None])
     try:
-        step = np.linalg.solve(hess, grad)
+        step = np.linalg.solve(info, grad)
     except np.linalg.LinAlgError:
         return None
-    return _mean_and_variance(family, eta - X_active @ step)
+    with np.errstate(all='ignore'):
+        W_relaxed = glm_moments(family, eta - X_active @ step)[2]
+    if not np.all(np.isfinite(W_relaxed) & (W_relaxed > 0)):
+        return None
+    return W_relaxed
 
 
 def glmnet_problem(X,
@@ -202,7 +273,8 @@ def glmnet_problem(X,
                    scaling=None,
                    y_scale=None,
                    hessian='dense',
-                   information='relaxed'):
+                   information='relaxed',
+                   linear_term=None):
     """
     The bounded LASSO problem glmnet solved, at its solution (coef, intercept).
 
@@ -211,7 +283,8 @@ def glmnet_problem(X,
     X, y : design (n x p) and response
     coef, intercept : fitted coefficients on the original scale
     lambda_val : the lambda of the fit
-    family : 'gaussian', 'binomial' or 'poisson'
+    family : 'gaussian', 'binomial' or 'poisson' (canonical link), a statsmodels family
+        (Gaussian, Binomial or Poisson) with any link, or a GLMFamily
     weights, offset : observation weights and offset, as passed to glmnet
     alpha, penalty_factor, exclude, lower_limits, upper_limits,
     standardize, fit_intercept : as passed to glmnet (exclude 0-based)
@@ -226,14 +299,16 @@ def glmnet_problem(X,
         'lasso', the LASSO solution. The LASSO solution is shrunk, so for
         binomial and poisson its information overstates the information at the truth and
         Q_hat / n understates Var(Z); the relaxed fit avoids this. The two agree for
-        gaussian. G_hat is always at the LASSO solution.
+        gaussian. G_hat is always at the LASSO solution. Q_hat is the Fisher information.
+    linear_term : the linear term of the fit (``GLMNet``'s ``linear_term``: a LinearTerm
+        or an array for the coefficients, on the original scale); default none. It is
+        part of G_hat.
 
     Returns
     -------
     GLMProblem, in coordinates (intercept, coef) if fit_intercept else coef.
     """
-    if family not in FAMILIES:
-        raise ValueError(f'family must be one of {FAMILIES}, got {family!r}')
+    family = resolve_family(family)
     if hessian not in ('dense', 'operator'):
         raise ValueError("hessian must be 'dense' or 'operator'")
     if information not in ('relaxed', 'lasso'):
@@ -250,7 +325,8 @@ def glmnet_problem(X,
     if scaling is None:
         scaling = glmnet_scaling(X, weights, standardize=standardize)
     if y_scale is None:
-        y_scale = glmnet_response_scale(y, weights, fit_intercept) if family == 'gaussian' else 1.
+        y_scale = glmnet_response_scale(y, weights, fit_intercept) if family.name == 'gaussian' else 1.
+    lin = _check_linear_term(linear_term, p, fit_intercept=fit_intercept)
     pf, excluded = glmnet_penalty_factor(penalty_factor, p, exclude)
 
     lower = np.array(np.broadcast_to(lower_limits, (p,)), dtype=float)
@@ -260,23 +336,28 @@ def glmnet_problem(X,
     upper[excluded] = 0.
 
     eta = offset + X @ coef + (intercept if fit_intercept else 0.)
-    mu, var = _mean_and_variance(family, eta)
+    mu, a, var = glm_moments(family, eta)   # var: the Fisher weight
 
     ridge = lambda_val * (1 - alpha) * pf * scaling**2 / y_scale
     ridge[excluded] = 0.
-    grad = X.T @ (w * (mu - y)) + ridge * coef
+    resid = w * a * (mu - y)
+    grad = X.T @ resid + ridge * coef
+    if lin is not None:
+        grad = grad + lin.coef
     D = lambda_val * alpha * pf * scaling
 
-    # gradient at the LASSO solution, Hessian (possibly) at the relaxed fit
+    # gradient at the LASSO solution, information (possibly) at the relaxed fit
     active = np.nonzero(coef != 0)[0]
-    if information == 'relaxed' and family != 'gaussian' and (fit_intercept or len(active) > 0):
+    gaussian_identity = family.name == 'gaussian' and family.canonical
+    if information == 'relaxed' and not gaussian_identity and (fit_intercept or len(active) > 0):
         X_active = np.column_stack([np.ones(n)] * fit_intercept + [X[:, active]])
-        relaxed = _relaxed_mean_and_variance(X_active, y, w, eta, mu, var, family)
+        relaxed = _relaxed_fisher_weight(X_active, y, w, eta, family)
         if relaxed is None:
-            warnings.warn('the Hessian on the selected coordinates is singular; '
-                          'using the information at the LASSO solution')
+            warnings.warn('the information on the selected coordinates is singular, or the relaxed '
+                          'fit leaves the domain of the family; using the information at the '
+                          'LASSO solution')
         else:
-            var = relaxed[1]
+            var = relaxed
 
     if hessian == 'dense':
         Q = X.T @ (X * (w * var)[:, None]) + np.diag(ridge)
@@ -285,7 +366,7 @@ def glmnet_problem(X,
 
     if fit_intercept:
         beta_hat = np.r_[intercept, coef]
-        G_hat = np.r_[w @ (mu - y), grad]
+        G_hat = np.r_[resid.sum() + (lin.intercept if lin is not None else 0.), grad]
         D = np.r_[0., D]
         L = np.r_[-np.inf, lower]
         U = np.r_[np.inf, upper]
@@ -300,21 +381,18 @@ def glmnet_problem(X,
     else:
         beta_hat, G_hat, L, U = coef, grad, lower, upper
 
+    if lin is None:
+        lin_vec = None
+    elif fit_intercept:
+        lin_vec = np.r_[lin.intercept, lin.coef]
+    else:
+        lin_vec = lin.coef
     return GLMProblem(beta_hat=beta_hat, G_hat=G_hat, Q_hat=Q, D=D, L=L, U=U,
-                      fit_intercept=fit_intercept)
+                      fit_intercept=fit_intercept, linear_term=lin_vec)
 
 
 def _glmstar_family(glmnet_obj):
-    import statsmodels.genmod.families as sm_family
-    base = glmnet_obj._family.base
-    for name, cls in [('gaussian', sm_family.Gaussian),
-                      ('binomial', sm_family.Binomial),
-                      ('poisson', sm_family.Poisson)]:
-        if isinstance(base, cls):
-            if not isinstance(base.link, type(cls().link)):
-                raise ValueError(f'only the canonical link is supported for {name}')
-            return name
-    raise ValueError(f'unsupported family {type(base).__name__}; supported: {FAMILIES}')
+    return resolve_family(glmnet_obj._family.base)
 
 
 def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', information='relaxed'):
@@ -327,10 +405,6 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
     lambda_val : a value in ``glmnet_obj.lambda_values_``; default the last one.
     """
     G = glmnet_obj
-    if getattr(G, 'linear_term', None) is not None and np.any(np.asarray(G.linear_term) != 0):
-        # the problem below would leave out the gradient of the linear term
-        raise NotImplementedError('fits with a linear_term are not supported; for a randomized '
-                                  'response y + omega use glmnet_problem with response y + omega')
     lambdas = np.asarray(G.lambda_values_)
     if lambda_val is None:
         k = len(lambdas) - 1
@@ -373,11 +447,13 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
                           scaling=scaling,
                           y_scale=y_scale,
                           hessian=hessian,
-                          information=information)
+                          information=information,
+                          linear_term=getattr(G, 'linear_term', None))
     _check_converged(problem, lambdas[k])
     return problem
 
 
-__all__ = ['GLMProblem', 'glmnet_problem', 'glmstar_problem', 'glmnet_scaling',
+__all__ = ['GLMProblem', 'GLMFamily', 'resolve_family', 'glm_moments',
+           'glmnet_problem', 'glmstar_problem', 'glmnet_scaling',
            'glmnet_response_scale', 'glmnet_penalty_factor', 'kkt_violation',
            'XTVXOperator']

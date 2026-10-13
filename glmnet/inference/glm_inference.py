@@ -2,27 +2,27 @@
 The inputs for selective inference after a glmnet / glmstar fit.
 
 With the LASSO problem (beta_hat, G, Q_hat) on the rows used for selection
-(:func:`glmnet.inference.glm_problem.glmnet_problem`; Q_hat at the one-step relaxed fit by
-default), the selection score is Z_noisy = -G + Q_hat beta_hat, and
+(:func:`glmnet.inference.glm_problem.glmnet_problem`; Q_hat the Fisher information at the
+one-step relaxed fit by default), the selection score is Z_noisy = -G + Q_hat beta_hat, and
 Var(Z_full) = dispersion * Q_hat / sum(weights).
 
-Without held-out data Z_full = Z_noisy (scalar_noise = 0, the polyhedral approach).
+Without randomization Z_full = Z_noisy (scalar_noise = 0, the polyhedral approach).
 With held-out data, selecting on a proportion pi = sum(weights[rows]) / sum(weights) is
 randomization with scalar_noise = (1 - pi) / pi, and Z_full linearizes the full-data
-gradient at one Newton step for the full-data loss on the selected coordinates from
+gradient at one Fisher scoring step for the full-data loss on the selected coordinates from
 beta_hat,
 
-    beta_tilde = beta_hat - H_EE^{-1} grad_E,   Z_full = -G_full(beta_tilde) + Q_hat beta_tilde.
+    beta_tilde = beta_hat - I_EE^{-1} grad_E,   Z_full = -G_full(beta_tilde) + Q_hat beta_tilde.
 
 Linearizing at the shrunk beta_hat instead biases Z_full and undercovers.
 
-The selection can also be randomized without holding out data: the LASSO is fit to a
-randomized response y' = y + omega on all the rows, with omega independent of y given the
-fit and Var(X^T V omega) = scalar_noise * Var(Z_full), e.g. the parametric score
-perturbation omega = sqrt((1 - pi) / pi) (y*_1 - y*_2) / sqrt(2) with y*_1, y*_2 drawn
-from the fitted model. Pass the problem for y' (glmnet_problem with response y'),
-``selection_response=y'`` and ``scalar_noise``; Z_full is as for held-out data, on the
-unrandomized (X, y).
+The selection can also be randomized without holding out data, by a linear term in the
+objective (``GLMNet``'s ``linear_term``, a ``LinearTerm`` with an entry for the intercept):
+the LASSO is fit to the data on all the rows with the linear term -omega, a perturbation of
+the score that is independent of y given a pilot fit, with
+Var(omega) = scalar_noise * Var(Z_full). :func:`score_perturbation` draws one from the
+pilot fit. The response itself is never perturbed. Z_full is as for held-out data, from the
+unrandomized score of (X, y).
 
 The inference itself is done elsewhere, e.g. with ``lassoinf``::
 
@@ -39,11 +39,13 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
+from ..elnet import LinearTerm
 from .glm_problem import (GLMProblem,
-                          _mean_and_variance,
+                          glm_moments,
+                          resolve_family,
+                          _variance,
                           _glmstar_family,
-                          glmstar_problem,
-                          FAMILIES)
+                          glmstar_problem)
 
 
 @dataclass
@@ -51,7 +53,7 @@ class GLMInferenceProblem:
     """
     A GLMProblem fitted on the selection rows, with the full-data score
     ``Z_full``, its covariance ``Sigma`` and the randomization ``scalar_noise``
-    (0 when all the rows were used for selection).
+    (0 when the selection was not randomized).
     """
     problem: GLMProblem
     Z_full: np.ndarray
@@ -75,17 +77,17 @@ def _eta(X, beta, offset, fit_intercept):
 
 
 def _loss_gradient(X, y, beta, family, weights, offset, fit_intercept):
-    """Gradient of the unpenalized loss (1 / sum(w)) sum_i w_i l_i at beta."""
-    mu, _ = _mean_and_variance(family, _eta(X, beta, offset, fit_intercept))
-    r = weights / weights.sum() * (mu - y)
+    """Gradient of the unpenalized loss (1 / sum(w)) sum_i w_i (-l_i) at beta."""
+    mu, a, _ = glm_moments(family, _eta(X, beta, offset, fit_intercept))
+    r = weights / weights.sum() * a * (mu - y)
     g = X.T @ r
     return np.r_[r.sum(), g] if fit_intercept else g
 
 
 def _newton_step(X, y, beta, family, weights, offset, fit_intercept):
     """
-    One Newton step for the unpenalized loss on the nonzero coordinates of beta (and the
-    intercept), with the Hessian at beta.
+    One Fisher scoring step for the unpenalized loss on the nonzero coordinates of beta (and
+    the intercept), with the information at beta.
     """
     active = np.nonzero(beta != 0)[0]
     if fit_intercept:
@@ -97,11 +99,12 @@ def _newton_step(X, y, beta, family, weights, offset, fit_intercept):
     if fit_intercept:
         X_active = np.column_stack([np.ones(X.shape[0]), X_active])
     w = weights / weights.sum()
-    mu, var = _mean_and_variance(family, _eta(X, beta, offset, fit_intercept))
+    mu, a, W = glm_moments(family, _eta(X, beta, offset, fit_intercept))
     try:
-        step = np.linalg.solve(X_active.T @ (X_active * (w * var)[:, None]), X_active.T @ (w * (mu - y)))
+        step = np.linalg.solve(X_active.T @ (X_active * (w * W)[:, None]),
+                               X_active.T @ (w * a * (mu - y)))
     except np.linalg.LinAlgError:
-        warnings.warn('the full-data Hessian on the selected coordinates is singular; '
+        warnings.warn('the full-data information on the selected coordinates is singular; '
                       'linearizing at the LASSO solution')
         return beta
     beta = beta.copy()
@@ -127,6 +130,82 @@ def _scale(Q, c):
     return c * Q
 
 
+def score_perturbation(X,
+                       eta,
+                       family,
+                       scalar_noise,
+                       weights=None,
+                       dispersion=1.,
+                       fit_intercept=True,
+                       method='replicates',
+                       rng=None):
+    """
+    A randomization of the score for a randomized selection without held-out data: the
+    ``LinearTerm`` -omega to pass to ``GLMNet(linear_term=...)``, fitted to the unperturbed data.
+
+    With a pilot linear predictor ``eta`` (e.g. the unpenalized fit on all the variables when
+    n > p) and its score weights a = h / V (h = d mu / d eta, V the variance function), draw
+    e_i, independent of y given the pilot fit, with mean 0 and
+    Var(e_i) = scalar_noise * dispersion * V(mu_i) / w_i. Then
+
+        omega = (1 / sum(w)) [sum_i w_i a_i e_i,  sum_i w_i a_i e_i x_i]
+
+    is the change in the score of y + e with the weights a frozen at the pilot fit, and
+    Var(omega) = scalar_noise * dispersion * X1^T diag(w h^2 / V) X1 / sum(w)^2: scalar_noise
+    times the covariance of the score. For the canonical link a = 1, and -omega is the linear
+    term of the response y + e.
+
+    Parameters
+    ----------
+    X : design (n x p), as passed to ``GLMNet``
+    eta : pilot linear predictor (including any offset)
+    family : as for :func:`glmnet.inference.glm_problem.glmnet_problem`
+    scalar_noise : variance of omega relative to that of the score, e.g. (1 - pi) / pi to
+        imitate selecting on a proportion pi of the data
+    weights : prior weights, as passed to ``GLMNet``; default 1
+    dispersion : multiplies the variance of y (e.g. a quasi-Poisson phi_hat)
+    fit_intercept : whether the fit has an intercept (else omega has no intercept entry)
+    method : 'replicates', e = sqrt(scalar_noise * dispersion) (y*_1 - y*_2) / sqrt(2) with
+        y*_1, y*_2 independent replicates from the pilot fit (binomial and poisson weights
+        must then be integers, the binomial ones numbers of trials); or 'gaussian', e normal
+    rng : numpy Generator (or seed)
+
+    Returns
+    -------
+    LinearTerm (-omega) on the original scale of the coefficients.
+    """
+    family = resolve_family(family)
+    rng = np.random.default_rng(rng)
+    X = np.asarray(X.toarray() if sp.issparse(X) else X, dtype=float)
+    eta = np.asarray(eta, dtype=float)
+    n = X.shape[0]
+    weights = np.ones(n) if weights is None else np.asarray(weights, dtype=float)
+    if scalar_noise <= 0:
+        raise ValueError('scalar_noise must be positive')
+    mu, a, _ = glm_moments(family, eta)
+    if method == 'gaussian':
+        V = _variance(family.name, mu)
+        e = rng.standard_normal(n) * np.sqrt(scalar_noise * dispersion * V / weights)
+    elif method == 'replicates':
+        if family.name == 'gaussian':
+            draws = [mu + rng.standard_normal(n) / np.sqrt(weights) for _ in range(2)]
+        else:
+            m = np.rint(weights)
+            if not np.allclose(m, weights) or np.any(m < 1):
+                raise ValueError("method='replicates' needs integer weights >= 1 for binomial and "
+                                 "poisson; use method='gaussian'")
+            m = m.astype(int)
+            if family.name == 'binomial':
+                draws = [rng.binomial(m, mu) / m for _ in range(2)]
+            else:
+                draws = [rng.poisson(m * mu) / m for _ in range(2)]
+        e = np.sqrt(scalar_noise * dispersion) * (draws[0] - draws[1]) / np.sqrt(2)
+    else:
+        raise ValueError("method must be 'replicates' or 'gaussian'")
+    r = weights / weights.sum() * a * e
+    return LinearTerm(coef=-(X.T @ r), intercept=-r.sum() if fit_intercept else 0.)
+
+
 def glm_inference_problem(problem,
                           X,
                           y,
@@ -135,35 +214,33 @@ def glm_inference_problem(problem,
                           offset=None,
                           selection_rows=None,
                           dispersion=None,
-                          selection_response=None,
                           scalar_noise=None):
     """
     The inputs for selective inference for the LASSO ``problem`` fitted on
-    ``X[selection_rows]``, possibly with a randomized response.
+    ``X[selection_rows]``, possibly with a linear term randomizing the selection.
 
     Parameters
     ----------
-    problem : GLMProblem for the selection rows (from glmnet_problem or glmstar_problem)
+    problem : GLMProblem for the selection rows (from glmnet_problem or glmstar_problem),
+        including the fit's linear term
     X, y : the full data (arrays)
-    family : 'gaussian', 'binomial' or 'poisson'
+    family : as for :func:`glmnet.inference.glm_problem.glmnet_problem`
     weights, offset : full-data observation weights and offset (prior weights, as in a GLM)
     selection_rows : rows (indices or boolean mask) used for selection; None for all of
-        them, i.e. no randomization
-    dispersion : default 1 for binomial and poisson and, for gaussian, the residual
-        variance of the least squares fit on all the variables (requires n > p)
-    selection_response : the response ``problem`` was fitted to (length n, used on the
-        selection rows); default ``y``. A randomized response y + omega for a randomized
-        selection.
+        them
+    dispersion : default 1 for binomial and poisson and, for gaussian with the identity
+        link, the residual variance of the least squares fit on all the variables
+        (requires n > p)
     scalar_noise : the variance of the randomization relative to Var(Z_full); default
         (1 - pi) / pi for selection on a proportion pi of the weights (0 for all the
-        rows). Give it for a randomized ``selection_response``.
+        rows). Required when the problem has a linear term (e.g. from
+        :func:`score_perturbation`): with held-out rows as well, it is the total.
 
     Returns
     -------
     GLMInferenceProblem (index 0 of its vectors is the intercept when the problem has one).
     """
-    if family not in FAMILIES:
-        raise ValueError(f'family must be one of {FAMILIES}, got {family!r}')
+    family = resolve_family(family)
     X = np.asarray(X, dtype=float)
     y = np.asarray(y, dtype=float)
     n = X.shape[0]
@@ -174,17 +251,14 @@ def glm_inference_problem(problem,
     rows = np.arange(n) if selection_rows is None else np.arange(n)[selection_rows]
     if len(rows) == 0 or len(np.unique(rows)) != len(rows):
         raise ValueError('invalid selection_rows')
-    if selection_response is None:
-        selection_response = y
-    else:
-        selection_response = np.asarray(selection_response, dtype=float)
-        if selection_response.shape[0] != n:
-            raise ValueError('selection_response must be for the full data (length n)')
-        if scalar_noise is None:
-            raise ValueError('give the scalar_noise of the randomized selection_response')
+    lin = problem.linear_term
     if scalar_noise is None:
+        if lin is not None:
+            raise ValueError('the selection was randomized by a linear term: give its scalar_noise')
         pi_selection = weights[rows].sum() / weights.sum()
         scalar_noise = (1 - pi_selection) / pi_selection
+    elif scalar_noise == 0 and (lin is not None or len(rows) < n):
+        raise ValueError('a randomized selection (a linear term or held-out rows) has scalar_noise > 0')
 
     fit_intercept = problem.fit_intercept
     Q = problem.Q_hat
@@ -193,17 +267,23 @@ def glm_inference_problem(problem,
         Z_full = -problem.G_hat + Q @ b
     else:
         b_tilde = _newton_step(X, y, b, family, weights, offset, fit_intercept)
-        # G = loss gradient + ridge * beta; recover ridge * beta_hat from the selection problem
-        ridge_b = problem.G_hat - _loss_gradient(X[rows], selection_response[rows], b, family,
-                                                 weights[rows], offset[rows], fit_intercept)
+        # G = loss gradient + ridge * beta + linear term; recover ridge * beta_hat
+        ridge_b = problem.G_hat - _loss_gradient(X[rows], y[rows], b, family, weights[rows],
+                                                 offset[rows], fit_intercept)
+        if lin is not None:
+            ridge_b = ridge_b - lin
         with np.errstate(divide='ignore', invalid='ignore'):
             ridge_b_tilde = np.where(b != 0, ridge_b * b_tilde / b, 0.)
         G_full = _loss_gradient(X, y, b_tilde, family, weights, offset, fit_intercept) + ridge_b_tilde
         Z_full = -G_full + Q @ b_tilde
 
     if dispersion is None:
-        dispersion = (_gaussian_dispersion(X, y, weights, offset, fit_intercept)
-                      if family == 'gaussian' else 1.)
+        if family.name == 'gaussian':
+            if not family.canonical:
+                raise ValueError('supply the dispersion for the gaussian family with a non-identity link')
+            dispersion = _gaussian_dispersion(X, y, weights, offset, fit_intercept)
+        else:
+            dispersion = 1.
     return GLMInferenceProblem(problem=problem,
                                Z_full=np.asarray(Z_full),
                                Sigma=_scale(Q, dispersion / weights.sum()),
@@ -221,17 +301,18 @@ def glmstar_inference_problem(glmnet_obj,
                               lambda_val=None,
                               selection_rows=None,
                               dispersion=None,
+                              scalar_noise=None,
                               hessian='dense',
                               information='relaxed'):
     """
     The inputs for selective inference after a glmstar ``GLMNet`` fit at ``lambda_val``.
 
-    Without ``selection_rows`` the fit is on all the data and there is no randomization.
-    With ``selection_rows``, ``glmnet_obj`` must have been fitted on
-    ``X[selection_rows]``, ``y[selection_rows]`` and Z_full uses all of ``X``, ``y``
-    (carving). ``y`` may be a DataFrame with response, weight and offset columns, as for
-    glmstar. See :func:`glm_inference_problem`; ``hessian`` and ``information`` are as for
-    :func:`glmnet.inference.glm_problem.glmnet_problem`.
+    Without ``selection_rows`` the fit is on all the data, randomized if it has a
+    ``linear_term`` (give its ``scalar_noise``). With ``selection_rows``, ``glmnet_obj``
+    must have been fitted on ``X[selection_rows]``, ``y[selection_rows]`` and Z_full uses
+    all of ``X``, ``y`` (carving). ``y`` may be a DataFrame with response, weight and
+    offset columns, as for glmstar. See :func:`glm_inference_problem`; ``hessian`` and
+    ``information`` are as for :func:`glmnet.inference.glm_problem.glmnet_problem`.
     """
     n = X.shape[0]
     rows = np.arange(n) if selection_rows is None else np.arange(n)[selection_rows]
@@ -242,7 +323,9 @@ def glmstar_inference_problem(glmnet_obj,
     return glm_inference_problem(problem, X_arr, response, _glmstar_family(glmnet_obj),
                                  weights=weight, offset=offset,
                                  selection_rows=None if len(rows) == n else rows,
-                                 dispersion=dispersion)
+                                 dispersion=dispersion,
+                                 scalar_noise=scalar_noise)
 
 
-__all__ = ['GLMInferenceProblem', 'glm_inference_problem', 'glmstar_inference_problem']
+__all__ = ['GLMInferenceProblem', 'glm_inference_problem', 'glmstar_inference_problem',
+           'score_perturbation']
