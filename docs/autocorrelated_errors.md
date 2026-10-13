@@ -52,6 +52,8 @@ from glmnet import GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem
 from lassoinf import LassoInference
+
+from experiments import load_results, provenance
 ```
 
 ## Data
@@ -344,40 +346,51 @@ interval covers $\beta_{E,j}$, and the interval's length per standard
 deviation of the feature.
 
 ```{code-cell} ipython3
-rows = []
+def calibration(n_rep=300):
+    rows = []
 
-def record(method, E, lower, upper):
-    for j, lo, hi, t in zip(E, lower, upper, target(E)):
-        rows.append({'method': method, 'signal': signal[j],
-                     'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
+    def record(method, E, lower, upper):
+        for j, lo, hi, t in zip(E, lower, upper, target(E)):
+            rows.append({'method': method, 'signal': signal[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
-def sandwich_intervals(X, y, E):
-    rho_hat, sigma2_hat = ar1_fit(X, y)
-    b = least_squares(X[:, E], y)[1:]
-    se = np.sqrt(np.diag(sandwich(X[:, E], ar1_covariance(X.shape[0], rho_hat, sigma2_hat)))[1:])
-    return b - q * se, b + q * se
+    def sandwich_intervals(X, y, E):
+        rho_hat, sigma2_hat = ar1_fit(X, y)
+        b = least_squares(X[:, E], y)[1:]
+        se = np.sqrt(np.diag(sandwich(X[:, E], ar1_covariance(X.shape[0], rho_hat, sigma2_hat)))[1:])
+        return b - q * se, b + q * se
 
-n_sel = int(pi * n)
-for _ in range(300):
-    X, y = sim_data(n)
-    rho_hat, sigma2_hat = ar1_fit(X, y)
+    n_sel = int(pi * n)
+    for _ in range(n_rep):
+        X, y = sim_data(n)
+        rho_hat, sigma2_hat = ar1_fit(X, y)
 
-    E = np.nonzero(lasso(X, y).coefs_[0])[0]
-    if len(E):
-        record('naive', E, *sandwich_intervals(X, y, E))
-
-    E = np.nonzero(lasso(X[:n_sel], y[:n_sel]).coefs_[0])[0]
-    if len(E):
-        record('split', E, *sandwich_intervals(X[n_sel:], y[n_sel:], E))
-
-    for suffix, dependent in [('', True), (' (iid)', False)]:
-        E, intervals = randomized_inference(X, y, rho_hat, sigma2_hat, dependent=dependent)
+        E = np.nonzero(lasso(X, y).coefs_[0])[0]
         if len(E):
-            for method, (_, lower, upper) in intervals.items():
-                record(method + suffix, E, lower, upper)
+            record('naive', E, *sandwich_intervals(X, y, E))
+
+        E = np.nonzero(lasso(X[:n_sel], y[:n_sel]).coefs_[0])[0]
+        if len(E):
+            record('split', E, *sandwich_intervals(X[n_sel:], y[n_sel:], E))
+
+        for suffix, dependent in [('', True), (' (iid)', False)]:
+            E, intervals = randomized_inference(X, y, rho_hat, sigma2_hat, dependent=dependent)
+            if len(E):
+                for method, (_, lower, upper) in intervals.items():
+                    record(method + suffix, E, lower, upper)
+
+    return pd.DataFrame(rows)
+```
+
+The experiment is run locally, not when the docs are built: the results
+below were computed with `python docs/experiments.py autocorrelated_errors`
+and saved in `docs/results/autocorrelated_errors.csv`.
+
+```{code-cell} ipython3
+results = load_results('autocorrelated_errors')
+display(provenance(results))
 
 methods = ['naive', 'split', 'combination', 'carved', 'combination (iid)', 'carved (iid)']
-results = pd.DataFrame(rows)
 results['method'] = pd.Categorical(results['method'], methods)
 results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
 results.groupby('method', observed=True).agg(intervals=('covered', 'size'),
