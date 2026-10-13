@@ -40,6 +40,8 @@ from glmnet import GLMNet
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
+
+from experiments import load_results, provenance
 ```
 
 ## Data
@@ -239,42 +241,53 @@ interval covers $\beta_{E,j}$, and the interval's length per standard
 deviation of the feature.
 
 ```{code-cell} ipython3
-rows = []
+def calibration(n_rep=300):
+    rows = []
 
-def record(method, E, lower, upper):
-    for j, lo, hi, t in zip(E, lower, upper, target(E)):
-        rows.append({'method': method, 'signal': signal[j],
-                     'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
+    def record(method, E, lower, upper):
+        for j, lo, hi, t in zip(E, lower, upper, target(E)):
+            rows.append({'method': method, 'signal': signal[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
-def poisson_intervals(X, y, E, phi_hat):
-    fit = poisson_fit(X[:, E], y)
-    se = fit.bse[1:] * np.sqrt(phi_hat)
-    return fit.params[1:] - q * se, fit.params[1:] + q * se
+    def poisson_intervals(X, y, E, phi_hat):
+        fit = poisson_fit(X[:, E], y)
+        se = fit.bse[1:] * np.sqrt(phi_hat)
+        return fit.params[1:] - q * se, fit.params[1:] + q * se
 
-for _ in range(300):
-    X, y = sim_data(n)
-    phi_hat, eta_hat = dispersion(X, y)
+    for _ in range(n_rep):
+        X, y = sim_data(n)
+        phi_hat, eta_hat = dispersion(X, y)
 
-    E = np.nonzero(poisson_lasso(X, y).coefs_[0])[0]
-    if len(E):
-        record('naive', E, *poisson_intervals(X, y, E, phi_hat))
-
-    idx = rng.permutation(n)
-    sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
-    E = np.nonzero(poisson_lasso(X[sel], y[sel]).coefs_[0])[0]
-    if len(E):
-        phi_held_out = dispersion(X[held_out], y[held_out])[0]
-        record('split', E, *poisson_intervals(X[held_out], y[held_out], E, phi_held_out))
-
-    for suffix, phi_used in [('', phi_hat), (' (phi = 1)', 1.)]:
-        E, intervals = randomized_inference(X, y, eta_hat, phi_used)
+        E = np.nonzero(poisson_lasso(X, y).coefs_[0])[0]
         if len(E):
-            for method, (_, lower, upper) in intervals.items():
-                record(method + suffix, E, lower, upper)
+            record('naive', E, *poisson_intervals(X, y, E, phi_hat))
+
+        idx = rng.permutation(n)
+        sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
+        E = np.nonzero(poisson_lasso(X[sel], y[sel]).coefs_[0])[0]
+        if len(E):
+            phi_held_out = dispersion(X[held_out], y[held_out])[0]
+            record('split', E, *poisson_intervals(X[held_out], y[held_out], E, phi_held_out))
+
+        for suffix, phi_used in [('', phi_hat), (' (phi = 1)', 1.)]:
+            E, intervals = randomized_inference(X, y, eta_hat, phi_used)
+            if len(E):
+                for method, (_, lower, upper) in intervals.items():
+                    record(method + suffix, E, lower, upper)
+
+    return pd.DataFrame(rows)
+```
+
+The experiment is run locally, not when the docs are built: the results
+below were computed with `python docs/experiments.py overdispersed_poisson`
+and saved in `docs/results/overdispersed_poisson.csv`.
+
+```{code-cell} ipython3
+results = load_results('overdispersed_poisson')
+display(provenance(results))
 
 methods = ['naive', 'split', 'combination', 'carved',
            'combination (phi = 1)', 'carved (phi = 1)']
-results = pd.DataFrame(rows)
 results['method'] = pd.Categorical(results['method'], methods)
 results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
 results.groupby('method', observed=True).agg(intervals=('covered', 'size'),

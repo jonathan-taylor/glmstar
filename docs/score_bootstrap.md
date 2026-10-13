@@ -52,6 +52,8 @@ from glmnet import GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
+
+from experiments import load_results, provenance
 ```
 
 ## Weighted least squares
@@ -438,34 +440,45 @@ multiplied by the feature's standard deviation, so it is the length for
 the effect of one standard deviation and comparable across features.
 
 ```{code-cell} ipython3
-rows = []
+def calibration(n_rep=300):
+    rows = []
 
-def record(method, E, lower, upper):
-    for j, lo, hi, t in zip(E, lower, upper, target(E)):
-        rows.append({'method': method, 'signal': signal[j],
-                     'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
+    def record(method, E, lower, upper):
+        for j, lo, hi, t in zip(E, lower, upper, target(E)):
+            rows.append({'method': method, 'signal': signal[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
-for _ in range(300):
-    X, y = sim_data(n)
+    for _ in range(n_rep):
+        X, y = sim_data(n)
 
-    E = np.nonzero(logistic_lasso(X, y).coefs_[0])[0]
-    if len(E):
-        b, se = logit_fit(X[:, E], y)
-        record('naive', E, b - q * se, b + q * se)
+        E = np.nonzero(logistic_lasso(X, y).coefs_[0])[0]
+        if len(E):
+            b, se = logit_fit(X[:, E], y)
+            record('naive', E, b - q * se, b + q * se)
 
-    idx = rng.permutation(n)
-    sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
-    E = np.nonzero(logistic_lasso(X[sel], y[sel]).coefs_[0])[0]
-    if len(E):
-        b, se = logit_fit(X[held_out][:, E], y[held_out])
-        record('split', E, b - q * se, b + q * se)
+        idx = rng.permutation(n)
+        sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
+        E = np.nonzero(logistic_lasso(X[sel], y[sel]).coefs_[0])[0]
+        if len(E):
+            b, se = logit_fit(X[held_out][:, E], y[held_out])
+            record('split', E, b - q * se, b + q * se)
 
-    fit, E = randomized_selection(X, y)
-    if len(E):
-        record('combination', E, *combination_intervals(fit, E, X, y)[1:])
-        record('carved', E, *carved_intervals(fit, E, X, y)[1:])
+        fit, E = randomized_selection(X, y)
+        if len(E):
+            record('combination', E, *combination_intervals(fit, E, X, y)[1:])
+            record('carved', E, *carved_intervals(fit, E, X, y)[1:])
 
-results = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+```
+
+The experiment is run locally, not when the docs are built: the results
+below were computed with `python docs/experiments.py score_bootstrap`
+and saved in `docs/results/score_bootstrap.csv`.
+
+```{code-cell} ipython3
+results = load_results('score_bootstrap')
+display(provenance(results))
+
 results['method'] = pd.Categorical(results['method'],
                                    ['naive', 'split', 'combination', 'carved'])
 results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])

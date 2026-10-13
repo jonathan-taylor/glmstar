@@ -186,6 +186,24 @@ pytest tests/paths/
 pytest tests/compare_R/
 ```
 
+### Saved Results in the Docs
+The calibration experiments in the docs' Inference chapter are too slow to run
+when the docs are built, so they are run locally and their results saved in
+`docs/results/*.csv`, each with a header recording the commit and the package
+versions it was computed with. To recompute all of them, commit your changes,
+then, from the top of the repository, with the development install (`uv sync`,
+or `pip install -e .` and the `doc` extra),
+```bash
+uv run python docs/experiments.py --all    # or: python docs/experiments.py --all
+git add docs/results && git commit -m "docs: recompute the saved results"
+```
+`python docs/experiments.py probit_regression` recomputes one page. See
+`docs/experiments.py` for the conventions.
+
+**When changing versions** (a glmstar release, a new `lassoinf` or other
+dependency pin, or the `src/glmnetpp` submodule), recompute these results, so
+that the docs show results from the code they describe.
+
 ## Citation
 
 If you use this package in your research, please cite:

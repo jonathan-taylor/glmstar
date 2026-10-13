@@ -43,6 +43,8 @@ from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
 
+from experiments import load_results, provenance
+
 probit = sm.families.Binomial(link=sm.families.links.Probit())
 ```
 
@@ -234,37 +236,48 @@ interval covers $\beta_{E,j}$, and the interval's length per standard
 deviation of the feature.
 
 ```{code-cell} ipython3
-rows = []
+def calibration(n_rep=300):
+    rows = []
 
-def record(method, E, lower, upper):
-    for j, lo, hi, t in zip(E, lower, upper, target(E)):
-        rows.append({'method': method, 'signal': signal[j],
-                     'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
+    def record(method, E, lower, upper):
+        for j, lo, hi, t in zip(E, lower, upper, target(E)):
+            rows.append({'method': method, 'signal': signal[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
-def probit_intervals(X, y, E):
-    fit = probit_fit(X[:, E], y)
-    return fit.params[1:] - q * fit.bse[1:], fit.params[1:] + q * fit.bse[1:]
+    def probit_intervals(X, y, E):
+        fit = probit_fit(X[:, E], y)
+        return fit.params[1:] - q * fit.bse[1:], fit.params[1:] + q * fit.bse[1:]
 
-for _ in range(300):
-    X, y = sim_data(n)
+    for _ in range(n_rep):
+        X, y = sim_data(n)
 
-    E = np.nonzero(probit_lasso(X, y).coefs_[0])[0]
-    if len(E):
-        record('naive', E, *probit_intervals(X, y, E))
+        E = np.nonzero(probit_lasso(X, y).coefs_[0])[0]
+        if len(E):
+            record('naive', E, *probit_intervals(X, y, E))
 
-    idx = rng.permutation(n)
-    sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
-    E = np.nonzero(probit_lasso(X[sel], y[sel]).coefs_[0])[0]
-    if len(E):
-        record('split', E, *probit_intervals(X[held_out], y[held_out], E))
+        idx = rng.permutation(n)
+        sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
+        E = np.nonzero(probit_lasso(X[sel], y[sel]).coefs_[0])[0]
+        if len(E):
+            record('split', E, *probit_intervals(X[held_out], y[held_out], E))
 
-    E, intervals = randomized_inference(X, y)
-    if len(E):
-        for method, (_, lower, upper) in intervals.items():
-            record(method, E, lower, upper)
+        E, intervals = randomized_inference(X, y)
+        if len(E):
+            for method, (_, lower, upper) in intervals.items():
+                record(method, E, lower, upper)
+
+    return pd.DataFrame(rows)
+```
+
+The experiment is run locally, not when the docs are built: the results
+below were computed with `python docs/experiments.py probit_regression`
+and saved in `docs/results/probit_regression.csv`.
+
+```{code-cell} ipython3
+results = load_results('probit_regression')
+display(provenance(results))
 
 methods = ['naive', 'split', 'combination', 'carved']
-results = pd.DataFrame(rows)
 results['method'] = pd.Categorical(results['method'], methods)
 results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
 results.groupby('method', observed=True).agg(intervals=('covered', 'size'),
