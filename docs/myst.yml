@@ -24,10 +24,6 @@ project:
         - file: penalty_factor.md
         - file: relax.md
         - file: glmnet_vs_R.md
-    - title: Inference
-      children:
-        - file: inference.md
-        - file: score_bootstrap.md
     - title: GLMNet paths
       children:
         - file: paths/GLMNet.md
@@ -38,6 +34,10 @@ project:
         - file: paths/CoxNetIRLS.md
         - file: paths/MultiClassNet.md
         - file: paths/MultiGaussNet.md
+    - title: Inference
+      children:
+        - file: inference.md
+        - file: score_bootstrap.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:
