@@ -10,7 +10,7 @@ authors = [
 ]
 description = "GlmNet for Python"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 
 dependencies = [
