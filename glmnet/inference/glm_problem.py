@@ -306,12 +306,13 @@ def glmnet_problem(X,
 
 def _glmstar_family(glmnet_obj):
     import statsmodels.genmod.families as sm_family
+    from ..family import is_link
     base = glmnet_obj._family.base
     for name, cls in [('gaussian', sm_family.Gaussian),
                       ('binomial', sm_family.Binomial),
                       ('poisson', sm_family.Poisson)]:
         if isinstance(base, cls):
-            if not isinstance(base.link, type(cls().link)):
+            if not is_link(base.link, type(cls().link)):
                 raise ValueError(f'only the canonical link is supported for {name}')
             return name
     raise ValueError(f'unsupported family {type(base).__name__}; supported: {FAMILIES}')
