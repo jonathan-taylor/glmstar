@@ -15,7 +15,9 @@ from .base import _get_design, Penalty
 
 from .elnet import (ElNet,
                     ElNetControl,
-                    ElNetSpec)
+                    ElNetSpec,
+                    LinearTerm,
+                    _check_linear_term)
 from .glm import GLM
 from .family import (GLMFamilySpec,
                      BinomFamilySpec)
@@ -110,12 +112,18 @@ class ElNetRegularizer(Penalty):
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
+    linear_term: Optional[LinearTerm]
+        Linear term added to the objective as
+        `coef^T state.coef + intercept * state.intercept`, on the scale of
+        the coefficients of the design (`state.coef`, `state.intercept`).
+        Default None (no linear term).
     """
     fit_intercept: bool = False
     warm_state: dict = field(default_factory=dict)
     nvars: InitVar[Optional[int]] = None
     control: InitVar[Optional[RegGLMControl]] = None
     exclude: list = field(default_factory=list)
+    linear_term: Optional[LinearTerm] = None
 
     def __post_init__(self, nvars, control):
         """
@@ -231,6 +239,9 @@ class ElNetRegularizer(Penalty):
         z = pseudo_response
         # make sure to set lambda_val to self.lambda_val
         self.elnet_estimator.lambda_val = self.lambda_val
+        # ElNet's linear term is on the scale of its coef_, intercept_
+        if self.linear_term is not None:
+            self.elnet_estimator.linear_term = self.linear_term.from_design(design)
         
         warm = (cur_state.coef,
                 cur_state.intercept,
@@ -251,7 +262,7 @@ class ElNetRegularizer(Penalty):
     def objective(self, state):
         """
         Compute objective value (elastic net penalty), weighted by the
-        penalty factors as R's `pen_function`.
+        penalty factors as R's `pen_function`, plus the linear term.
         
         Parameters
         ----------
@@ -261,12 +272,15 @@ class ElNetRegularizer(Penalty):
         Returns
         -------
         float
-            Objective value (elastic net penalty).
+            Objective value (elastic net penalty plus linear term).
         """
         pf = self.penalty_factor_
         lasso = self.alpha * (pf * np.fabs(state.coef)).sum()
         ridge = (1 - self.alpha) * (pf * state.coef**2).sum() / 2
-        return self.lambda_val * (lasso + ridge)
+        value = self.lambda_val * (lasso + ridge)
+        if self.linear_term is not None:
+            value += self.linear_term.value(state.coef, state.intercept)
+        return value
 
 
 @dataclass
@@ -321,6 +335,12 @@ class RegGLM(GLM,
             check_is_fitted(self, ["design_"])
             nvars = self.design_.X.shape[1]
 
+        # on the scale of the design's coefficients
+        linear_term = _check_linear_term(self.linear_term, nvars,
+                                         fit_intercept=self.fit_intercept)
+        if linear_term is not None:
+            linear_term = linear_term.to_design(self.design_)
+
         return ElNetRegularizer(lambda_val=self.lambda_val,
                                 alpha=self.alpha,
                                 penalty_factor=self.penalty_factor,
@@ -329,7 +349,8 @@ class RegGLM(GLM,
                                 fit_intercept=self.fit_intercept,
                                 nvars=nvars,
                                 control=self.control,
-                                exclude=self.exclude)
+                                exclude=self.exclude,
+                                linear_term=linear_term)
 
     def _get_design(self,
                     X,

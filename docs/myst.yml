@@ -23,7 +23,6 @@ project:
         - file: custom_family.md
         - file: penalty_factor.md
         - file: relax.md
-        - file: inference.md
         - file: glmnet_vs_R.md
     - title: GLMNet paths
       children:
@@ -35,6 +34,13 @@ project:
         - file: paths/CoxNetIRLS.md
         - file: paths/MultiClassNet.md
         - file: paths/MultiGaussNet.md
+    - title: Inference
+      children:
+        - file: inference.md
+        - file: score_bootstrap.md
+        - file: overdispersed_poisson.md
+        - file: probit_regression.md
+        - file: autocorrelated_errors.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:

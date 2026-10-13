@@ -105,6 +105,12 @@ def _get_data(estimator,
 
     return X, y, np.squeeze(response), offset, weight
 
+class UnboundedObjectiveError(ValueError):
+    """
+    The objective, with its linear term, is unbounded below: no solution exists.
+    """
+
+
 def _jerr_elnetfit(n, maxit, k=None, pmax=None):
     """
     Interprets error codes from `elnet` (C++ or Fortran) routines.
@@ -129,9 +135,16 @@ def _jerr_elnetfit(n, maxit, k=None, pmax=None):
     """
     if k is None and -10000 < n < 0:
         k = -n # index of the lambda value that did not converge, as in R
+    unbounded = False
     if n == 0:
         fatal = False
         msg = ''
+    elif -50000 < n <= -40001:
+        # only with a linear term
+        fatal = False
+        unbounded = True
+        msg = ("The objective with the linear term is unbounded below " +
+               f"(or did not converge after maxit={maxit} iterations) at the {-n-40000}-th lambda value")
     elif n > 0:
         # fatal error
         fatal = True
@@ -147,6 +160,7 @@ def _jerr_elnetfit(n, maxit, k=None, pmax=None):
                " iterations; solutions for larger lambdas returned")
     return {'n':n,
             'fatal':fatal,
+            'unbounded':unbounded,
             'msg':f"Error code {n}:" + msg}
 
 def _jerr_lognet(n, maxit, k=None, pmax=None):

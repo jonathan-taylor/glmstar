@@ -6,6 +6,9 @@ Adapted from github.com/jonathan-taylor/lassoinf.
 """
 
 from .glm_problem import (GLMProblem,
+                          GLMFamily,
+                          resolve_family,
+                          glm_moments,
                           glmnet_problem,
                           glmstar_problem,
                           glmnet_scaling,
@@ -15,4 +18,5 @@ from .glm_problem import (GLMProblem,
                           XTVXOperator)
 from .glm_inference import (GLMInferenceProblem,
                             glm_inference_problem,
-                            glmstar_inference_problem)
+                            glmstar_inference_problem,
+                            score_perturbation)

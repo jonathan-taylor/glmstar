@@ -164,6 +164,13 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     control : FastNetControl, optional
         Control parameters for the solver.
 
+    Notes
+    -----
+    The estimators built on this mixin inherit ``GLMNet``'s ``linear_term``
+    parameter (a dataclass cannot drop an inherited field), but the C++ path
+    solvers do not support a linear term: ``fit`` raises ``NotImplementedError``
+    if it is not None. Use ``GLMNet`` with the corresponding family instead.
+
     Attributes
     ----------
     coefs_ : ndarray
@@ -212,6 +219,10 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             Fitted estimator.
         """
     
+        if self.linear_term is not None:
+            raise NotImplementedError('linear_term is not supported by the C++ path solvers; '
+                                      'use GLMNet with the corresponding family')
+
         if not hasattr(self, "_family"):
             self._family = GLMFamilySpec.from_family(self.family, response=y)
 

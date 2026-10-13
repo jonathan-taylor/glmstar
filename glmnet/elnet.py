@@ -16,7 +16,7 @@ from .base import (Base,
                    Penalty,
                    Design,
                    _get_design)
-from ._utils import _jerr_elnetfit
+from ._utils import _jerr_elnetfit, UnboundedObjectiveError
 
 @dataclass
 class ElNetControl(object):
@@ -39,6 +39,38 @@ class ElNetControl(object):
     logging: bool = False
 
 @dataclass
+class LinearTerm(object):
+    """A linear term in the objective, as for `GLMState`: `coef^T beta + intercept * beta_0`.
+
+    Parameters
+    ----------
+    coef : np.ndarray
+        One entry per feature.
+    intercept : float, default=0
+        Entry for the intercept; must be 0 without an intercept.
+    """
+    coef: np.ndarray
+    intercept: float = 0.
+
+    def to_design(self, design):
+        """
+        The linear term on the scale of the design's coefficients (`raw_coef_`,
+        `raw_intercept_`): with `beta = raw_coef / scaling` and
+        `beta_0 = raw_intercept - centers^T beta`.
+        """
+        return LinearTerm(coef=(self.coef - self.intercept * design.centers_) / design.scaling_,
+                          intercept=self.intercept)
+
+    def from_design(self, design):
+        """Inverse of `to_design`."""
+        return LinearTerm(coef=self.coef * design.scaling_ + self.intercept * design.centers_,
+                          intercept=self.intercept)
+
+    def value(self, coef, intercept):
+        """Value of the linear term at `(coef, intercept)`."""
+        return self.coef @ coef + self.intercept * intercept
+
+@dataclass
 class ElNetSpec(Penalty):
     """Specification for ElNet model parameters.
     
@@ -52,11 +84,17 @@ class ElNetSpec(Penalty):
         Control parameters for optimization.
     exclude : list, default_factory=list
         List of variable indices to exclude from penalization.
+    linear_term : LinearTerm or array-like, optional
+        Linear term `G^T beta + G_0 beta_0` added to the objective, with
+        `beta`, `beta_0` the coefficients and intercept on the original
+        scale of the features (`coef_`, `intercept_`). An array is
+        `LinearTerm(coef=G)`, with `G_0 = 0`. Default None (no linear term).
     """
     fit_intercept: bool = True
     standardize: bool = True
     control: ElNetControl = field(default_factory=ElNetControl)
     exclude: list = field(default_factory=list)
+    linear_term: Optional[Union[LinearTerm, np.ndarray]] = None
 
 @dataclass
 class ElNet(BaseEstimator,
@@ -87,6 +125,15 @@ class ElNet(BaseEstimator,
         Control parameters for optimization.
     exclude : list, default_factory=list
         List of variable indices to exclude from penalization.
+    linear_term : LinearTerm or array-like, optional
+        Linear term `(G, G_0)`: the objective is
+
+            1/2 sum_i w_i (y_i - intercept - x_i^T beta)^2 + G^T beta + G_0 intercept + lambda * penalty(beta),
+
+        with `w` the sample weights (default `1/n_samples`) and `beta`,
+        `intercept` on the original scale (`coef_`, `intercept_`). An
+        array is `LinearTerm(coef=G)`, with `G_0 = 0`. Default None (no
+        linear term).
     """
     def fit(self,
             X,
@@ -122,8 +169,12 @@ class ElNet(BaseEstimator,
         else:
             design = self.design_
 
-        # the unpenalized shortcut below ignores exclusions and limits
+        linear_term_ = _check_linear_term(self.linear_term, design.X.shape[1],
+                                          fit_intercept=self.fit_intercept)
+
+        # the unpenalized shortcut below ignores exclusions, limits and the linear term
         constrained = (len(self.exclude) > 0
+                       or linear_term_ is not None
                        or (self.penalty_factor is not None
                            and np.any(np.isinf(self.penalty_factor)))
                        or np.any(np.isfinite(self.lower_limits))
@@ -181,6 +232,15 @@ class ElNet(BaseEstimator,
             args['maxit'] = int(self.control.maxit)
             args['thr'] = float(self.control.thresh)
             args['v'] = np.asarray(sample_weight, float).reshape((-1,1))
+            if linear_term_ is not None:
+                # the solver's coefficients are raw_coef_, raw_intercept_
+                lin = linear_term_.to_design(design)
+                lin.coef[np.asarray(self.excluded_, int)] = 0
+                args['lin'] = lin.coef
+                args['lin0'] = float(lin.intercept)
+            else:
+                args.pop('lin', None)
+                args.pop('lin0', None)
             if self.control.logging: logging.debug(f'Elnet warm coef: {args["a"]}, Elnet warm intercept: {args["aint"]}')
             check_resid = True
             if check_resid:
@@ -195,6 +255,8 @@ class ElNet(BaseEstimator,
             if wls_fit['jerr'] != 0:
                 errmsg = _jerr_elnetfit(wls_fit['jerr'], self.control.maxit)
                 if self.control.logging: logging.debug(errmsg['msg'])
+                if errmsg['unbounded']:
+                    raise UnboundedObjectiveError(errmsg['msg'])
             if self.control.logging: logging.debug(f'Elnet coef: {wls_fit["a"]}, Elnet intercept: {wls_fit["aint"]}')
             self.raw_coef_ = wls_fit['a'].reshape(-1)
             self.raw_intercept_ = wls_fit['aint']
@@ -323,6 +385,53 @@ def _elnet_wrapper_args(design,
              'jerr':jerr}
     _args.update(**_design_wrapper_args(design))
     return _args, nulldev
+
+def _check_linear_term(linear_term,
+                       n_features,
+                       fit_intercept=True):
+    """
+    Validate a linear term for elastic net models.
+
+    Parameters
+    ----------
+    linear_term : LinearTerm, array-like or None
+        Linear term; an array `G` of length `n_features` is `LinearTerm(coef=G)`.
+    n_features : int
+        Number of features.
+    fit_intercept : bool, default=True
+        Whether the model has an intercept; without one the linear term's
+        intercept must be 0.
+
+    Returns
+    -------
+    linear_term : LinearTerm or None
+        A copy with `coef` a float array of shape `(n_features,)`, or None if
+        `linear_term` is None or identically 0.
+
+    Raises
+    ------
+    ValueError
+        If `coef` does not have shape `(n_features,)`, the linear term is not
+        finite, or it has a nonzero intercept without an intercept in the model.
+    """
+    if linear_term is None:
+        return None
+    if isinstance(linear_term, LinearTerm):
+        coef, intercept = linear_term.coef, linear_term.intercept
+    else:
+        coef, intercept = linear_term, 0.
+    coef = np.array(coef, dtype=float).reshape(-1)
+    intercept = float(intercept)
+    if coef.shape != (n_features,):
+        raise ValueError('linear_term should have shape {0}, but has shape {1}'.format((n_features,),
+                                                                                       coef.shape))
+    if not (np.all(np.isfinite(coef)) and np.isfinite(intercept)):
+        raise ValueError('linear_term should be finite')
+    if intercept != 0 and not fit_intercept:
+        raise ValueError('linear_term has an intercept but the model has none')
+    if np.all(coef == 0) and intercept == 0:
+        return None
+    return LinearTerm(coef=coef, intercept=intercept)
 
 def _check_limits(lower_limits,
                   upper_limits,

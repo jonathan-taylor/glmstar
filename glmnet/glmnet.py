@@ -28,7 +28,8 @@ from .regularized_glm import (RegGLMControl,
 from .glm import (GLM,
                   GLMState,
                   GLMFamilySpec)
-from ._utils import _get_data, _check_offset
+from ._utils import _get_data, _check_offset, UnboundedObjectiveError
+from .elnet import LinearTerm
 from .scorer import (PathScorer,
                      ScorePath,
                      RelaxedScorePath,
@@ -160,6 +161,22 @@ class GLMNetSpec(object):
     relax_maxp: Optional[int]
         Active sets with more than `relax_maxp` variables are not
         refit (R's `maxp` in `relax.glmnet`); defaults to `nobs - 3`.
+    linear_term: Optional[Union[LinearTerm, np.ndarray]]
+        Linear term `(G, G_0)` added to the objective, which becomes
+
+            -loglik(beta_0, beta) / sum(w) + G^T beta + G_0 beta_0 + lambda * penalty(beta),
+
+        with `-loglik / sum(w)` (up to a constant, the deviance
+        divided by `2 * sum(w)`) and `beta`, `beta_0` the coefficients and
+        intercept on the original scale of the features (`coefs_`,
+        `intercepts_`). An array of length `nvars` is `LinearTerm(coef=G)`,
+        with `G_0 = 0`. If the objective is unbounded below
+        at some lambda (as it then is at all smaller lambdas), the path
+        stops there, with a warning, keeping the solutions for larger
+        lambdas. Only the IRLS solver of `GLMNet` supports it: the C++
+        path estimators (`GaussNet`, `LogNet`, `FishNet`, ...) inherit the
+        parameter but raise `NotImplementedError` if it is set. Default
+        None (no linear term).
     """
     lambda_values: Optional[np.ndarray] = None
     lambda_min_ratio: float = None
@@ -179,6 +196,7 @@ class GLMNetSpec(object):
     exclude: list = field(default_factory=list)
     relax: bool = False
     relax_maxp: Optional[int] = None
+    linear_term: Optional[Union[LinearTerm, np.ndarray]] = None
 
 
 @dataclass
@@ -250,6 +268,22 @@ class GLMNet(BaseEstimator,
     relax_maxp: Optional[int]
         Active sets with more than `relax_maxp` variables are not
         refit (R's `maxp` in `relax.glmnet`); defaults to `nobs - 3`.
+    linear_term: Optional[Union[LinearTerm, np.ndarray]]
+        Linear term `(G, G_0)` added to the objective, which becomes
+
+            -loglik(beta_0, beta) / sum(w) + G^T beta + G_0 beta_0 + lambda * penalty(beta),
+
+        with `-loglik / sum(w)` (up to a constant, the deviance
+        divided by `2 * sum(w)`) and `beta`, `beta_0` the coefficients and
+        intercept on the original scale of the features (`coefs_`,
+        `intercepts_`). An array of length `nvars` is `LinearTerm(coef=G)`,
+        with `G_0 = 0`. If the objective is unbounded below
+        at some lambda (as it then is at all smaller lambdas), the path
+        stops there, with a warning, keeping the solutions for larger
+        lambdas. Only the IRLS solver of `GLMNet` supports it: the C++
+        path estimators (`GaussNet`, `LogNet`, `FishNet`, ...) inherit the
+        parameter but raise `NotImplementedError` if it is set. Default
+        None (no linear term).
     """
 
     def get_data_arrays(self,
@@ -370,7 +404,8 @@ class GLMNet(BaseEstimator,
                                offset_id=self.offset_id,
                                weight_id=self.weight_id,            
                                response_id=self.response_id,
-                               exclude=self.excluded_
+                               exclude=self.excluded_,
+                               linear_term=self.linear_term
                                )
 
         self.reg_glm_est_.fit(X,
@@ -399,6 +434,9 @@ class GLMNet(BaseEstimator,
                                       normed_sample_weight)
 
         score_ = (design.T @ logl_score)[1:]
+        if regularizer_.linear_term is not None:
+            # gradient of the linear term, on the design's scale
+            score_ = score_ - regularizer_.linear_term.coef
         pf = regularizer_.penalty_factor_
         score_ /= (pf + (pf <= 0))
         # excluded variables, including those with an infinite penalty factor
@@ -420,8 +458,6 @@ class GLMNet(BaseEstimator,
             self.lambda_values = np.asarray(self.lambda_values)
             self.lambda_values_ = np.sort(self.lambda_values)[::-1]
             self.nlambda = self.lambda_values.shape[0]
-            self.lambda_min_ratio = (self.lambda_values.min() /
-                                     self.lambda_values.max())
 
         coefs_ = []
         intercepts_ = []
@@ -439,12 +475,17 @@ class GLMNet(BaseEstimator,
 
             if self.control.logging: logging.info(f'Fitting parameter {l}')
             self.reg_glm_est_.lambda_val = regularizer_.lambda_val = l
-            self.reg_glm_est_.fit(X,
-                                  y,
-                                  None, # normed_sample_weight,
-                                  regularizer=regularizer_,
-                                  check=False,
-                                  fit_null=False)
+            try:
+                self.reg_glm_est_.fit(X,
+                                      y,
+                                      None, # normed_sample_weight,
+                                      regularizer=regularizer_,
+                                      check=False,
+                                      fit_null=False)
+            except UnboundedObjectiveError as e:
+                # unbounded at l, so at all smaller lambdas as well
+                warnings.warn(f'{e}; solutions for larger lambdas returned')
+                break
 
             self.state_ = self.reg_glm_est_.state_
 
@@ -1281,7 +1322,28 @@ class GLMNet(BaseEstimator,
 
         coef_ = np.zeros(n_features)
 
-        if keep.sum() > 0:
+        lin = self.reg_glm_est_.regularizer_.linear_term
+        if lin is not None and (lin.intercept != 0 or
+                                (keep.sum() > 0 and np.any(lin.coef[keep] != 0))):
+            # the unpenalized fit (the intercept and the unpenalized variables)
+            # must include their linear term: fit it at lambda 0 with the
+            # penalized variables excluded
+            est = self.regularized_estimator(lambda_val=0,
+                                             family=self.family,
+                                             lower_limits=self.lower_limits,
+                                             upper_limits=self.upper_limits,
+                                             fit_intercept=self.fit_intercept,
+                                             standardize=self.standardize,
+                                             control=self.control,
+                                             offset_id=self.offset_id,
+                                             weight_id=self.weight_id,
+                                             response_id=self.response_id,
+                                             exclude=sorted(np.nonzero(~keep)[0].tolist()),
+                                             linear_term=self.linear_term)
+            est.fit(X, y)
+            coef_[keep] = est.coef_[keep]
+            intercept_ = est.intercept_
+        elif keep.sum() > 0:
             X_keep = X[:,keep]
 
             glm = GLM(fit_intercept=self.fit_intercept,
@@ -1360,7 +1422,8 @@ class GLMNet(BaseEstimator,
                                offset_id=self.offset_id,
                                weight_id=self.weight_id,            
                                response_id=self.response_id,
-                               exclude=self.excluded_
+                               exclude=self.excluded_,
+                               linear_term=self.linear_term
                                )
 
         coefs, intercepts = self.interpolate_coefs([lambda_val])
