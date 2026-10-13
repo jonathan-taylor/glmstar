@@ -163,9 +163,9 @@ Both ways of doing inference from the logistic example carry over.
 
 `randomized_inference` does one randomized selection and returns both
 sets of intervals. The selected model $E$ is the one `lassoinf`
-conditions on, which counts a coefficient that is numerically 0 as 0.
-On rare occasions this drops a variable that the solver left just
-inside the active set. Both methods use this $E$.
+conditions on: the active set of the fit, with a coefficient counted as
+0 when it is small relative to the largest standardized coefficient
+(`lassoinf >= 0.2.1`). Both methods use this $E$.
 
 ```{code-cell} ipython3
 def randomized_inference(X, y):
