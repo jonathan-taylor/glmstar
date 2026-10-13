@@ -327,6 +327,10 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
     lambda_val : a value in ``glmnet_obj.lambda_values_``; default the last one.
     """
     G = glmnet_obj
+    if getattr(G, 'linear_term', None) is not None and np.any(np.asarray(G.linear_term) != 0):
+        # the problem below would leave out the gradient of the linear term
+        raise NotImplementedError('fits with a linear_term are not supported; for a randomized '
+                                  'response y + omega use glmnet_problem with response y + omega')
     lambdas = np.asarray(G.lambda_values_)
     if lambda_val is None:
         k = len(lambdas) - 1

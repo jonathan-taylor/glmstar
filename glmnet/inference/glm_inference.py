@@ -16,6 +16,14 @@ beta_hat,
 
 Linearizing at the shrunk beta_hat instead biases Z_full and undercovers.
 
+The selection can also be randomized without holding out data: the LASSO is fit to a
+randomized response y' = y + omega on all the rows, with omega independent of y given the
+fit and Var(X^T V omega) = scalar_noise * Var(Z_full), e.g. the parametric score
+perturbation omega = sqrt((1 - pi) / pi) (y*_1 - y*_2) / sqrt(2) with y*_1, y*_2 drawn
+from the fitted model. Pass the problem for y' (glmnet_problem with response y'),
+``selection_response=y'`` and ``scalar_noise``; Z_full is as for held-out data, on the
+unrandomized (X, y).
+
 The inference itself is done elsewhere, e.g. with ``lassoinf``::
 
     info = glmstar_inference_problem(G, X, y, lambda_val=lam)
@@ -126,10 +134,12 @@ def glm_inference_problem(problem,
                           weights=None,
                           offset=None,
                           selection_rows=None,
-                          dispersion=None):
+                          dispersion=None,
+                          selection_response=None,
+                          scalar_noise=None):
     """
     The inputs for selective inference for the LASSO ``problem`` fitted on
-    ``X[selection_rows]``.
+    ``X[selection_rows]``, possibly with a randomized response.
 
     Parameters
     ----------
@@ -141,6 +151,12 @@ def glm_inference_problem(problem,
         them, i.e. no randomization
     dispersion : default 1 for binomial and poisson and, for gaussian, the residual
         variance of the least squares fit on all the variables (requires n > p)
+    selection_response : the response ``problem`` was fitted to (length n, used on the
+        selection rows); default ``y``. A randomized response y + omega for a randomized
+        selection.
+    scalar_noise : the variance of the randomization relative to Var(Z_full); default
+        (1 - pi) / pi for selection on a proportion pi of the weights (0 for all the
+        rows). Give it for a randomized ``selection_response``.
 
     Returns
     -------
@@ -158,24 +174,32 @@ def glm_inference_problem(problem,
     rows = np.arange(n) if selection_rows is None else np.arange(n)[selection_rows]
     if len(rows) == 0 or len(np.unique(rows)) != len(rows):
         raise ValueError('invalid selection_rows')
+    if selection_response is None:
+        selection_response = y
+    else:
+        selection_response = np.asarray(selection_response, dtype=float)
+        if selection_response.shape[0] != n:
+            raise ValueError('selection_response must be for the full data (length n)')
+        if scalar_noise is None:
+            raise ValueError('give the scalar_noise of the randomized selection_response')
+    if scalar_noise is None:
+        pi_selection = weights[rows].sum() / weights.sum()
+        scalar_noise = (1 - pi_selection) / pi_selection
 
     fit_intercept = problem.fit_intercept
     Q = problem.Q_hat
     b = problem.beta_hat
-    if len(rows) == n:
+    if scalar_noise == 0:
         Z_full = -problem.G_hat + Q @ b
-        scalar_noise = 0.
     else:
         b_tilde = _newton_step(X, y, b, family, weights, offset, fit_intercept)
         # G = loss gradient + ridge * beta; recover ridge * beta_hat from the selection problem
-        ridge_b = problem.G_hat - _loss_gradient(X[rows], y[rows], b, family, weights[rows],
-                                                 offset[rows], fit_intercept)
+        ridge_b = problem.G_hat - _loss_gradient(X[rows], selection_response[rows], b, family,
+                                                 weights[rows], offset[rows], fit_intercept)
         with np.errstate(divide='ignore', invalid='ignore'):
             ridge_b_tilde = np.where(b != 0, ridge_b * b_tilde / b, 0.)
         G_full = _loss_gradient(X, y, b_tilde, family, weights, offset, fit_intercept) + ridge_b_tilde
         Z_full = -G_full + Q @ b_tilde
-        pi_selection = weights[rows].sum() / weights.sum()
-        scalar_noise = (1 - pi_selection) / pi_selection
 
     if dispersion is None:
         dispersion = (_gaussian_dispersion(X, y, weights, offset, fit_intercept)

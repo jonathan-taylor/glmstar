@@ -37,12 +37,12 @@ Below we use it first for a parametric bootstrap of the lasso in
 weighted least squares. For logistic regression we then perturb the
 score with parametric replicates, in a way that imitates data
 splitting. This gives valid inference after the lasso has selected the
-model, without holding any data out.
+model, without holding any data out, either by combining two fits or by
+carving with `lassoinf`.
 
 ```{code-cell} ipython3
 import warnings
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -50,6 +50,8 @@ from scipy.stats import norm
 
 from glmnet import GLMNet
 from glmnet.glmnet import GLMNetControl
+from glmnet.inference import glmnet_problem, glm_inference_problem
+from lassoinf import LassoInference
 ```
 
 ## Weighted least squares
@@ -189,14 +191,15 @@ intercept's part of the score). The simplest choice is the constant
 $\tilde y = \sum_i v_i y'_i$. Then $y'$ need not be binary, or even lie in
 $[0, 1]$: only its score is used.
 
-We simulate from a logistic model with correlated features and a few
-weak signals, as in a typical selection problem:
+We simulate from a logistic model with correlated features: two strong
+signals, six weak ones near the selection threshold, and 22 nulls.
 
 ```{code-cell} ipython3
 rng = np.random.default_rng(1)
 n, p, rho = 5000, 30, 0.3
 R = np.linalg.cholesky(rho ** np.abs(np.subtract.outer(np.arange(p), np.arange(p)))).T
-beta = np.r_[0.135, -0.105, 0.09, 0.075, -0.06, 0.045, np.zeros(p - 6)]
+beta = np.r_[0.3, -0.25, 0.09, -0.07, 0.06, 0.05, -0.04, 0.03, np.zeros(p - 8)]
+signal = np.array(['strong'] * 2 + ['weak'] * 6 + ['null'] * (p - 8))
 
 def sim_data(n):
     X = rng.standard_normal((n, p)) @ R
@@ -204,7 +207,6 @@ def sim_data(n):
     return X, rng.binomial(1, mu).astype(float)
 
 X, y = sim_data(n)
-v = np.ones(n) / n
 ```
 
 `logistic_lasso` fits the lasso at one value of $\lambda$, on the
@@ -216,6 +218,7 @@ constant response and the linear term:
 ```{code-cell} ipython3
 pi = 0.9
 lam = 0.5 * np.sqrt(2 * np.log(p) / (pi * n))
+q = norm.ppf(0.95)  # for nominal 90% intervals
 
 def logistic_lasso(X, response, linear_term=None, relax=False, control=None):
     with warnings.catch_warnings():
@@ -227,9 +230,10 @@ def logistic_lasso(X, response, linear_term=None, relax=False, control=None):
                       relax=relax,
                       control=control or GLMNetControl()).fit(X, response)
 
-def randomized_lasso(y_prime, relax=False, control=None):
+def randomized_lasso(X, y_prime, relax=False, control=None):
+    v = np.ones(X.shape[0]) / X.shape[0]
     y_tilde = (v * y_prime).sum()
-    return logistic_lasso(X, np.full(n, y_tilde),
+    return logistic_lasso(X, np.full(X.shape[0], y_tilde),
                           linear_term=-X.T @ (v * (y_prime - y_tilde)),
                           relax=relax, control=control)
 ```
@@ -240,7 +244,7 @@ response agree to rounding error:
 ```{code-cell} ipython3
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 direct = logistic_lasso(X, y, control=tight).coefs_[0]
-via_linear_term = randomized_lasso(y, control=tight).coefs_[0]
+via_linear_term = randomized_lasso(X, y, control=tight).coefs_[0]
 np.abs(direct - via_linear_term).max()
 ```
 
@@ -258,8 +262,8 @@ variance of $y_i$ under the fitted model, scaled by $(1-\pi)/\pi$, with
 no Gaussian approximation. Taking the difference of two replicates
 centers $\omega$ exactly.
 
-We select variables with the lasso fit to $y + \omega$, using all $n$
-observations. Its score is the data's score plus the perturbation
+We select variables with the lasso fit to $y' = y + \omega$, using all
+$n$ observations. Its score is the data's score plus the perturbation
 $X^TV\omega$, including the intercept's part $\sum_i v_i\omega_i$.
 
 ```{code-cell} ipython3
@@ -313,34 +317,84 @@ resampled data
 ({ref}`Fry, Panigrahi and Taylor, 2025 <score-bootstrap-refs>`). There
 the randomization is a resample of the data, such as a 9n-of-n
 bootstrap, which needs no model; here it is drawn from the fitted
-logistic model. More generally, it is an instance of randomized
-selective inference
-({ref}`Tian and Taylor, 2018 <score-bootstrap-refs>`).
+logistic model.
+
+### Carving without holding out data
+
+$T_E$ is independent of the selection because it keeps only the part of
+the score that is uncorrelated with the selection score $S + \omega$. The
+price is that its variance is $1/(1-\pi)$ times that of the full-data
+estimator, ten times for $\pi = 0.9$, however strong the signal.
+
+Carving keeps all of $S$ and instead conditions on the selection: the
+intervals come from the distribution of the full-data estimator given
+that the lasso chose $E$. With a split, the randomization is
+$\omega_I = S_I - S$ and `lassoinf` handles it with
+`scalar_noise` $= (1-\pi)/\pi$ (see
+[Selective inference after a logistic lasso](inference.md)). The
+parametric perturbation has the same structure. The selection score is
+$S$ plus a perturbation that, given $\hat\mu$, is independent of $S$
+with $(1-\pi)/\pi$ times its variance. So the same conditional inference
+applies, with the same `scalar_noise`, and no rows are removed or
+resampled:
+
+- the selection problem is the lasso problem for the response
+  $y' = y + \omega$, which `glmnet_problem` builds from the randomized
+  fit;
+- `glm_inference_problem`, with `selection_response=y'` and
+  `scalar_noise=(1 - pi) / pi`, linearizes the full-data score $S$ of
+  the unperturbed $y$ at the selected model, as it does when carving
+  with a split.
+
+This is randomized selective inference
+({ref}`Tian and Taylor, 2018 <score-bootstrap-refs>`) with the
+parametric perturbation as the randomization. How much the selection
+costs depends on how surprising it was. A strong signal would be
+selected for almost any $\omega$, so conditioning on its selection
+changes little: its interval should be close to the full-data one. A
+variable near the selection threshold pays more, but it still uses all
+of $S$. The conditional inference assumes the lasso was solved exactly,
+so the randomized fit uses tight convergence tolerances.
 
 ### The recipe
 
-1. Draw $\omega$, and fit the lasso to $y + \omega$ with `relax=True`.
-   Its selected set is $E$. Its relaxed coefficients are
+1. Draw $\omega$ and fit the lasso to $y' = y + \omega$ with
+   `relax=True`. Its selected set is $E$. Its relaxed coefficients are
    $\hat\beta^*_E$, the unpenalized refit on $E$ with the same
    randomized score, because the refit carries over the linear term.
-2. Fit the logistic regression of $y$ on $X_E$: this gives $\hat\beta_E$
-   and its standard errors.
-3. Report $T_E = (\hat\beta_E - \pi\hat\beta^*_E)/(1-\pi)$, with standard
+2. **Combination.** Fit the logistic regression of $y$ on $X_E$, giving
+   $\hat\beta_E$ and its standard errors. Report
+   $T_E = (\hat\beta_E - \pi\hat\beta^*_E)/(1-\pi)$, with standard
    errors $\widehat{\mathrm{se}}(\hat\beta_E)/\sqrt{1-\pi}$.
+3. **Carving.** Pass the selection problem for $y'$ and the full data
+   $(X, y)$ to `lassoinf`.
 
 ```{code-cell} ipython3
 def logit_fit(X, y):
     fit = sm.GLM(y, sm.add_constant(X), family=sm.families.Binomial()).fit()
     return fit.params[1:], fit.bse[1:]
 
-def randomized_inference(X, y):
-    fit = randomized_lasso(y + omega(fitted_means(X, y)), relax=True)
-    E = np.nonzero(fit.coefs_[0])[0]
-    if len(E) == 0:
-        return E, None, None
+def randomized_selection(X, y):
+    y_prime = y + omega(fitted_means(X, y))
+    fit = randomized_lasso(X, y_prime, relax=True, control=tight)
+    return fit, y_prime, np.nonzero(fit.coefs_[0])[0]
+
+def combination_intervals(fit, E, X, y):
     beta_star = fit.relaxed_coefs_[0][E]
     beta_hat, se = logit_fit(X[:, E], y)
-    return E, (beta_hat - pi * beta_star) / (1 - pi), se / np.sqrt(1 - pi)
+    T = (beta_hat - pi * beta_star) / (1 - pi)
+    se = se / np.sqrt(1 - pi)
+    return T, T - q * se, T + q * se
+
+def carved_intervals(fit, y_prime, E, X, y):
+    problem = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam,
+                             family='binomial', scaling=fit.design_.scaling_, y_scale=1.)
+    info = glm_inference_problem(problem, X, y, 'binomial',
+                                 selection_response=y_prime, scalar_noise=(1 - pi) / pi)
+    # row 0 is the intercept
+    summary = LassoInference(**info.lasso_args(), level=0.9).summary_.loc[E + 1]
+    return (summary['beta_hat'].values, summary['lower_conf'].values,
+            summary['upper_conf'].values)
 ```
 
 The targets $\beta_E$ are projections. We approximate them by fitting
@@ -360,91 +414,109 @@ def target(E):
 ### One data set
 
 ```{code-cell} ipython3
-q = norm.ppf(0.95)  # nominal 90% intervals
-E, T, se = randomized_inference(X, y)
-pd.DataFrame({'estimate': T, 'se': se,
-              'lower': T - q * se, 'upper': T + q * se,
-              'target': target(E)},
-             index=[f'X{j}' for j in E]).round(3)
+fit, y_prime, E = randomized_selection(X, y)
+intervals = {'combination': combination_intervals(fit, E, X, y),
+             'carved': carved_intervals(fit, y_prime, E, X, y)}
+table = pd.concat({m: pd.DataFrame({'estimate': est, 'lower': lower, 'upper': upper},
+                                   index=[f'X{j}' for j in E])
+                   for m, (est, lower, upper) in intervals.items()}, axis=1)
+table['target'] = target(E)
+table.round(3)
 ```
+
+The combination estimates are noisy. Dividing by $1-\pi$ multiplies
+the noise in $\hat\beta_E - \pi\hat\beta^*_E$ by 10, and that both
+estimates come out at 0.16 here is a coincidence. On this draw the
+combination interval for `X1` misses its target, as one in ten of them
+should. The carved intervals, which use all of $S$, are about a third
+as long.
 
 ### Calibration
 
-We repeat the experiment and compare three methods:
+We repeat the experiment and compare four methods:
 
 - **naive**: select with the lasso on the data, then use the usual
   intervals from the same data;
 - **split**: select on a random 90% of the data, then form intervals on
   the other 10%;
-- **randomized**: the recipe above, with $\pi = 0.9$.
+- **combination**: select with $y + \omega$, then use $T_E$;
+- **carved**: select with $y + \omega$, then condition on the
+  selection.
 
 For every selected coefficient we record whether its nominal 90%
-interval covers $\beta_{E,j}$, the interval's length, and the
-$z$-statistic $(\text{estimate} - \beta_{E,j})/\text{se}$. The column
-`sd_z` is the standard deviation of the $z$-statistics. It is about 1
-when the standard errors are honest, and above 1 when they are too
-small.
+interval covers $\beta_{E,j}$, and the interval's length.
 
 ```{code-cell} ipython3
-def one_rep():
-    global X, y
+rows = []
+
+def record(method, E, lower, upper):
+    for j, lo, hi, t in zip(E, lower, upper, target(E)):
+        rows.append({'method': method, 'signal': signal[j],
+                     'covered': lo <= t <= hi, 'length': hi - lo})
+
+for _ in range(300):
     X, y = sim_data(n)
-    out = {}
 
     E = np.nonzero(logistic_lasso(X, y).coefs_[0])[0]
     if len(E):
         b, se = logit_fit(X[:, E], y)
-        out['naive'] = ((b - target(E)) / se, se)
+        record('naive', E, b - q * se, b + q * se)
 
     idx = rng.permutation(n)
     sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
     E = np.nonzero(logistic_lasso(X[sel], y[sel]).coefs_[0])[0]
     if len(E):
         b, se = logit_fit(X[held_out][:, E], y[held_out])
-        out['split'] = ((b - target(E)) / se, se)
+        record('split', E, b - q * se, b + q * se)
 
-    E, T, se = randomized_inference(X, y)
+    fit, y_prime, E = randomized_selection(X, y)
     if len(E):
-        out['randomized'] = ((T - target(E)) / se, se)
-    return out
+        record('combination', E, *combination_intervals(fit, E, X, y)[1:])
+        record('carved', E, *carved_intervals(fit, y_prime, E, X, y)[1:])
 
-reps = [one_rep() for _ in range(300)]
-z = {m: np.concatenate([r[m][0] for r in reps if m in r]) for m in ['naive', 'split', 'randomized']}
-se = {m: np.concatenate([r[m][1] for r in reps if m in r]) for m in z}
-
-pd.DataFrame({'n_intervals': {m: len(z[m]) for m in z},
-              'coverage_90': {m: np.mean(np.fabs(z[m]) < q) for m in z},
-              'sd_z': {m: z[m].std() for m in z},
-              'mean_length_90': {m: (2 * q * se[m]).mean() for m in z}}).round(3)
-```
-
-If inference is calibrated, the $z$-statistics are $N(0,1)$, so the
-two-sided $p$-values $2\{1-\Phi(|z|)\}$ are uniform:
-
-```{code-cell} ipython3
-fig, axes = plt.subplots(1, 3, figsize=(10, 3.5), sharey=True)
-for ax, m in zip(axes, z):
-    pvalues = np.sort(2 * norm.sf(np.fabs(z[m])))
-    ax.plot((np.arange(len(pvalues)) + 0.5) / len(pvalues), pvalues, '.', ms=3)
-    ax.plot([0, 1], [0, 1], 'r')
-    ax.set_title(m)
-    ax.set_xlabel('uniform quantiles')
-axes[0].set_ylabel('p-values');
+results = pd.DataFrame(rows)
+results['method'] = pd.Categorical(results['method'],
+                                   ['naive', 'split', 'combination', 'carved'])
+results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
+results.groupby('method', observed=True).agg(intervals=('covered', 'size'),
+                                             coverage=('covered', 'mean'),
+                                             mean_length=('length', 'mean')).round(3)
 ```
 
 The naive intervals undercover, because the variables were chosen with
-the same data used for inference. Splitting and the randomized fits are
-both calibrated, with intervals of the same width: $1/\sqrt{1-\pi}$
-times the full-data standard error. But the randomized fits hold no
-data out. The parametric perturbation $\omega$ plays the role of the
-random split, for both the selection and the inference.
+the same data used for inference. The other three are calibrated. Split
+and combination intervals have the same width, $1/\sqrt{1-\pi}$ times
+the full-data standard error, but the combination holds no data out:
+the parametric perturbation $\omega$ plays the role of the random split.
+The carved intervals are much shorter.
+
+Breaking the intervals down by the strength of the signal shows where
+the carved intervals gain:
+
+```{code-cell} ipython3
+(results.groupby(['signal', 'method'], observed=True)
+        .agg(intervals=('covered', 'size'),
+             coverage=('covered', 'mean'),
+             mean_length=('length', 'mean'))
+        .round(3))
+```
+
+For the strong signals, the carved intervals are nearly as short as the
+naive ones and keep their coverage. These variables would be selected
+for almost any $\omega$, so their selection carries little information
+and conditioning on it costs little. The naive intervals are fine here
+too, but only because selection was a foregone conclusion. For the weak
+signals and the nulls that were selected, the naive intervals fail
+badly. The carved intervals widen there, by the cost of conditioning on
+a selection that might easily have gone the other way, but remain
+calibrated and shorter than the split and combination intervals.
 
 The calibration relies on the logistic model. $\omega$ has the
-variance of $y$ under the fitted model, and the cancellation in the
-covariance above needs that to match the true variance of the score.
-Without the model, the randomization can instead come from a
-nonparametric bootstrap of the observations, as in Fry, Panigrahi and
-Taylor (2025).
+variance of $y$ under the fitted model, and both the cancellation in
+the covariance above and the `scalar_noise` used for carving need that
+to match the true variance of the score. Without the model, the
+randomization can instead come from a nonparametric bootstrap of the
+observations, as in Fry, Panigrahi and Taylor (2025).
 
 (score-bootstrap-refs)=
 ## References

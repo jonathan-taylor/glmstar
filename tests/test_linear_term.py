@@ -247,3 +247,37 @@ def test_path_solvers_refuse():
     X, Y = _data()
     with pytest.raises(NotImplementedError):
         GaussNet(linear_term=np.ones(P), response_id='y').fit(X, Y)
+
+
+def test_randomized_inference_problem():
+    from glmnet.inference import glmnet_problem, glm_inference_problem, glmstar_problem
+    X, Y = _data('binomial')
+    y = np.asarray(Y['y'])
+    omega = 0.3 * (rng.binomial(1, 0.4, N) - rng.binomial(1, 0.4, N)) / np.sqrt(2)
+    y_prime = y + omega
+    v = np.ones(N) / N
+    lam = 0.03
+    y_tilde = y_prime.mean()
+    fit = GLMNet(family=sm.families.Binomial(), lambda_values=np.array([lam]),
+                 linear_term=-X.T @ (v * (y_prime - y_tilde))).fit(X, np.full(N, y_tilde))
+    # glmstar_problem would leave out the linear term
+    with pytest.raises(NotImplementedError):
+        glmstar_problem(fit, X, np.full(N, y_tilde))
+    problem = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam,
+                             family='binomial', scaling=fit.design_.scaling_, y_scale=1.)
+    assert problem.kkt_violation() < 1e-4 * lam
+    with pytest.raises(ValueError, match='scalar_noise'):
+        glm_inference_problem(problem, X, y, 'binomial', selection_response=y_prime)
+    info = glm_inference_problem(problem, X, y, 'binomial',
+                                 selection_response=y_prime, scalar_noise=0.25)
+    assert info.scalar_noise == 0.25
+    # Z_full linearizes the score of the unperturbed y: with Q_hat at the LASSO solution
+    # (which does not depend on the response), it is the same whichever response the
+    # selection problem was built with
+    kw = dict(family='binomial', scaling=fit.design_.scaling_, y_scale=1., information='lasso')
+    problem_lasso = glmnet_problem(X, y_prime, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
+    problem_y = glmnet_problem(X, y, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
+    info = glm_inference_problem(problem_lasso, X, y, 'binomial',
+                                 selection_response=y_prime, scalar_noise=0.25)
+    info_y = glm_inference_problem(problem_y, X, y, 'binomial', scalar_noise=0.25)
+    np.testing.assert_allclose(info.Z_full, info_y.Z_full, rtol=1e-12, atol=1e-14)
