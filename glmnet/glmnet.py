@@ -171,7 +171,10 @@ class GLMNetSpec(object):
         of the features (`coefs_`). If the objective is unbounded below
         at some lambda (as it then is at all smaller lambdas), the path
         stops there, with a warning, keeping the solutions for larger
-        lambdas. Default None (no linear term).
+        lambdas. Only the IRLS solver of `GLMNet` supports it: the C++
+        path estimators (`GaussNet`, `LogNet`, `FishNet`, ...) inherit the
+        parameter but raise `NotImplementedError` if it is set. Default
+        None (no linear term).
     """
     lambda_values: Optional[np.ndarray] = None
     lambda_min_ratio: float = None
@@ -274,7 +277,10 @@ class GLMNet(BaseEstimator,
         of the features (`coefs_`). If the objective is unbounded below
         at some lambda (as it then is at all smaller lambdas), the path
         stops there, with a warning, keeping the solutions for larger
-        lambdas. Default None (no linear term).
+        lambdas. Only the IRLS solver of `GLMNet` supports it: the C++
+        path estimators (`GaussNet`, `LogNet`, `FishNet`, ...) inherit the
+        parameter but raise `NotImplementedError` if it is set. Default
+        None (no linear term).
     """
 
     def get_data_arrays(self,
