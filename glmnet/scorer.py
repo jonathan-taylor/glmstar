@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import warnings
 
@@ -565,8 +566,6 @@ class RelaxedScorePath(object):
         lambda values marked. With `se_bands=True`, each curve is drawn with
         a band of one standard error (R's `se.bands`), shaded with `alpha`.
         """
-        import matplotlib.pyplot as plt
-
         family = self.score_paths[0].family
         if score is None:
             score = family._default_scorers()[0].name

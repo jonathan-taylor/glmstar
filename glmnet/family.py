@@ -14,7 +14,21 @@ from .scoring import (Scorer,
                       aucpr_scorer,
                       ungrouped_mse_scorer,
                       ungrouped_mae_scorer,
+                      BinomialDevianceScorer,
                       binomial_deviance_scorer)
+
+def is_link(link, link_class):
+    """
+    Whether ``link`` is the statsmodels link ``link_class``.
+
+    Unlike ``isinstance``, subclasses that are different links do not count:
+    statsmodels derives ``Probit``, ``CLogLog``, ``LogLog`` and ``Cauchy`` from
+    ``Logit``. The deprecated lowercase aliases (e.g. ``logit``) do count.
+    """
+    cls = type(link)
+    if cls.__name__.islower():
+        cls = cls.__mro__[1]
+    return cls is link_class
 
 @dataclass
 class GLMFamilySpec(object):
@@ -32,7 +46,7 @@ class GLMFamilySpec(object):
 
         self.is_gaussian = False
         if (isinstance(self.base, sm_family.Gaussian) and
-            isinstance(self.base.link, sm_links.Identity)):
+            is_link(self.base.link, sm_links.Identity)):
             self.is_gaussian = True
 
         self.is_binomial = False
@@ -305,8 +319,12 @@ class GLMFamilySpec(object):
         fam_name = self.base.__class__.__name__
 
         if isinstance(self.base, sm_family.Binomial):
-            # clamps predicted probabilities as in R's cv.glmnet
-            dev_scorer = binomial_deviance_scorer()
+            if is_link(self.base.link, sm_links.Logit):
+                # clamps predicted probabilities as in R's cv.lognet
+                dev_scorer = binomial_deviance_scorer()
+            else:
+                # R's cv.glmnetfit (other links) does not clamp
+                dev_scorer = BinomialDevianceScorer(prob_min=None)
         else:
             def _dev(y, yhat, sample_weight):
                 return self.deviance(y, yhat, sample_weight) / y.shape[0]

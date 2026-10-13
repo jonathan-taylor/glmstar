@@ -4,6 +4,7 @@ from functools import partial
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from scipy.stats import norm as normal_dbn
 from scipy.sparse.linalg import LinearOperator
@@ -140,7 +141,6 @@ class CoxSurvivalCurves(object):
     def plot(self, ax=None, **plot_args):
         """Plot each curve as a step function; returns the axes."""
         if ax is None:
-            import matplotlib.pyplot as plt
             ax = plt.gca()
         for j in range(self.cumhaz.shape[1]):
             if self.strata is None:

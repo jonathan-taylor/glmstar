@@ -12,6 +12,7 @@ from statsmodels.genmod.families import links as sm_links
 
 from ._utils import _get_data
 from .cox import CoxFamilySpec, c_index
+from .family import is_link
 from .paths.multiclassnet import MultiClassNet
 from .paths.multigaussnet import MultiGaussNet
 
@@ -43,11 +44,11 @@ def _family_name(estimator):
     if isinstance(estimator, MultiGaussNet):
         return 'mgaussian'
     base = getattr(family, 'base', None)
-    if isinstance(base, sm_family.Gaussian) and isinstance(base.link, sm_links.Identity):
+    if isinstance(base, sm_family.Gaussian) and is_link(base.link, sm_links.Identity):
         return 'gaussian'
-    if isinstance(base, sm_family.Binomial) and isinstance(base.link, sm_links.Logit):
+    if isinstance(base, sm_family.Binomial) and is_link(base.link, sm_links.Logit):
         return 'binomial'
-    if isinstance(base, sm_family.Poisson) and isinstance(base.link, sm_links.Log):
+    if isinstance(base, sm_family.Poisson) and is_link(base.link, sm_links.Log):
         return 'poisson'
     return 'GLM'
 
