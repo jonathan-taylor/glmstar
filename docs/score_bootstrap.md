@@ -192,17 +192,22 @@ $\tilde y = \sum_i v_i y'_i$. Then $y'$ need not be binary, or even lie in
 $[0, 1]$: only its score is used.
 
 We simulate from a logistic model with correlated features: two strong
-signals, six weak ones near the selection threshold, and 22 nulls.
+signals, six weak ones near the selection threshold, and 22 nulls. The
+features have standard deviations from 0.2 to 5, so `GLMNet`'s
+standardization matters: the linear term, the score perturbation and the
+carving all have to be put on the right scale. The effects are set per
+standard deviation of each feature.
 
 ```{code-cell} ipython3
 rng = np.random.default_rng(1)
 n, p, rho = 5000, 30, 0.3
 R = np.linalg.cholesky(rho ** np.abs(np.subtract.outer(np.arange(p), np.arange(p)))).T
-beta = np.r_[0.3, -0.25, 0.09, -0.07, 0.06, 0.05, -0.04, 0.03, np.zeros(p - 8)]
+scale = np.exp(rng.uniform(np.log(0.2), np.log(5), p))   # standard deviations of the features
+beta = np.r_[0.3, -0.25, 0.09, -0.07, 0.06, 0.05, -0.04, 0.03, np.zeros(p - 8)] / scale
 signal = np.array(['strong'] * 2 + ['weak'] * 6 + ['null'] * (p - 8))
 
 def sim_data(n):
-    X = rng.standard_normal((n, p)) @ R
+    X = (rng.standard_normal((n, p)) @ R) * scale
     mu = 1 / (1 + np.exp(-(-0.5 + X @ beta)))
     return X, rng.binomial(1, mu).astype(float)
 
@@ -239,7 +244,8 @@ def randomized_lasso(X, y_prime, relax=False, control=None):
 ```
 
 With tight convergence tolerances, the two ways of fitting a binary
-response agree to rounding error:
+response agree to rounding error, although the features are on very
+different scales:
 
 ```{code-cell} ipython3
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
@@ -424,12 +430,9 @@ table['target'] = target(E)
 table.round(3)
 ```
 
-The combination estimates are noisy. Dividing by $1-\pi$ multiplies
-the noise in $\hat\beta_E - \pi\hat\beta^*_E$ by 10, and that both
-estimates come out at 0.16 here is a coincidence. On this draw the
-combination interval for `X1` misses its target, as one in ten of them
-should. The carved intervals, which use all of $S$, are about a third
-as long.
+The combination estimates are noisy: dividing by $1-\pi$ multiplies
+the noise in $\hat\beta_E - \pi\hat\beta^*_E$ by 10. The carved
+intervals, which use all of $S$, are about a third as long.
 
 ### Calibration
 
@@ -444,7 +447,9 @@ We repeat the experiment and compare four methods:
   selection.
 
 For every selected coefficient we record whether its nominal 90%
-interval covers $\beta_{E,j}$, and the interval's length.
+interval covers $\beta_{E,j}$, and the interval's length. The length is
+multiplied by the feature's standard deviation, so it is the length for
+the effect of one standard deviation and comparable across features.
 
 ```{code-cell} ipython3
 rows = []
@@ -452,7 +457,7 @@ rows = []
 def record(method, E, lower, upper):
     for j, lo, hi, t in zip(E, lower, upper, target(E)):
         rows.append({'method': method, 'signal': signal[j],
-                     'covered': lo <= t <= hi, 'length': hi - lo})
+                     'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
 for _ in range(300):
     X, y = sim_data(n)
