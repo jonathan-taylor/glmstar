@@ -79,13 +79,12 @@ def resolve_family(family):
         if family not in FAMILIES:
             raise ValueError(f'family must be one of {FAMILIES}, got {family!r}')
         return GLMFamily(family)
-    import statsmodels.genmod.families as sm_family
     for name, cls in [('gaussian', sm_family.Gaussian),
                       ('binomial', sm_family.Binomial),
                       ('poisson', sm_family.Poisson)]:
         if isinstance(family, cls):
-            # compare types exactly: statsmodels' Probit and CLogLog subclass Logit
-            canonical = type(family.link) is type(cls().link)
+            # not isinstance: statsmodels' Probit and CLogLog subclass Logit
+            canonical = is_link(family.link, type(cls().link))
             return GLMFamily(name, None if canonical else family.link)
     raise ValueError(f'unsupported family {type(family).__name__}; supported: {FAMILIES}')
 

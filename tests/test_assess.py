@@ -8,7 +8,7 @@ from statsmodels.genmod.families import links as sm_links
 
 from glmnet import GLMNet
 from glmnet.family import is_link
-from glmnet.inference.glm_problem import _glmstar_family
+from glmnet.inference.glm_problem import _glmstar_family, resolve_family
 from glmnet.paths import GaussNet, LogNet, FishNet, MultiClassNet, MultiGaussNet, CoxNet
 from glmnet.cox import CoxFamily
 from glmnet.assess import assess, confusion, roc, _link_predictions
@@ -292,8 +292,10 @@ def test_noncanonical_errors(link):
         confusion(G, X_te, D_te)
     with pytest.raises(ValueError, match='binomial'):
         roc(G, X_te, D_te)
-    with pytest.raises(ValueError, match='canonical link'):
-        _glmstar_family(G)
+    # glmnet.inference takes any link, but not as the canonical one
+    family = _glmstar_family(G)
+    assert family.name == 'binomial' and not family.canonical
+    assert isinstance(family.link, link)
 
 def test_is_link():
 
@@ -307,6 +309,8 @@ def test_is_link():
     assert is_link(sm_links.Identity(), sm_links.Identity)
     assert not is_link(sm_links.Identity(), sm_links.Power)
     assert is_link(sm_links.Log(), sm_links.Log)
+    assert resolve_family(sm.families.Binomial(link=sm_links.Logit())).canonical
+    assert not resolve_family(sm.families.Binomial(link=sm_links.Probit())).canonical
 
 @pytest.mark.parametrize('link, R_link', NONCANONICAL)
 def test_cv_deviance_noncanonical(Rinfo, link, R_link):
