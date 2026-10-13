@@ -1568,7 +1568,6 @@ class CoefPath(object):
         if legend:
             fig = ax.figure
             if hasattr(fig, 'get_layout_engine') and fig.get_layout_engine() is not None:
-                import warnings
                 warnings.warn('If plotting a legend, layout of figure will be set to "constrained".')
             if hasattr(fig, 'set_layout_engine'):
                 fig.set_layout_engine('constrained')
