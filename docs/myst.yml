@@ -40,6 +40,7 @@ project:
         - file: score_bootstrap.md
         - file: overdispersed_poisson.md
         - file: probit_regression.md
+        - file: autocorrelated_errors.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:

@@ -163,10 +163,9 @@ Both ways of doing inference from the logistic example carry over.
 
 `randomized_inference` does one randomized selection and returns both
 sets of intervals. The selected model $E$ is the one `lassoinf`
-conditions on. It counts a coefficient within $10^{-6}$ of 0 as 0, so
-on rare occasions it drops a variable that the solver left just inside
-the active set, with a coefficient of order $10^{-7}$. Both methods use
-this $E$.
+conditions on, which counts a coefficient that is numerically 0 as 0.
+On rare occasions this drops a variable that the solver left just
+inside the active set. Both methods use this $E$.
 
 ```{code-cell} ipython3
 def randomized_inference(X, y):

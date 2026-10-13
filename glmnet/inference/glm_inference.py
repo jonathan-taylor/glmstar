@@ -214,7 +214,8 @@ def glm_inference_problem(problem,
                           offset=None,
                           selection_rows=None,
                           dispersion=None,
-                          scalar_noise=None):
+                          scalar_noise=None,
+                          Sigma=None):
     """
     The inputs for selective inference for the LASSO ``problem`` fitted on
     ``X[selection_rows]``, possibly with a linear term randomizing the selection.
@@ -235,6 +236,11 @@ def glm_inference_problem(problem,
         (1 - pi) / pi for selection on a proportion pi of the weights (0 for all the
         rows). Required when the problem has a linear term (e.g. from
         :func:`score_perturbation`): with held-out rows as well, it is the total.
+    Sigma : Var(Z_full), the covariance of the score of the full data on the scale of G_hat
+        (an array or LinearOperator); default dispersion * Q_hat / sum(weights), for
+        independent observations. Give it when they are dependent, e.g.
+        X1^T Sigma_eps X1 / n^2 for gaussian errors with covariance Sigma_eps (unit weights,
+        X1 = [1, X] with an intercept). ``dispersion`` is then not used.
 
     Returns
     -------
@@ -277,6 +283,12 @@ def glm_inference_problem(problem,
         G_full = _loss_gradient(X, y, b_tilde, family, weights, offset, fit_intercept) + ridge_b_tilde
         Z_full = -G_full + Q @ b_tilde
 
+    if Sigma is not None:
+        return GLMInferenceProblem(problem=problem,
+                                   Z_full=np.asarray(Z_full),
+                                   Sigma=Sigma,
+                                   scalar_noise=scalar_noise,
+                                   dispersion=np.nan)
     if dispersion is None:
         if family.name == 'gaussian':
             if not family.canonical:
@@ -302,6 +314,7 @@ def glmstar_inference_problem(glmnet_obj,
                               selection_rows=None,
                               dispersion=None,
                               scalar_noise=None,
+                              Sigma=None,
                               hessian='dense',
                               information='relaxed'):
     """
@@ -311,7 +324,8 @@ def glmstar_inference_problem(glmnet_obj,
     ``linear_term`` (give its ``scalar_noise``). With ``selection_rows``, ``glmnet_obj``
     must have been fitted on ``X[selection_rows]``, ``y[selection_rows]`` and Z_full uses
     all of ``X``, ``y`` (carving). ``y`` may be a DataFrame with response, weight and
-    offset columns, as for glmstar. See :func:`glm_inference_problem`; ``hessian`` and
+    offset columns, as for glmstar. ``Sigma`` overrides the covariance of the score, for
+    dependent observations. See :func:`glm_inference_problem`; ``hessian`` and
     ``information`` are as for :func:`glmnet.inference.glm_problem.glmnet_problem`.
     """
     n = X.shape[0]
@@ -324,7 +338,8 @@ def glmstar_inference_problem(glmnet_obj,
                                  weights=weight, offset=offset,
                                  selection_rows=None if len(rows) == n else rows,
                                  dispersion=dispersion,
-                                 scalar_noise=scalar_noise)
+                                 scalar_noise=scalar_noise,
+                                 Sigma=Sigma)
 
 
 __all__ = ['GLMInferenceProblem', 'glm_inference_problem', 'glmstar_inference_problem',

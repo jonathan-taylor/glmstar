@@ -395,3 +395,18 @@ def test_lambda_zero_is_glm():
     assert G.get_params()['lambda_min_ratio'] is params['lambda_min_ratio']
     glm = sm.GLM(y, sm.add_constant(X), family=PROBIT).fit(tol=1e-12)
     np.testing.assert_allclose(np.r_[G.intercepts_[0], G.coefs_[0]], glm.params, atol=1e-6)
+
+
+def test_inference_problem_with_score_covariance():
+    # Sigma replaces dispersion * Q_hat / sum(w), e.g. for dependent observations
+    from glmnet.inference import glmstar_inference_problem
+    X, Y = _data('gaussian')
+    fit = _glmnet('gaussian', lambda_values=np.array([0.1])).fit(X, Y)
+    X1 = np.column_stack([np.ones(N), X])
+    Sigma_eps = 0.5 ** np.abs(np.subtract.outer(np.arange(N), np.arange(N)))
+    Sigma = X1.T @ Sigma_eps @ X1 / N**2
+    info = glmstar_inference_problem(fit, X, Y, Sigma=Sigma)
+    assert info.Sigma is Sigma and np.isnan(info.dispersion)
+    default = glmstar_inference_problem(fit, X, Y)
+    np.testing.assert_allclose(info.Z_full, default.Z_full)
+    np.testing.assert_allclose(default.Sigma, default.dispersion * default.problem.Q_hat / N)
