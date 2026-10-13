@@ -2,6 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import statsmodels.api as sm
+from sklearn.model_selection import KFold
+from statsmodels.genmod.families import links as sm_links
+
+from glmnet import GLMNet
+from glmnet.family import is_link
+from glmnet.inference.glm_problem import _glmstar_family
 from glmnet.paths import GaussNet, LogNet, FishNet, MultiClassNet, MultiGaussNet, CoxNet
 from glmnet.cox import CoxFamily
 from glmnet.assess import assess, confusion, roc, _link_predictions
@@ -199,3 +206,136 @@ def test_labels_and_errors():
         confusion(G, X[:10], pd.DataFrame({'Y': X[:10, 0]}))
     with pytest.raises(ValueError, match='binomial'):
         roc(G, X[:10], pd.DataFrame({'Y': X[:10, 0]}))
+
+# non-canonical binomial links: R treats binomial(link=...) fits as family "GLM"
+# (measures deviance, mse and mae, with a 0/1 response), not as "binomial"
+NONCANONICAL = [(sm_links.Probit, 'probit'), (sm_links.CLogLog, 'cloglog')]
+
+def fit_noncanonical(link, use_weights=False, use_offset=False):
+    # own generator, so the data do not depend on which tests ran before
+    rng_ = np.random.default_rng(1)
+    n = N_TRAIN + N_TEST
+    X = rng_.standard_normal((n, P))
+    eta = X[:, 0] - 0.5 * X[:, 1] + 0.25 * X[:, 2]
+    D = pd.DataFrame({'Y': rng_.binomial(1, link().inverse(eta))})
+    args = {'response_id': 'Y'}
+    if use_weights:
+        D['weight'] = rng_.uniform(0.5, 2, n)
+        args['weight_id'] = 'weight'
+    if use_offset:
+        D['offset'] = 0.3 * rng_.standard_normal(n)
+        args['offset_id'] = 'offset'
+    tr, te = slice(0, N_TRAIN), slice(N_TRAIN, N_TRAIN + N_TEST)
+    G = GLMNet(family=sm.families.Binomial(link=link()), **args)
+    G.fit(X[tr], D.iloc[tr].reset_index(drop=True))
+    return G, X, D
+
+@pytest.mark.parametrize('link, R_link', NONCANONICAL)
+def test_assess_noncanonical(Rinfo, link, R_link, use_weights, use_offset):
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+
+    G, X, D = fit_noncanonical(link, use_weights, use_offset)
+    X_te, D_te = X[N_TRAIN:], D.iloc[N_TRAIN:].reset_index(drop=True)
+    A = assess(G, X_te, D_te)
+    link_pred, _, _ = _link_predictions(G, X_te, D_te)
+
+    assign_R(Rinfo, 'binomial', link_pred, D_te)
+    weights = ', weights=as.vector(w)' if use_weights else ''
+    with Rinfo['np_cv_rules'].context():
+        rpy.r(f'A = assess.glmnet(P, newy=Y, family=binomial(link="{R_link}"){weights})')
+        R = {k: np.asarray(rpy.r(f'as.numeric(A${k})')) for k in rpy.r('names(A)')}
+
+    assert list(A.columns) == list(R.keys()) == ['deviance', 'mse', 'mae']
+    for k in R:
+        assert np.allclose(A[k], R[k], rtol=1e-8, atol=1e-10), k
+
+@pytest.mark.parametrize('link, R_link', NONCANONICAL)
+def test_assess_noncanonical_fit(Rinfo, link, R_link):
+    """Fit the path with R's glmnet(family=binomial(link=...)) too."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+
+    G, X, D = fit_noncanonical(link)
+    X_te, D_te = X[N_TRAIN:], D.iloc[N_TRAIN:].reset_index(drop=True)
+    A = assess(G, X_te, D_te)
+
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('X', X)
+        rpy.r.assign('Yv', D['Y'].values.astype(float))
+        rpy.r(f'''
+suppressMessages(library(glmnet))
+Y = as.vector(Yv)
+tr = 1:{N_TRAIN}
+fit = glmnet(X[tr,], Y[tr], family=binomial(link="{R_link}"))
+A = assess.glmnet(fit, newx=X[-tr,], newy=Y[-tr])
+''')
+        lambda_R = np.asarray(rpy.r('fit$lambda'))
+        R = {k: np.asarray(rpy.r(f'as.numeric(A${k})')) for k in rpy.r('names(A)')}
+
+    assert np.allclose(G.lambda_values_, lambda_R)
+    assert list(A.columns) == list(R.keys()) == ['deviance', 'mse', 'mae']
+    for k in R:
+        assert np.allclose(A[k], R[k], rtol=1e-4, atol=1e-4), k
+
+@pytest.mark.parametrize('link', [l for l, _ in NONCANONICAL])
+def test_noncanonical_errors(link):
+
+    # as R, confusion and roc are only for the (logit) binomial family
+    G, X, D = fit_noncanonical(link)
+    X_te, D_te = X[N_TRAIN:], D.iloc[N_TRAIN:].reset_index(drop=True)
+    with pytest.raises(ValueError, match='binomial or multinomial'):
+        confusion(G, X_te, D_te)
+    with pytest.raises(ValueError, match='binomial'):
+        roc(G, X_te, D_te)
+    with pytest.raises(ValueError, match='canonical link'):
+        _glmstar_family(G)
+
+def test_is_link():
+
+    for link in [sm_links.Probit(), sm_links.CLogLog(), sm_links.LogLog(),
+                 sm_links.Cauchy()]:
+        assert isinstance(link, sm_links.Logit)
+        assert not is_link(link, sm_links.Logit)
+    assert is_link(sm_links.Logit(), sm_links.Logit)
+    assert is_link(sm_links.Probit(), sm_links.Probit)
+    assert not is_link(sm_links.Probit(), sm_links.CDFLink)
+    assert is_link(sm_links.Identity(), sm_links.Identity)
+    assert not is_link(sm_links.Identity(), sm_links.Power)
+    assert is_link(sm_links.Log(), sm_links.Log)
+
+@pytest.mark.parametrize('link, R_link', NONCANONICAL)
+def test_cv_deviance_noncanonical(Rinfo, link, R_link):
+    """CV deviance is not clamped for non-logit links, as R's cv.glmnetfit."""
+
+    if not Rinfo.get('has_rpy2'):
+        pytest.skip('requires rpy2')
+    rpy = Rinfo['rpy']
+
+    G, X, D = fit_noncanonical(link)
+    X_tr, D_tr = X[:N_TRAIN], D.iloc[:N_TRAIN].reset_index(drop=True)
+    cv = KFold(5, random_state=0, shuffle=True)
+    foldid = np.empty(N_TRAIN)
+    for i, (_, test) in enumerate(cv.split(X_tr)):
+        foldid[test] = i + 1
+    _, scores = G.cross_validation_path(X_tr, D_tr, cv=cv, alignment='lambda')
+
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('X', X_tr)
+        rpy.r.assign('Yv', D_tr['Y'].values.astype(float))
+        rpy.r.assign('fv', foldid)
+        rpy.r(f'''
+suppressMessages(library(glmnet))
+CV = cv.glmnet(X, as.vector(Yv), family=binomial(link="{R_link}"),
+               foldid=as.integer(fv), alignment="lambda")
+''')
+        R_cvm = np.asarray(rpy.r('CV$cvm'))
+        R_cvsd = np.asarray(rpy.r('CV$cvsd'))
+
+    m = R_cvm.shape[0]
+    assert np.allclose(scores.scores['Binomial Deviance'].iloc[:m], R_cvm, rtol=1e-4, atol=1e-6)
+    assert np.allclose(scores.scores['SD(Binomial Deviance)'].iloc[:m], R_cvsd, rtol=1e-4, atol=1e-6)
