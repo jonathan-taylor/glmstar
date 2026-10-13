@@ -458,8 +458,6 @@ class GLMNet(BaseEstimator,
             self.lambda_values = np.asarray(self.lambda_values)
             self.lambda_values_ = np.sort(self.lambda_values)[::-1]
             self.nlambda = self.lambda_values.shape[0]
-            self.lambda_min_ratio = (self.lambda_values.min() /
-                                     self.lambda_values.max())
 
         coefs_ = []
         intercepts_ = []

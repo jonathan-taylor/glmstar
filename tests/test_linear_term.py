@@ -378,3 +378,20 @@ def test_randomized_inference_problem():
     info = glm_inference_problem(with_lt, X, y, PROBIT, scalar_noise=0.25)
     info_0 = glm_inference_problem(without, X, y, PROBIT, scalar_noise=0.25)
     np.testing.assert_allclose(info.Z_full, info_0.Z_full, rtol=1e-12, atol=1e-14)
+
+
+def test_lambda_zero_is_glm():
+    # lambda_values=[0] is an unpenalized GLM fit: no warnings, and the
+    # constructor's parameters are left as they were
+    import warnings
+    X, Y = _data('binomial')
+    y = np.asarray(Y['y'])
+    G = GLMNet(family=PROBIT, lambda_values=np.array([0.]),
+               control=GLMNetControl(epsnr=1e-12, thresh=1e-14))
+    params = G.get_params()
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        G.fit(X, y)
+    assert G.get_params()['lambda_min_ratio'] is params['lambda_min_ratio']
+    glm = sm.GLM(y, sm.add_constant(X), family=PROBIT).fit(tol=1e-12)
+    np.testing.assert_allclose(np.r_[G.intercepts_[0], G.coefs_[0]], glm.params, atol=1e-6)

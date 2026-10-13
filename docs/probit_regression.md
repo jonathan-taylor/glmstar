@@ -33,8 +33,6 @@ randomization, an instance of data fission with resampled data
 ({ref}`Fry, Panigrahi and Taylor, 2025 <probit-refs>`).
 
 ```{code-cell} ipython3
-import warnings
-
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -92,14 +90,11 @@ def probit_lasso(X, y, linear_term=None, control=None):
 
 def relaxed_fit(X, y, E, linear_term):
     others = sorted(set(range(X.shape[1])) - set(E))
-    with warnings.catch_warnings():
-        # a single lambda of 0 has no lambda_min_ratio
-        warnings.simplefilter('ignore', RuntimeWarning)
-        return GLMNet(family=probit,
-                      lambda_values=np.array([0.]),
-                      exclude=others,
-                      linear_term=linear_term,
-                      control=tight).fit(X, y).coefs_[0][E]
+    return GLMNet(family=probit,
+                  lambda_values=np.array([0.]),
+                  exclude=others,
+                  linear_term=linear_term,
+                  control=tight).fit(X, y).coefs_[0][E]
 ```
 
 ## The score of a non-canonical link
