@@ -399,7 +399,34 @@ By the strength of the signal, the coverage:
         .unstack('signal').round(3))
 ```
 
-DISCUSSION
+The naive intervals fail as before: they never cover the selected
+nulls, and cover the weak signals about 70% of the time. With
+model-based variances they also undercover the strong signals, about
+84%, which the sandwich corrects.
+
+For the strong signals the model-based variance is the wrong one. Their
+score varies about 1.4 times as much as the information says, so the
+model-based standard errors are about $\sqrt{1.4} \approx 1.18$ times too
+small, and a nominal 90% interval covers about
+$2\Phi(1.645/1.18) - 1 \approx 0.84$ of the time. That is what the split
+and carved intervals with model-based variances give for the strong
+signals. For the weak signals and the selected nulls, whose features
+the omitted term leaves alone, the model-based intervals are about
+right.
+
+The robust intervals, with the wild draws and the sandwich, are
+calibrated for every method and kind of signal (Monte Carlo error about
+0.01 for each). The carved intervals are less than half as long as the
+split and combination ones.
+
+The model-based combination is close to calibrated even for the strong
+signals. Its variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$
+times that of the perturbation, and the perturbation, drawn from the
+model, has the variance the model-based standard errors assume. Only
+the first part is misjudged, by a factor of about 1.4, so the whole is
+misjudged by about $(1.4 + 9)/(1 + 9) = 1.04$. At $\pi = 0.5$ the
+factor would be $1.2$. The carved intervals have no such cushion: the
+selection and the full-data score both carry the misspecification.
 
 (coxmis-refs)=
 ## References

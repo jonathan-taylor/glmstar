@@ -483,22 +483,32 @@ only the held-out subjects: at $\pi = 0.9$ they are about three times as
 long as the naive ones.
 
 All four perturbations give calibrated combination and carved
-intervals, at both values of $\pi$, and for each kind of signal. The
-carved intervals are much shorter than the split and combination ones,
-especially at $\pi = 0.9$, where they are less than half as long: for
-the strong signals they are close to the naive intervals, and for the
+intervals, at both values of $\pi$, and for each kind of signal, within
+a percentage point or two. The Monte Carlo error is about 0.007 for each
+method, allowing for the correlation of the intervals of one data set.
+The carved intervals are much shorter than the split and combination
+ones, especially at $\pi = 0.9$, where they are less than half as long:
+for the strong signals they are close to the naive intervals, and for the
 weak signals and the selected nulls they widen, but stay shorter.
 
 The Bernoulli and Fisher draws have about 8% less variance than the
-score, but here that does not show in the coverage beyond Monte Carlo
-error (about 0.01 for each method), even at $\pi = 0.5$. The two
-consequences above are small: a leftover covariance of about a tenth of
-the score's between $T_E$ and the selection, and a randomization a tenth
-smaller than `lassoinf` assumes. With heavier ties relative to the risk
-sets, the shortfall, and its effect, would grow. The multinomial and
-wild draws have the right variance, and the wild draws, through the
-sandwich, do not rely on the model being right. They are the safer
-choices.
+score. If anything, this shows as slight overcoverage of their
+combination intervals (up to 0.92). With less variance in the
+perturbation than assumed, $T_E$ varies less than its standard error
+says. The two consequences above are small here: a leftover covariance
+of about 8% of the score's between $T_E$ and the selection, and a
+randomization about 8% smaller than `lassoinf` assumes. With heavier ties
+relative to the risk sets, the shortfall, and its effect, would grow.
+
+The wild combination intervals at $\pi = 0.9$ cover slightly less than
+90% (0.888, about 0.881 for the strong signals). The wild draws'
+covariance is the sandwich of the one data set, a noisier estimate of
+the score's variance than the information. The wild carved intervals
+are calibrated.
+
+The multinomial and wild draws have the right variance, and the wild
+draws, through the sandwich, do not rely on the model being right. They
+are the safer choices.
 
 The calibration relies on Cox's model for the multinomial, Bernoulli
 and Fisher draws, which come from the fitted risk sets. The wild
