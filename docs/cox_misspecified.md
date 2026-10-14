@@ -100,10 +100,17 @@ Efron's weights. The model-based covariance of the score is $Q/n$, with
 $Q$ the Hessian; the sandwich is $\sum_i \hat U_i\hat U_i^T/n^2$.
 
 ```{code-cell} ipython3
-def loss_gradient_hessian(X, time, status, b):
-    """Gradient and Hessian of the Efron loss at coefficients b."""
+def efron_deviance(time, status):
+    """The Efron deviance of the data, with the weights 1/n of the loss."""
+    n = len(time)
+    return CoxDeviance(event=time, status=status, sample_weight=np.ones(n) / n,
+                       tie_breaking='efron')
+
+def loss_gradient_hessian(X, time, status, b, cox=None):
+    """Gradient and Hessian of the Efron loss at coefficients b (cox: efron_deviance of the data)."""
     n = X.shape[0]
-    cox = CoxDeviance(event=time, status=status, tie_breaking='efron')
+    if cox is None:
+        cox = efron_deviance(time, status)
     eta = X @ b
     gradient = X.T @ cox(eta, np.ones(n) / n).gradient / 2
     info = cox.information(eta, np.ones(n) / n)
@@ -126,15 +133,18 @@ def score_residuals(X, time, status, b):
             U[idx] += (tied / d_k - p_r)[:, None] * (X_k - p_r @ X_k)
     return U
 
-def cox_fit(X, time, status, sandwich=True, tol=1e-10):
+def cox_fit(X, time, status, sandwich=True, b=None, cox=None, tol=1e-10):
     """
     The unpenalized Cox regression with Efron ties: coefficients, and model-based and
-    (if sandwich) sandwich standard errors.
+    (if sandwich) sandwich standard errors. Newton's method from b (default 0); cox as
+    for loss_gradient_hessian.
     """
     n = X.shape[0]
-    b = np.zeros(X.shape[1])
+    if cox is None:
+        cox = efron_deviance(time, status)
+    b = np.zeros(X.shape[1]) if b is None else np.array(b, float)
     for _ in range(50):
-        gradient, hessian = loss_gradient_hessian(X, time, status, b)
+        gradient, hessian = loss_gradient_hessian(X, time, status, b, cox)
         step = np.linalg.solve(hessian, gradient)
         b = b - step
         if np.abs(step).max() < tol:
@@ -161,7 +171,8 @@ information:
 
 ```{code-cell} ipython3
 pop_X, pop_time, pop_status = sim_data(1000000)
-projection = cox_fit(pop_X, pop_time, pop_status, sandwich=False)[0]
+pop_cox = efron_deviance(pop_time, pop_status)
+projection = cox_fit(pop_X, pop_time, pop_status, sandwich=False, cox=pop_cox)[0]
 
 scores, infos = [], []
 for _ in range(200):
@@ -292,7 +303,9 @@ targets = {}
 def target(E):
     key = tuple(E)
     if key not in targets:
-        targets[key] = cox_fit(pop_X[:, E], pop_time, pop_status, sandwich=False)[0]
+        # Newton's method from the projection on all the features, a close start
+        targets[key] = cox_fit(pop_X[:, E], pop_time, pop_status, sandwich=False,
+                               b=projection[E], cox=pop_cox)[0]
     return targets[key]
 ```
 

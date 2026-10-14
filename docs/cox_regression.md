@@ -101,21 +101,33 @@ method on them fits the unpenalized Cox regression, and the inverse
 Hessian divided by $n$ estimates the covariance of the fit.
 
 ```{code-cell} ipython3
-def loss_gradient_hessian(X, time, status, b):
-    """Gradient and Hessian of the Efron loss at coefficients b."""
+def efron_deviance(time, status):
+    """The Efron deviance of the data, with the weights 1/n of the loss."""
+    n = len(time)
+    return CoxDeviance(event=time, status=status, sample_weight=np.ones(n) / n,
+                       tie_breaking='efron')
+
+def loss_gradient_hessian(X, time, status, b, cox=None):
+    """Gradient and Hessian of the Efron loss at coefficients b (cox: efron_deviance of the data)."""
     n = X.shape[0]
-    cox = CoxDeviance(event=time, status=status, tie_breaking='efron')
+    if cox is None:
+        cox = efron_deviance(time, status)
     eta = X @ b
     gradient = X.T @ cox(eta, np.ones(n) / n).gradient / 2
     info = cox.information(eta, np.ones(n) / n)
     hessian = X.T @ np.column_stack([info @ X[:, j] for j in range(X.shape[1])])
     return gradient, hessian
 
-def cox_fit(X, time, status, tol=1e-10):
-    """The unpenalized Cox regression with Efron ties: coefficients and standard errors."""
-    b = np.zeros(X.shape[1])
+def cox_fit(X, time, status, b=None, cox=None, tol=1e-10):
+    """
+    The unpenalized Cox regression with Efron ties: coefficients and standard errors.
+    Newton's method from b (default 0); cox as for loss_gradient_hessian.
+    """
+    if cox is None:
+        cox = efron_deviance(time, status)
+    b = np.zeros(X.shape[1]) if b is None else np.array(b, float)
     for _ in range(50):
-        gradient, hessian = loss_gradient_hessian(X, time, status, b)
+        gradient, hessian = loss_gradient_hessian(X, time, status, b, cox)
         step = np.linalg.solve(hessian, gradient)
         b = b - step
         if np.abs(step).max() < tol:
@@ -341,12 +353,14 @@ the standard error of a fit to $n = 3000$:
 
 ```{code-cell} ipython3
 pop_X, pop_time, pop_status = sim_data(1000000)
+pop_cox = efron_deviance(pop_time, pop_status)
 targets = {}
 
 def target(E):
     key = tuple(E)
     if key not in targets:
-        targets[key] = cox_fit(pop_X[:, E], pop_time, pop_status)[0]
+        # Newton's method from the true coefficients of E, a close start
+        targets[key] = cox_fit(pop_X[:, E], pop_time, pop_status, b=beta[E], cox=pop_cox)[0]
     return targets[key]
 ```
 

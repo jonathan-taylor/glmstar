@@ -11,6 +11,8 @@ or rebuild the results of every page that defines it with
     python docs/experiments.py --all
 
 Pages run in parallel, one process each (``--jobs`` sets how many at once).
+With ``--chunks K`` each experiment is split into K chunks that run in
+parallel too: see `run_chunk`. The results depend on K, which is recorded.
 
 This executes the page's code cells in order until the function is
 defined, calls it and saves the result as ``docs/results/<page>.csv``.
@@ -26,6 +28,7 @@ it with ``pip install -e .``).
 
 import argparse
 import ast
+import inspect
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html import escape
@@ -38,6 +41,7 @@ import sys
 from IPython.core.inputtransformer2 import TransformerManager
 from IPython.display import display, HTML, Markdown
 import jupytext
+import numpy as np
 import pandas as pd
 
 import glmnet
@@ -83,8 +87,10 @@ def provenance(results):
     """
     m = results.attrs
     commit = m['commit']
+    chunks = int(m.get('chunks', 1))
     rows = {'computed by': f'<code>{escape(m["function"])}({escape(m["arguments"])})</code>'
-                           f' in <code>{escape(m["page"])}</code>',
+                           f' in <code>{escape(m["page"])}</code>'
+                           + (f', in {chunks} chunks' if chunks > 1 else ''),
             'commit': f'<a href="{GITHUB}/commit/{commit}"><code>{commit}</code></a>',
             'date': escape(m['date'])}
     rows.update({p: escape(m[p]) for p in PACKAGES if p in m})
@@ -103,6 +109,8 @@ def reproduce(results):
     command = f'python docs/experiments.py {page}'
     if m['function'] != 'calibration':
         command += f' --function {m["function"]}'
+    if int(m.get('chunks', 1)) > 1:
+        command += f' --chunks {m["chunks"]}'
     for argument in filter(None, (a.strip() for a in m['arguments'].split(','))):
         command += f' --arg {argument}'
     lines = [f'git clone {GITHUB}.git glmstar',
@@ -122,10 +130,11 @@ def _git(*args):
                           text=True, check=True).stdout.rstrip()
 
 
-def save_results(results, page, function, arguments):
+def save_results(results, page, function, arguments, chunks=1):
     metadata = {'page': f'docs/{page}.md',
                 'function': function,
                 'arguments': ', '.join(f'{k}={v!r}' for k, v in arguments.items()),
+                'chunks': str(chunks),
                 'commit': _git('rev-parse', 'HEAD'),
                 'date': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
     metadata.update({p: version(p) for p in PACKAGES})
@@ -138,10 +147,16 @@ def save_results(results, page, function, arguments):
     return path
 
 
-def run(page, function='calibration', arguments=None):
+def run_chunk(page, function='calibration', arguments=None, chunk=0, chunks=1):
     """
     Execute the code cells of ``docs/<page>.md`` until ``function`` is
-    defined, then call it with ``arguments`` and save the result.
+    defined, then call it with ``arguments`` and return its result.
+
+    With ``chunks > 1`` this is chunk ``chunk`` of the experiment: the
+    function's ``n_rep`` is split between the chunks, and the page's
+    random generator ``rng`` is replaced, after the cells have run, by the
+    ``chunk``-th of ``chunks`` independent generators spawned from one seed
+    drawn from it, so that the result depends only on ``chunks``.
     """
     notebook = jupytext.read(DOCS / f'{page}.md')
     transform = TransformerManager().transform_cell
@@ -155,8 +170,27 @@ def run(page, function='calibration', arguments=None):
             break
     else:
         raise ValueError(f'docs/{page}.md does not define {function}')
+    arguments = dict(arguments or {})
+    if chunks > 1:
+        f = namespace[function]
+        parameter = inspect.signature(f).parameters.get('n_rep')
+        if parameter is None or not isinstance(namespace.get('rng'), np.random.Generator):
+            raise ValueError(f'to run docs/{page}.md in chunks, {function} needs an n_rep '
+                             'argument and the page a random generator rng')
+        n_rep = arguments.get('n_rep', parameter.default)
+        arguments['n_rep'] = n_rep // chunks + (chunk < n_rep % chunks)
+        seed = np.random.SeedSequence(int(namespace['rng'].integers(2**63)))
+        namespace['rng'] = np.random.default_rng(seed.spawn(chunks)[chunk])
+    return namespace[function](**arguments)
+
+
+def run(page, function='calibration', arguments=None):
+    """
+    Execute the code cells of ``docs/<page>.md`` until ``function`` is
+    defined, then call it with ``arguments`` and save the result.
+    """
     arguments = arguments or {}
-    results = namespace[function](**arguments)
+    results = run_chunk(page, function, arguments)
     return save_results(results, page, function, arguments)
 
 
@@ -174,8 +208,12 @@ def main():
     parser.add_argument('--all', action='store_true',
                         help='every page in docs/ that defines the function')
     parser.add_argument('--function', default='calibration')
+    parser.add_argument('--chunks', type=int, default=1,
+                        help='split each experiment into this many chunks, run in parallel '
+                             '(the results depend on it, and it is recorded)')
     parser.add_argument('--jobs', type=int, default=None,
-                        help='pages to run at once (default: all, up to the number of CPUs)')
+                        help='processes at once (default: every chunk of every page, up to '
+                             'the number of CPUs)')
     parser.add_argument('--arg', action='append', default=[], metavar='NAME=VALUE',
                         help='keyword argument for the function (a Python literal)')
     parser.add_argument('--force', action='store_true',
@@ -207,12 +245,24 @@ def main():
         print('warning: HEAD is not on a remote branch; push it, or the commit '
               'link in the docs will not resolve', file=sys.stderr)
     pages = [Path(p).with_suffix('').as_posix().removeprefix('docs/') for p in args.pages]
-    jobs = args.jobs or min(len(pages), os.cpu_count())
+    tasks = [(page, chunk) for page in pages for chunk in range(args.chunks)]
+    jobs = args.jobs or min(len(tasks), os.cpu_count())
+    if jobs > 1:
+        # one thread of linear algebra per process
+        for name in ['OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS',
+                     'VECLIB_MAXIMUM_THREADS']:
+            os.environ.setdefault(name, '1')
+    parts = {page: [None] * args.chunks for page in pages}
     with ProcessPoolExecutor(max_workers=jobs) as pool:
-        futures = {pool.submit(run, page, args.function, arguments): page for page in pages}
+        futures = {pool.submit(run_chunk, page, args.function, arguments, chunk, args.chunks):
+                   (page, chunk) for page, chunk in tasks}
         for future in as_completed(futures):
-            print(f'{futures[future]}: {future.result()}')
-
+            page, chunk = futures[future]
+            parts[page][chunk] = future.result()
+            if all(part is not None for part in parts[page]):
+                results = pd.concat(parts[page], ignore_index=True)
+                path = save_results(results, page, args.function, arguments, args.chunks)
+                print(f'{page}: {path}', flush=True)
 
 if __name__ == '__main__':
     main()
