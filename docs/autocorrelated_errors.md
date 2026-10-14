@@ -53,7 +53,7 @@ from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem
 from lassoinf import LassoInference
 
-from experiments import load_results, provenance
+from experiments import load_results, provenance, reproduce
 ```
 
 ## Data
@@ -389,6 +389,7 @@ and saved in `docs/results/autocorrelated_errors.csv`.
 ```{code-cell} ipython3
 results = load_results('autocorrelated_errors')
 display(provenance(results))
+display(reproduce(results))
 
 methods = ['naive', 'split', 'combination', 'carved', 'combination (iid)', 'carved (iid)']
 results['method'] = pd.Categorical(results['method'], methods)

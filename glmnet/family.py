@@ -2,6 +2,7 @@ from dataclasses import (dataclass,
                          asdict,
                          field)
 import numpy as np
+from scipy import stats
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
@@ -304,6 +305,88 @@ class GLMFamilySpec(object):
         n = W.shape[0]
         W = W.reshape(-1)
         return DiagonalOperator(W)
+
+    def sample_score(self,
+                     linear_predictor,
+                     n_draws=None,
+                     sample_weight=None,
+                     dispersion=1.,
+                     rng=None):
+        """
+        Draws of the score at a linear predictor, with the response drawn
+        from the model.
+
+        For a response ``y*`` drawn from the family at ``mu = g^{-1}(eta)``
+        (``get_distribution(...).rvs`` of the statsmodels family), a draw is
+        the derivative of its log-likelihood in the linear predictor,
+
+            r_i = w_i (y*_i - mu_i) h_i / V(mu_i),    h = d mu / d eta,
+
+        one entry per observation, so that ``X.T @ r`` is a draw of the score
+        of the coefficients of a design ``X``; its covariance is the
+        information. For logistic regression with unit weights,
+        ``r = Bernoulli(mu) - mu``.
+
+        Parameters
+        ----------
+        linear_predictor : np.ndarray
+            The linear predictor (with any offset), e.g. of a pilot fit.
+        n_draws : int, optional
+            The number of draws. If None, one draw, as a vector.
+        sample_weight : np.ndarray, optional
+            Observation weights, default all one. For binomial, Poisson and
+            negative binomial (whose distributions in statsmodels ignore
+            ``var_weights``) they must be integers, ``y*_i`` being the mean of
+            ``w_i`` responses (for binomial, ``w_i`` is the number of trials).
+        dispersion : float
+            The scale of the family (e.g. the Gaussian variance), which then
+            multiplies the covariance. Must be 1 for binomial, Poisson and
+            negative binomial.
+        rng : numpy Generator (or seed), optional
+
+        Returns
+        -------
+        np.ndarray
+            ``(n,)`` if `n_draws` is None, else ``(n, n_draws)``.
+        """
+        rng = np.random.default_rng(rng)
+        family = self.base
+        eta = np.asarray(linear_predictor, float)
+        n = eta.shape[0]
+        w = np.ones(n) if sample_weight is None else np.asarray(sample_weight, float)
+        k = 1 if n_draws is None else int(n_draws)
+        name = family.__class__.__name__
+
+        if not hasattr(family, 'get_distribution'):
+            raise ValueError(f'sample_score needs a family with get_distribution, not {name}')
+
+        mu = family.link.inverse(eta)
+        varmu = family.variance(mu)
+        dmu_deta = family.link.inverse_deriv(eta)
+
+        if isinstance(family, (sm_family.Binomial,
+                               sm_family.Poisson,
+                               sm_family.NegativeBinomial)):
+            if dispersion != 1:
+                raise ValueError(f'{name} has no dispersion: it must be 1')
+            m = np.rint(w)
+            if not np.allclose(m, w) or np.any(m < 1):
+                raise ValueError(f'sample_score needs integer weights >= 1 for {name}')
+            m = m.astype(int)[:, None]
+            if isinstance(family, sm_family.Binomial):
+                dist = family.get_distribution(mu[:, None], n_trials=m)
+            elif isinstance(family, sm_family.Poisson):
+                dist = family.get_distribution(m * mu[:, None])
+            else:
+                # the sum of m responses has size m / alpha
+                dist = stats.nbinom(m / family.alpha, 1 / (1 + family.alpha * mu[:, None]))
+            y = dist.rvs(size=(n, k), random_state=rng) / m
+        else:
+            dist = family.get_distribution(mu[:, None], dispersion, var_weights=w[:, None])
+            y = dist.rvs(size=(n, k), random_state=rng)
+
+        r = (w * dmu_deta / varmu)[:, None] * (y - mu[:, None])
+        return r[:, 0] if n_draws is None else r
 
     # Private methods
 

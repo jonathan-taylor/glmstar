@@ -41,7 +41,7 @@ from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
 
-from experiments import load_results, provenance
+from experiments import load_results, provenance, reproduce
 ```
 
 ## Data
@@ -285,6 +285,7 @@ and saved in `docs/results/overdispersed_poisson.csv`.
 ```{code-cell} ipython3
 results = load_results('overdispersed_poisson')
 display(provenance(results))
+display(reproduce(results))
 
 methods = ['naive', 'split', 'combination', 'carved',
            'combination (phi = 1)', 'carved (phi = 1)']
