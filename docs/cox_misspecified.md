@@ -38,7 +38,7 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glm_inference import GLMInferenceProblem
@@ -94,7 +94,8 @@ print(f'{int(status.sum())} events at {len(event_times)} times, '
 
 As in [Resampling the Cox score](cox_regression.md), the loss is the
 Efron negative log partial likelihood divided by $n$, with gradient and
-Hessian from `coxdev`. The score residual $\hat U_i$ of subject $i$ is
+Hessian from `coxdev`, and `CoxNetIRLS` with `lambda_values=[0]` fits
+the unpenalized Cox regression. The score residual $\hat U_i$ of subject $i$ is
 its contribution to the score, centered within each risk set with
 Efron's weights. The model-based covariance of the score is $Q/n$, with
 $Q$ the Hessian; the sandwich is $\sum_i \hat U_i\hat U_i^T/n^2$.
@@ -106,11 +107,10 @@ def efron_deviance(time, status):
     return CoxDeviance(event=time, status=status, sample_weight=np.ones(n) / n,
                        tie_breaking='efron')
 
-def loss_gradient_hessian(X, time, status, b, cox=None):
-    """Gradient and Hessian of the Efron loss at coefficients b (cox: efron_deviance of the data)."""
+def loss_gradient_hessian(X, time, status, b):
+    """Gradient and Hessian of the Efron loss at coefficients b."""
     n = X.shape[0]
-    if cox is None:
-        cox = efron_deviance(time, status)
+    cox = efron_deviance(time, status)
     eta = X @ b
     gradient = X.T @ cox(eta, np.ones(n) / n).gradient / 2
     info = cox.information(eta, np.ones(n) / n)
@@ -133,25 +133,28 @@ def score_residuals(X, time, status, b):
             U[idx] += (tied / d_k - p_r)[:, None] * (X_k - p_r @ X_k)
     return U
 
-def cox_fit(X, time, status, sandwich=True, b=None, cox=None, tol=1e-10):
+tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
+
+def cox_coef(X, time, status, warm=None):
+    """
+    The unpenalized Cox regression with Efron ties: CoxNetIRLS at lambda = 0,
+    warm started at the coefficients warm, if given.
+    """
+    warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
+    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
+                      lambda_values=np.array([0.]),
+                      control=tight).fit(
+                          X, pd.DataFrame({'event': time, 'status': status}),
+                          warm_state=warm_state).coefs_[0]
+
+def cox_fit(X, time, status):
     """
     The unpenalized Cox regression with Efron ties: coefficients, and model-based and
-    (if sandwich) sandwich standard errors. Newton's method from b (default 0); cox as
-    for loss_gradient_hessian.
+    sandwich standard errors.
     """
     n = X.shape[0]
-    if cox is None:
-        cox = efron_deviance(time, status)
-    b = np.zeros(X.shape[1]) if b is None else np.array(b, float)
-    for _ in range(50):
-        gradient, hessian = loss_gradient_hessian(X, time, status, b, cox)
-        step = np.linalg.solve(hessian, gradient)
-        b = b - step
-        if np.abs(step).max() < tol:
-            break
-    H_inv = np.linalg.inv(hessian)
-    if not sandwich:
-        return b, np.sqrt(np.diag(H_inv) / n), None
+    b = cox_coef(X, time, status)
+    H_inv = np.linalg.inv(loss_gradient_hessian(X, time, status, b)[1])
     U = score_residuals(X, time, status, b)
     return b, np.sqrt(np.diag(H_inv) / n), np.sqrt(np.diag(H_inv @ (U.T @ U / n**2) @ H_inv))
 ```
@@ -171,8 +174,7 @@ information:
 
 ```{code-cell} ipython3
 pop_X, pop_time, pop_status = sim_data(1000000)
-pop_cox = efron_deviance(pop_time, pop_status)
-projection = cox_fit(pop_X, pop_time, pop_status, sandwich=False, cox=pop_cox)[0]
+projection = cox_coef(pop_X, pop_time, pop_status)
 
 scores, infos = [], []
 for _ in range(200):
@@ -232,7 +234,6 @@ for the multinomial draws, the sandwich for the wild ones.
 pi = 0.9
 lam = 0.7 * np.sqrt(2 * np.log(p) / (pi * n))
 q = norm.ppf(0.95)  # for nominal 90% intervals
-tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
 def cox_lasso(X, time, status, linear_term=None, relax=False, control=None):
     return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
@@ -253,7 +254,7 @@ def newton_step(X, time, status, b, linear_term=0.):
 
 def randomized_inference(X, time, status, robust):
     n = X.shape[0]
-    pilot = cox_fit(X, time, status, sandwich=False)[0]
+    pilot = cox_coef(X, time, status)
     omega = (np.sqrt((1 - pi) / pi)
              * score_draw(X, time, status, pilot, 'wild' if robust else 'multinomial') / n)
     fit = cox_lasso(X, time, status, linear_term=LinearTerm(coef=-omega), relax=True,
@@ -303,9 +304,8 @@ targets = {}
 def target(E):
     key = tuple(E)
     if key not in targets:
-        # Newton's method from the projection on all the features, a close start
-        targets[key] = cox_fit(pop_X[:, E], pop_time, pop_status, sandwich=False,
-                               b=projection[E], cox=pop_cox)[0]
+        # warm started at the projection on all the features, a close start
+        targets[key] = cox_coef(pop_X[:, E], pop_time, pop_status, warm=projection[E])
     return targets[key]
 ```
 

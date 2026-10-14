@@ -254,8 +254,8 @@ class ElNetRegularizer(Penalty):
                                              check=False)
         
         klass = cur_state.__class__
-        self.warm_state = klass(elnet_fit.raw_coef_,
-                                elnet_fit.raw_intercept_)
+        self.warm_state = klass(coef=elnet_fit.raw_coef_,
+                                intercept=elnet_fit.raw_intercept_)
 
         return self.warm_state
 
@@ -403,7 +403,8 @@ class RegGLM(GLM,
         regularizer: ElNetRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
         warm_state: GLMState, optional
-            Warm start state.
+            Warm start: coefficients and intercept on the original scale of
+            the features, as `coef_` and `intercept_`.
         check: bool
             Run the `_check` method to validate `(X,y)`.
         fit_null: bool
@@ -547,7 +548,8 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         regularizer: ElNetRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
         warm_state: GLMState, optional
-            Warm start state.
+            Warm start: coefficients and intercept on the original scale of
+            the features, as `coef_` and `intercept_`.
         dispersion: float
             Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
             minimized deviance divided by degrees of freedom.

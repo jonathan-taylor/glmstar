@@ -118,6 +118,16 @@ class GLMResult(object):
     obj_function: float
 
 
+def _state_on_design(state, design):
+    """
+    `state`, with coefficients and intercept on the original scale of the
+    features, in the coordinates of `design` (standardized, if it is).
+    """
+    coef = np.asarray(state.coef)
+    return state.__class__(coef=coef * design.scaling_,
+                           intercept=state.intercept + (coef * design.centers_).sum())
+
+
 @dataclass
 class GLMState(object):
     """
@@ -590,7 +600,8 @@ class GLMBase(BaseEstimator,
         regularizer: GLMRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
         warm_state: GLMState, optional
-            Warm start state.
+            Warm start: coefficients and intercept on the original scale of
+            the features, as `coef_` and `intercept_`.
         dispersion: float, optional
             Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
             minimized deviance divided by degrees of freedom.
@@ -643,7 +654,7 @@ class GLMBase(BaseEstimator,
         self.regularizer_ = regularizer
 
         if warm_state is not None:
-            self.regularizer_.warm_state = warm_state
+            self.regularizer_.warm_state = _state_on_design(warm_state, design)
             
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
@@ -886,7 +897,8 @@ class GLM(GLMBase):
         regularizer: GLMRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
         warm_state: GLMState, optional
-            Warm start state.
+            Warm start: coefficients and intercept on the original scale of
+            the features, as `coef_` and `intercept_`.
         dispersion: float
             Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
             minimized deviance divided by degrees of freedom.
@@ -1158,7 +1170,8 @@ class BinomialGLM(ClassifierMixin, GLM):
         regularizer: GLMRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
         warm_state: GLMState, optional
-            Warm start state.
+            Warm start: coefficients and intercept on the original scale of
+            the features, as `coef_` and `intercept_`.
         dispersion: float
             Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
             minimized deviance divided by degrees of freedom.

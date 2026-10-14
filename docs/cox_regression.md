@@ -41,7 +41,7 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glm_inference import GLMInferenceProblem
@@ -96,9 +96,9 @@ print(f'{int(status.sum())} events at {len(event_times)} times, '
 `CoxNetIRLS` fits the lasso to the Efron partial likelihood. Its loss is
 the negative log partial likelihood divided by $n$. `coxdev`, which
 `CoxNetIRLS` uses, computes its gradient and Hessian with respect to the
-linear predictor $\eta = X\beta$, with the weights $1/n$. Newton's
-method on them fits the unpenalized Cox regression, and the inverse
-Hessian divided by $n$ estimates the covariance of the fit.
+linear predictor $\eta = X\beta$, with the weights $1/n$. `CoxNetIRLS`
+with `lambda_values=[0]` fits the unpenalized Cox regression, and the
+inverse Hessian divided by $n$ estimates the covariance of the fit.
 
 ```{code-cell} ipython3
 def efron_deviance(time, status):
@@ -107,31 +107,34 @@ def efron_deviance(time, status):
     return CoxDeviance(event=time, status=status, sample_weight=np.ones(n) / n,
                        tie_breaking='efron')
 
-def loss_gradient_hessian(X, time, status, b, cox=None):
-    """Gradient and Hessian of the Efron loss at coefficients b (cox: efron_deviance of the data)."""
+def loss_gradient_hessian(X, time, status, b):
+    """Gradient and Hessian of the Efron loss at coefficients b."""
     n = X.shape[0]
-    if cox is None:
-        cox = efron_deviance(time, status)
+    cox = efron_deviance(time, status)
     eta = X @ b
     gradient = X.T @ cox(eta, np.ones(n) / n).gradient / 2
     info = cox.information(eta, np.ones(n) / n)
     hessian = X.T @ np.column_stack([info @ X[:, j] for j in range(X.shape[1])])
     return gradient, hessian
 
-def cox_fit(X, time, status, b=None, cox=None, tol=1e-10):
+tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
+
+def cox_coef(X, time, status, warm=None):
     """
-    The unpenalized Cox regression with Efron ties: coefficients and standard errors.
-    Newton's method from b (default 0); cox as for loss_gradient_hessian.
+    The unpenalized Cox regression with Efron ties: CoxNetIRLS at lambda = 0,
+    warm started at the coefficients warm, if given.
     """
-    if cox is None:
-        cox = efron_deviance(time, status)
-    b = np.zeros(X.shape[1]) if b is None else np.array(b, float)
-    for _ in range(50):
-        gradient, hessian = loss_gradient_hessian(X, time, status, b, cox)
-        step = np.linalg.solve(hessian, gradient)
-        b = b - step
-        if np.abs(step).max() < tol:
-            break
+    warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
+    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
+                      lambda_values=np.array([0.]),
+                      control=tight).fit(
+                          X, pd.DataFrame({'event': time, 'status': status}),
+                          warm_state=warm_state).coefs_[0]
+
+def cox_fit(X, time, status):
+    """The unpenalized Cox regression with Efron ties: coefficients and standard errors."""
+    b = cox_coef(X, time, status)
+    hessian = loss_gradient_hessian(X, time, status, b)[1]
     return b, np.sqrt(np.diag(np.linalg.inv(hessian)) / X.shape[0])
 ```
 
@@ -221,7 +224,7 @@ each scheme's draws with the Efron information, coordinate by
 coordinate:
 
 ```{code-cell} ipython3
-b_hat = cox_fit(X, time, status)[0]
+b_hat = cox_coef(X, time, status)
 eta_hat, family = X @ b_hat, cox_family(time, status)
 information = n * loss_gradient_hessian(X, time, status, b_hat)[1]
 
@@ -287,7 +290,6 @@ $\sqrt{1-\pi}$.
 
 ```{code-cell} ipython3
 q = norm.ppf(0.95)  # for nominal 90% intervals
-tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
 def lam(pi):
     return 0.7 * np.sqrt(2 * np.log(p) / (pi * n))
@@ -311,7 +313,7 @@ def newton_step(X, time, status, b, linear_term=0.):
 
 def randomized_inference(X, time, status, pi, scheme='multinomial'):
     n = X.shape[0]
-    eta = X @ cox_fit(X, time, status)[0]          # the pilot fit
+    eta = X @ cox_coef(X, time, status)            # the pilot fit
     omega = np.sqrt((1 - pi) / pi) * score_draws(X, cox_family(time, status), eta, scheme) / n
     fit = cox_lasso(X, time, status, pi, linear_term=LinearTerm(coef=-omega),
                     relax=True, control=tight)
@@ -353,14 +355,13 @@ the standard error of a fit to $n = 3000$:
 
 ```{code-cell} ipython3
 pop_X, pop_time, pop_status = sim_data(1000000)
-pop_cox = efron_deviance(pop_time, pop_status)
 targets = {}
 
 def target(E):
     key = tuple(E)
     if key not in targets:
-        # Newton's method from the true coefficients of E, a close start
-        targets[key] = cox_fit(pop_X[:, E], pop_time, pop_status, b=beta[E], cox=pop_cox)[0]
+        # warm started at the true coefficients of E, a close start
+        targets[key] = cox_coef(pop_X[:, E], pop_time, pop_status, warm=beta[E])
     return targets[key]
 ```
 
