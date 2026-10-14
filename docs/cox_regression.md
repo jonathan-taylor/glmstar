@@ -398,7 +398,8 @@ $\mathrm{Var}(\omega) = \frac{1-\pi}{\pi}\Sigma_*$.
 Both effects grow with the randomization. At $\pi = 0.9$ the
 perturbation has a ninth of the variance of the score, and a 10%
 shortfall in it is a 1% shortfall in the selection score's; at
-$\pi = 0.5$ it has as much as the score.
+$\pi = 0.5$ it has as much as the score. The calibration below asks
+whether the shortfall matters in practice.
 
 ## Calibration
 
@@ -478,7 +479,36 @@ By the strength of the signal, the coverage:
         .unstack('signal').round(3))
 ```
 
-DISCUSSION
+The naive intervals fail for the selected nulls and undercover for the
+weak signals, because the variables were chosen with the same data used
+for inference. For the strong signals they are fine, as their selection
+was a foregone conclusion. The split intervals are calibrated but use
+only the held-out subjects: at $\pi = 0.9$ they are about three times as
+long as the naive ones.
+
+All four perturbations give calibrated combination and carved
+intervals, at both values of $\pi$, and for each kind of signal. The
+carved intervals are much shorter than the split and combination ones,
+especially at $\pi = 0.9$, where they are less than half as long: for
+the strong signals they are close to the naive intervals, and for the
+weak signals and the selected nulls they widen, but stay shorter.
+
+The Bernoulli and Wallenius draws have about 10% less variance than the
+score, but here that does not show in the coverage beyond Monte Carlo
+error (about 0.01 for each method), even at $\pi = 0.5$. The two
+consequences above are small: a leftover covariance of about a tenth of
+the score's between $T_E$ and the selection, and a randomization a tenth
+smaller than `lassoinf` assumes. With heavier ties relative to the risk
+sets, the shortfall, and its effect, would grow. The multinomial and
+wild draws have the right variance, and the wild draws, through the
+sandwich, do not rely on the model being right. They are the safer
+choices.
+
+The calibration relies on Cox's model for the multinomial, Bernoulli
+and Wallenius draws, which come from the fitted risk sets. The wild
+draws need only the score residuals, as does a nonparametric resample
+of the subjects
+({ref}`Fry, Panigrahi and Taylor, 2025 <cox-refs>`).
 
 (cox-refs)=
 ## References

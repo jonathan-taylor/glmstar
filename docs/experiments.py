@@ -69,7 +69,9 @@ def load_results(page, function='calibration'):
                 break
             key, _, value = line[1:].partition(':')
             metadata[key.strip()] = value.strip()
-    results = pd.read_csv(path, skiprows=len(metadata))
+    # keep_default_na=False: strings such as 'null' (a kind of signal) or ''
+    # are read back as written, not as missing values
+    results = pd.read_csv(path, skiprows=len(metadata), keep_default_na=False)
     results.attrs.update(metadata)
     return results
 
