@@ -42,6 +42,7 @@ project:
         - file: probit_regression.md
         - file: autocorrelated_errors.md
         - file: cox_regression.md
+        - file: cox_misspecified.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:
