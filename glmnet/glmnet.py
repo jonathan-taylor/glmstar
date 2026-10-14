@@ -27,7 +27,8 @@ from .regularized_glm import (RegGLMControl,
 
 from .glm import (GLM,
                   GLMState,
-                  GLMFamilySpec)
+                  GLMFamilySpec,
+                  _state_on_design)
 from ._utils import _get_data, _check_offset, UnboundedObjectiveError
 from .elnet import LinearTerm
 from .scorer import (PathScorer,
@@ -362,7 +363,9 @@ class GLMNet(BaseEstimator,
         regularizer: ElNetRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
         warm_state: GLMState, optional
-            Warm start state.
+            Warm start for the fit at the first lambda: coefficients and
+            intercept on the original scale of the features, as a row of
+            `coefs_` and `intercepts_` (e.g. from `get_fixed_lambda`).
         interpolation_grid: np.ndarray, optional
             Grid for interpolation of coefficients.
 
@@ -411,8 +414,7 @@ class GLMNet(BaseEstimator,
         self.reg_glm_est_.fit(X,
                               y,
                               None,
-                              fit_null=False,
-                              warm_state=warm_state) 
+                              fit_null=False)
         regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
@@ -422,8 +424,7 @@ class GLMNet(BaseEstimator,
         # _get_initial_state fits the unpenalized variables on the original
         # scale: put the state in the coordinates of the (standardized) design
         design = self.reg_glm_est_.design_
-        state = state.__class__(state.coef * design.scaling_,
-                                state.intercept + (state.coef * design.centers_).sum())
+        state = _state_on_design(state, design)
         state.update(design,
                      self._family,
                      offset)
@@ -470,6 +471,11 @@ class GLMNet(BaseEstimator,
                                     sample_weight=sample_weight,
                                     offset=offset,
                                     fit_intercept=self.fit_intercept)
+
+        # the fit at the first lambda starts from warm_state, and each later
+        # one from the fit before it
+        if warm_state is not None:
+            regularizer_.warm_state = _state_on_design(warm_state, design)
 
         for l in self.lambda_values_:
 
@@ -1428,7 +1434,7 @@ class GLMNet(BaseEstimator,
 
         coefs, intercepts = self.interpolate_coefs([lambda_val])
         cls = self.state_.__class__
-        state = cls(coefs[0], intercepts[0])
+        state = cls(coef=coefs[0], intercept=intercepts[0])
         return estimator, state
 
     def _fixed_lambda_family(self):

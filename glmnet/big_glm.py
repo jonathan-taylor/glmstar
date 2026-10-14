@@ -57,7 +57,8 @@ def big_glm(estimator, X, y, path=False):
             # GLMNet's IRLS path stops early once the deviance explained
             # stops changing: finish with lambda = 0 from where it stopped
             estimator.lambda_values = zero
-            estimator.fit(X, y, warm_state=estimator.state_)
+            estimator.fit(X, y, warm_state=estimator.state_.__class__(
+                coef=estimator.coefs_[-1], intercept=estimator.intercepts_[-1]))
         _keep_last(estimator)
         estimator.lambda_values = zero
 

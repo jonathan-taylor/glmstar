@@ -41,7 +41,7 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glm_inference import GLMInferenceProblem
@@ -119,12 +119,17 @@ def loss_gradient_hessian(X, time, status, b):
 
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
-def cox_coef(X, time, status):
-    """The unpenalized Cox regression with Efron ties: CoxNetIRLS at lambda = 0."""
+def cox_coef(X, time, status, warm=None):
+    """
+    The unpenalized Cox regression with Efron ties: CoxNetIRLS at lambda = 0,
+    warm started at the coefficients warm, if given.
+    """
+    warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
     return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
                       lambda_values=np.array([0.]),
                       control=tight).fit(
-                          X, pd.DataFrame({'event': time, 'status': status})).coefs_[0]
+                          X, pd.DataFrame({'event': time, 'status': status}),
+                          warm_state=warm_state).coefs_[0]
 
 def cox_fit(X, time, status):
     """The unpenalized Cox regression with Efron ties: coefficients and standard errors."""
@@ -355,7 +360,8 @@ targets = {}
 def target(E):
     key = tuple(E)
     if key not in targets:
-        targets[key] = cox_coef(pop_X[:, E], pop_time, pop_status)
+        # warm started at the true coefficients of E, a close start
+        targets[key] = cox_coef(pop_X[:, E], pop_time, pop_status, warm=beta[E])
     return targets[key]
 ```
 
