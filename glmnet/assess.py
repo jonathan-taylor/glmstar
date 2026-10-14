@@ -110,7 +110,7 @@ def assess(estimator, X, y):
         start = surv['start'] if estimator.family.start_id is not None else None
         # R's coxnet.deviance standardizes the weights to sum to n
         std_weight = weight * weight.shape[0] / weight.sum()
-        deviance = [fam._coxdev(link[:, j], std_weight).deviance for j in range(link.shape[1])]
+        deviance = [fam._coxdev_at(std_weight)(link[:, j], std_weight).deviance for j in range(link.shape[1])]
         C = c_index(link, surv['stop'], surv['status'], start=start, sample_weight=weight)
         return pd.DataFrame({'deviance': deviance, 'C': C}, index=index)
 
