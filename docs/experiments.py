@@ -36,7 +36,7 @@ import subprocess
 import sys
 
 from IPython.core.inputtransformer2 import TransformerManager
-from IPython.display import display, HTML
+from IPython.display import display, HTML, Markdown
 import jupytext
 import pandas as pd
 
@@ -46,7 +46,7 @@ DOCS = Path(__file__).resolve().parent
 RESULTS = DOCS / 'results'
 # the commit identifies glmstar (the version of an editable install is the
 # one at install time)
-PACKAGES = ['lassoinf', 'numpy', 'scipy', 'statsmodels', 'pandas']
+PACKAGES = ['lassoinf', 'coxdev', 'numpy', 'scipy', 'statsmodels', 'pandas']
 # as project.github in myst.yml
 GITHUB = 'https://github.com/jonathan-taylor/glmstar'
 
@@ -89,6 +89,30 @@ def provenance(results):
     body = ''.join(f'<tr><th style="text-align: left">{k}</th><td>{v}</td></tr>'
                    for k, v in rows.items())
     return HTML(f'<table>{body}</table>')
+
+
+def reproduce(results):
+    """
+    The commands that check out the commit that computed ``results``, install
+    it and rerun the experiment, as a bash code block.
+    """
+    m = results.attrs
+    page = Path(m['page']).with_suffix('').as_posix().removeprefix('docs/')
+    command = f'python docs/experiments.py {page}'
+    if m['function'] != 'calibration':
+        command += f' --function {m["function"]}'
+    for argument in filter(None, (a.strip() for a in m['arguments'].split(','))):
+        command += f' --arg {argument}'
+    lines = [f'git clone {GITHUB}.git glmstar',
+             'cd glmstar',
+             # the commit may not be on a branch any more (e.g. after a squash merge):
+             # GitHub still serves it by its hash
+             f'git fetch origin {m["commit"]}',
+             f'git checkout {m["commit"]}',
+             'git submodule update --init --recursive',
+             'pip install -e ".[doc]"',
+             command]
+    return Markdown('To reproduce these results:\n\n```bash\n' + '\n'.join(lines) + '\n```')
 
 
 def _git(*args):

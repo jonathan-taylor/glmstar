@@ -43,7 +43,7 @@ from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
 
-from experiments import load_results, provenance
+from experiments import load_results, provenance, reproduce
 
 probit = sm.families.Binomial(link=sm.families.links.Probit())
 ```
@@ -276,6 +276,7 @@ and saved in `docs/results/probit_regression.csv`.
 ```{code-cell} ipython3
 results = load_results('probit_regression')
 display(provenance(results))
+display(reproduce(results))
 
 methods = ['naive', 'split', 'combination', 'carved']
 results['method'] = pd.Categorical(results['method'], methods)

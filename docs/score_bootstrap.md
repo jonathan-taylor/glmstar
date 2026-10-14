@@ -53,7 +53,7 @@ from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
 
-from experiments import load_results, provenance
+from experiments import load_results, provenance, reproduce
 ```
 
 ## Weighted least squares
@@ -478,6 +478,7 @@ and saved in `docs/results/score_bootstrap.csv`.
 ```{code-cell} ipython3
 results = load_results('score_bootstrap')
 display(provenance(results))
+display(reproduce(results))
 
 results['method'] = pd.Categorical(results['method'],
                                    ['naive', 'split', 'combination', 'carved'])
