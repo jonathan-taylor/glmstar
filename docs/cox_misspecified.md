@@ -38,7 +38,7 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxNetIRLS
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glm_inference import GLMInferenceProblem
@@ -180,14 +180,14 @@ pd.DataFrame({'Var(score) / information': variance / np.diag(np.mean(infos, axis
 ## Two perturbations
 
 From the pilot fit $\hat\beta$ on all $p$ features, the perturbation is
-$\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$ with either
+$\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$ with one of two kinds of draw,
+both from the samplers of `coxdev` through `CoxFamilySpec.sample_score`:
 
 - **multinomial** draws: at each event time the $d_k$ failures drawn
   with replacement from the risk set with probabilities
-  $\propto\exp(x_i^T\hat\beta)$, the difference of two draws over
-  $\sqrt 2$
+  $\propto\exp(x_i^T\hat\beta)$, centered at their expectation
   ({ref}`Andersen, Borgan, Gill and Keiding, 1993 <coxmis-refs>`).
-  Their covariance is the information: it comes from the model.
+  Their covariance is the (Breslow) information: it comes from the model.
 - **wild** draws: $U^* = \sum_i G_i\hat U_i$ with independent standard
   normal $G_i$ ({ref}`Lin, Wei and Ying, 1993 <coxmis-refs>`). Their
   covariance is the sandwich: it comes from the residuals.
@@ -195,17 +195,9 @@ $\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$ with either
 ```{code-cell} ipython3
 def score_draw(X, time, status, b, scheme):
     """One draw U* of the resampled total score, from the pilot fit b."""
-    if scheme == 'wild':
-        return rng.standard_normal(X.shape[0]) @ score_residuals(X, time, status, b)
-    eta = X @ b
-    U = np.zeros(X.shape[1])
-    times, d = np.unique(time[status == 1], return_counts=True)
-    for t_k, d_k in zip(times, d):
-        idx = np.flatnonzero(time >= t_k)
-        p_k = np.exp(eta[idx] - eta[idx].max())
-        p_k /= p_k.sum()
-        U += (rng.multinomial(d_k, p_k) - rng.multinomial(d_k, p_k)) @ X[idx] / np.sqrt(2)
-    return U
+    family = CoxFamilySpec(pd.DataFrame({'event': time, 'status': status}),
+                           event_id='event', status_id='status', tie_breaking='efron')
+    return X.T @ family.sample_score(X @ b, method=scheme, rng=rng)
 ```
 
 ## The inference

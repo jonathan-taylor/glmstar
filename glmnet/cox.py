@@ -546,6 +546,73 @@ class CoxFamilySpec(object):
             LinearOperator.__init__(info, dtype=info.dtype, shape=info.shape)
         return info
 
+    sample_score_methods = ('multinomial',
+                            'bernoulli',
+                            'fisher',
+                            'wild')
+
+    def sample_score(self,
+                     linear_predictor,
+                     method='multinomial',
+                     n_draws=None,
+                     sample_weight=None,
+                     rng=None):
+        """
+        Draws of the score at a linear predictor, computed by `coxdev`.
+
+        Each draw ``r`` has one entry per observation, on the scale of the
+        score (minus half the gradient of the deviance), so that ``X.T @ r``
+        is a draw of the score of the coefficients of a design ``X``. With
+        `sample_weight` None (all one), that is the total score.
+
+        Parameters
+        ----------
+        linear_predictor : np.ndarray
+            The linear predictor (with any offset), e.g. of a pilot fit.
+        method : {'multinomial', 'bernoulli', 'fisher', 'wild'}
+            Passed to `coxdev`, whose samplers make the draws (see its
+            documentation for details and references). The model-based
+            methods draw the failures at each event time from the model and
+            return their score, centered at its expectation:
+
+            - ``'multinomial'``: with replacement from the risk set, with
+              probabilities proportional to ``sample_weight *
+              exp(linear_predictor)``. Its covariance is the Breslow
+              information.
+            - ``'bernoulli'``: each subject at risk fails independently with
+              probability ``min(1, d p)``.
+            - ``'fisher'``: the set of failures from Fisher's noncentral
+              hypergeometric distribution. Its covariance is the information
+              of the exact discrete partial likelihood.
+            - ``'wild'``: the score residuals (with Efron's weights if
+              ``tie_breaking='efron'``) times independent standard normals.
+              Its covariance is the sandwich, which does not need the model
+              to be right.
+        n_draws : int, optional
+            The number of draws. If None, one draw, as a vector.
+        sample_weight : np.ndarray, optional
+            Observation weights, default all one. All methods but ``'wild'``
+            need equal positive weights (zero weights drop out).
+        rng : numpy Generator (or seed), optional
+            Source of the seed passed to `coxdev`, whose own generator makes
+            the draws.
+
+        Returns
+        -------
+        np.ndarray
+            ``(n,)`` if `n_draws` is None, else ``(n, n_draws)``.
+        """
+        if method not in self.sample_score_methods:
+            raise ValueError(f'method must be one of {self.sample_score_methods}, got {method!r}')
+        if not hasattr(self._coxdev, 'sample_score'):
+            raise ImportError('sample_score needs a version of coxdev with CoxDeviance.sample_score')
+        rng = np.random.default_rng(rng)
+        return self._coxdev.sample_score(np.asarray(linear_predictor, float),
+                                         sample_weight=sample_weight,
+                                         method=method,
+                                         n_draws=n_draws,
+                                         seed=int(rng.integers(2**63)))
+
     def _default_scorers(self):
 
         return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]

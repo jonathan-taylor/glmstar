@@ -41,7 +41,7 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxNetIRLS
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glm_inference import GLMInferenceProblem
@@ -135,31 +135,42 @@ about the information $nQ$, with $Q$ the Hessian of the loss. Each
 scheme below draws a $U^*$ with mean 0 from the fitted model, and the
 perturbation is $\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$.
 
-- **Multinomial (one draw).** Draw the $d_k$ failures at each $t_k$
-  with replacement, $N_k \sim \mathrm{Multinomial}(d_k, p_k)$, and
-  center: $U^* = \sum_k \sum_i x_i(N_{ki} - d_k p_{ki})$. This is the
-  "weird bootstrap" of Andersen, Borgan, Gill and Keiding
-  ({ref}`1993 <cox-refs>`), compared with other bootstraps for Cox's
-  model by Burr ({ref}`1994 <cox-refs>`). Its covariance is the
-  information of Breslow's approximation for ties
-  ({ref}`Breslow, 1974 <cox-refs>`).
-- **Multinomial.** The difference of two independent multinomial
-  draws, divided by $\sqrt 2$, as in the other vignettes: the same
-  covariance, no centering, and a symmetric distribution.
+All the draws come from the samplers of `coxdev`, through
+`CoxFamilySpec.sample_score`. Each returns one draw per call, on the
+scale of the total score; differencing two of them is left to us.
+
+- **Multinomial.** Draw the $d_k$ failures at each $t_k$ with
+  replacement, $N_k \sim \mathrm{Multinomial}(d_k, p_k)$, and center:
+  $U^* = \sum_k \sum_i x_i(N_{ki} - d_k p_{ki})$. This is Breslow's
+  likelihood for ties ({ref}`Breslow, 1974 <cox-refs>`) as a sampling
+  model, and $U^*$ is its score at the drawn failures, so its covariance
+  is the Breslow information. It is a form of the "weird bootstrap" of
+  Andersen, Borgan, Gill and Keiding ({ref}`1993 <cox-refs>`), compared
+  with other bootstraps for Cox's model by Burr
+  ({ref}`1994 <cox-refs>`).
+- **Multinomial (two draws).** The difference of two independent
+  multinomial draws, divided by $\sqrt 2$, as in the other vignettes:
+  the same covariance, and a symmetric distribution.
 - **Bernoulli.** Andersen, Borgan, Gill and Keiding's original form
-  ({ref}`1993 <cox-refs>`):
-  each subject at risk fails independently with probability
-  $\pi_{ki} = \min(1, d_k p_{ki})$, centered by $\bar x_k$; again the
-  difference of two draws over $\sqrt 2$. The variance of each jump is
-  $\pi_{ki}(1-\pi_{ki})$ rather than $\pi_{ki}$.
-- **Wallenius.** Draw the $d_k$ failures without replacement, one at a
-  time, each with probabilities $\propto \exp(\hat\eta_i)$ among the
-  subjects not yet drawn: Wallenius' noncentral hypergeometric
-  distribution ({ref}`Wallenius, 1963 <cox-refs>`). The $d_k$ largest
-  values of $\hat\eta_i$ plus independent Gumbel noise are such a draw
-  ({ref}`Efraimidis and Spirakis, 2006 <cox-refs>`;
-  {ref}`Kool, van Hoof and Welling, 2019 <cox-refs>`). Each subject fails
-  at most once, as in the data. Again two draws.
+  ({ref}`1993 <cox-refs>`): each subject at risk fails independently
+  with probability $\pi_{ki} = \min(1, d_k p_{ki})$, and $U^*$ is the
+  sum over those who fail of $x_i - \bar x_k$. The variance of each jump
+  is $\pi_{ki}(1-\pi_{ki})$ rather than $\pi_{ki}$. When some
+  $d_k p_{ki} > 1$ the cap makes the mean of $U^*$ nonzero; here
+  $d_k p_{ki}$ is at most about 0.6.
+- **Fisher.** Draw the set of $d_k$ failures at each $t_k$ without
+  replacement, from Fisher's noncentral hypergeometric distribution
+  ({ref}`Harkness, 1965 <cox-refs>`; {ref}`Fog, 2008 <cox-refs>`): the
+  independent Bernoulli failures conditioned on there being $d_k$ of
+  them, so that a set $A$ has probability proportional to
+  $\prod_{i \in A}\exp(\hat\eta_i)$. This is the exact discrete partial
+  likelihood ({ref}`Cox, 1972 <cox-refs>`;
+  {ref}`Kalbfleisch and Prentice, 2002 <cox-refs>`) as a sampling model,
+  and $U^*$ is its score at the drawn failures, centered at its exact
+  mean, so its covariance is the information of that likelihood.
+  `coxdev` computes both with the recursion of Gail, Lubin and
+  Rubinstein ({ref}`1981 <cox-refs>`). Each subject fails at most once,
+  as in the data.
 - **Wild.** Multiply each subject's score residual $\hat U_i$ (its
   contribution to the score, centered within the risk sets, with
   Efron's weights) by an independent standard normal $G_i$:
@@ -173,49 +184,22 @@ perturbation is $\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$.
   which does not rely on the model being right.
 
 ```{code-cell} ipython3
-SCHEMES = ['multinomial (one draw)', 'multinomial', 'bernoulli', 'wallenius', 'wild']
+SCHEMES = ['multinomial', 'multinomial (two draws)', 'bernoulli', 'fisher', 'wild']
 
-def risk_sets(time, status):
-    """For each event time: the risk set, the subjects who fail, and their number."""
-    times, d = np.unique(time[status == 1], return_counts=True)
-    return [(np.flatnonzero(time >= t_k), np.flatnonzero((time == t_k) & (status == 1)), d_k)
-            for t_k, d_k in zip(times, d)]
+def cox_family(time, status):
+    return CoxFamilySpec(pd.DataFrame({'event': time, 'status': status}),
+                         event_id='event', status_id='status', tie_breaking='efron')
 
-def score_residuals(X, eta, sets):
-    """Efron score residuals: sum_k sum_r (dN_ik / d_k - p_ikr) (x_i - xbar_kr)."""
-    U = np.zeros_like(X)
-    w = np.exp(eta - eta.max())
-    for idx, fail, d_k in sets:
-        tied = np.isin(idx, fail)
-        X_k = X[idx]
-        for r in range(d_k):
-            # Efron: the r-th of the d_k tied failures sees the tied subjects with weight 1 - r / d_k
-            w_r = w[idx] * (1 - (r / d_k) * tied)
-            p_r = w_r / w_r.sum()
-            U[idx] += (tied / d_k - p_r)[:, None] * (X_k - p_r @ X_k)
-    return U
-
-def score_draw(X, eta, sets, scheme, residuals=None):
-    """One draw U* of the resampled total score."""
-    if scheme == 'wild':
-        return rng.standard_normal(X.shape[0]) @ residuals
-    U = np.zeros(X.shape[1])
-    for idx, fail, d_k in sets:
-        X_k = X[idx]
-        p_k = np.exp(eta[idx] - eta[idx].max())
-        p_k /= p_k.sum()
-        if scheme == 'multinomial (one draw)':
-            U += (rng.multinomial(d_k, p_k) - d_k * p_k) @ X_k
-        elif scheme == 'multinomial':
-            U += (rng.multinomial(d_k, p_k) - rng.multinomial(d_k, p_k)) @ X_k / np.sqrt(2)
-        elif scheme == 'bernoulli':
-            pi_k = np.minimum(1, d_k * p_k)
-            U += (rng.binomial(1, pi_k) - rng.binomial(1, pi_k)) @ (X_k - p_k @ X_k) / np.sqrt(2)
-        elif scheme == 'wallenius':
-            for sign in (1, -1):
-                top = np.argpartition(-(eta[idx] + rng.gumbel(size=len(idx))), d_k - 1)[:d_k]
-                U += sign * X_k[top].sum(0) / np.sqrt(2)
-    return U
+def score_draws(X, family, eta, scheme, n_draws=None):
+    """Draws U* of the resampled total score: (p,), or (p, n_draws)."""
+    if scheme == 'multinomial (two draws)':
+        k = 1 if n_draws is None else n_draws
+        r = family.sample_score(eta, method='multinomial', n_draws=2 * k, rng=rng)
+        r = (r[:, :k] - r[:, k:]) / np.sqrt(2)
+        r = r[:, 0] if n_draws is None else r
+    else:
+        r = family.sample_score(eta, method=scheme, n_draws=n_draws, rng=rng)
+    return X.T @ r
 ```
 
 ### Which has the variance of the score?
@@ -226,12 +210,11 @@ coordinate:
 
 ```{code-cell} ipython3
 b_hat = cox_fit(X, time, status)[0]
-eta_hat, sets = X @ b_hat, risk_sets(time, status)
-residuals = score_residuals(X, eta_hat, sets)
+eta_hat, family = X @ b_hat, cox_family(time, status)
 information = n * loss_gradient_hessian(X, time, status, b_hat)[1]
 
-ratios = {scheme: np.diag(np.cov([score_draw(X, eta_hat, sets, scheme, residuals)
-                                  for _ in range(1000)], rowvar=False)) / np.diag(information)
+ratios = {scheme: np.diag(np.cov(score_draws(X, family, eta_hat, scheme, 1000)))
+                  / np.diag(information)
           for scheme in SCHEMES}
 pd.DataFrame(ratios).describe().loc[['mean', 'min', 'max']].round(3)
 ```
@@ -252,13 +235,14 @@ print(f'variance of the score / Efron information: mean {ratio.mean():.3f}, '
 ```
 
 The multinomial draws, with one draw or two, and the wild draws have
-the variance of the score. The Bernoulli and Wallenius draws have about
-10% less. Both draw without replacement, in effect: in the Bernoulli
-scheme each subject fails at most once, and its jumps have variance
-$\pi_{ki}(1-\pi_{ki})$. When $d_k$ is a sizable fraction of the risk set,
-as here, this removes variance much as a finite-population correction
-does. Efron's approximation, and the score of the tied data, have
-almost none of that reduction.
+the variance of the score. The Bernoulli and Fisher draws have about
+8% less. Both draw without replacement, in effect: each subject fails at
+most once. When $d_k$ is a sizable fraction of the risk set, as here,
+this removes variance much as a finite-population correction does. The
+Fisher draws are exact for the discrete likelihood, which treats the
+tied failures as truly simultaneous. Here the ties come from rounding
+continuous times, and Efron's approximation, and the score of the tied
+data, have almost none of that reduction.
 
 ## The randomized lasso and the inference
 
@@ -316,9 +300,7 @@ def newton_step(X, time, status, b, linear_term=0.):
 def randomized_inference(X, time, status, pi, scheme='multinomial'):
     n = X.shape[0]
     eta = X @ cox_fit(X, time, status)[0]          # the pilot fit
-    sets = risk_sets(time, status)
-    residuals = score_residuals(X, eta, sets) if scheme == 'wild' else None
-    omega = np.sqrt((1 - pi) / pi) * score_draw(X, eta, sets, scheme, residuals) / n
+    omega = np.sqrt((1 - pi) / pi) * score_draws(X, cox_family(time, status), eta, scheme) / n
     fit = cox_lasso(X, time, status, pi, linear_term=LinearTerm(coef=-omega),
                     relax=True, control=tight)
     b = fit.coefs_[0]
@@ -389,14 +371,14 @@ $\mathrm{Var}(\omega) = \frac{1-\pi}{\pi}\Sigma_*$.
 
 - **Combination.** $S - \frac{\pi}{1-\pi}\omega$ is uncorrelated with
   the selection score $S + \omega$ only when $\Sigma_* = \Sigma$; for
-  the Bernoulli and Wallenius draws their covariance is
-  $\Sigma - \Sigma_* \approx 0.1\,\Sigma$.
+  the Bernoulli and Fisher draws their covariance is
+  $\Sigma - \Sigma_* \approx 0.08\,\Sigma$.
 - **Carving.** `lassoinf` takes the randomization to have
   $(1-\pi)/\pi$ times the variance of the score, and credits the
   selection with more randomization than it had.
 
 Both effects grow with the randomization. At $\pi = 0.9$ the
-perturbation has a ninth of the variance of the score, and a 10%
+perturbation has a ninth of the variance of the score, and an 8%
 shortfall in it is a 1% shortfall in the selection score's; at
 $\pi = 0.5$ it has as much as the score. The calibration below asks
 whether the shortfall matters in practice.
@@ -409,8 +391,8 @@ We repeat the experiment at $\pi = 0.9$ and $\pi = 0.5$ and compare:
   regression intervals of the selected model on the same data;
 - **split**: select on a random fraction $\pi$ of the subjects, then
   form intervals on the others;
-- **combination** and **carved**, with each of the multinomial (two
-  draws), Bernoulli, Wallenius and wild perturbations.
+- **combination** and **carved**, with each of the multinomial (one
+  draw), Bernoulli, Fisher and wild perturbations.
 
 For every selected coefficient we record whether its nominal 90%
 interval covers $\beta_{E,j}$, and the interval's length per standard
@@ -443,7 +425,7 @@ def calibration(n_rep=300):
                 record(pi, 'split', '', E,
                        *cox_intervals(X[held_out], time[held_out], status[held_out], E))
 
-            for scheme in ['multinomial', 'bernoulli', 'wallenius', 'wild']:
+            for scheme in ['multinomial', 'bernoulli', 'fisher', 'wild']:
                 E, intervals = randomized_inference(X, time, status, pi, scheme)
                 if len(E):
                     for method, (_, lower, upper) in intervals.items():
@@ -463,7 +445,7 @@ display(reproduce(results))
 
 results['method'] = pd.Categorical(results['method'], ['naive', 'split', 'combination', 'carved'])
 results['scheme'] = pd.Categorical(results['scheme'],
-                                   ['', 'multinomial', 'bernoulli', 'wallenius', 'wild'])
+                                   ['', 'multinomial', 'bernoulli', 'fisher', 'wild'])
 results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
 summary = (results.groupby(['pi', 'method', 'scheme'], observed=True)
                   .agg(intervals=('covered', 'size'),
@@ -493,7 +475,7 @@ especially at $\pi = 0.9$, where they are less than half as long: for
 the strong signals they are close to the naive intervals, and for the
 weak signals and the selected nulls they widen, but stay shorter.
 
-The Bernoulli and Wallenius draws have about 10% less variance than the
+The Bernoulli and Fisher draws have about 8% less variance than the
 score, but here that does not show in the coverage beyond Monte Carlo
 error (about 0.01 for each method), even at $\pi = 0.5$. The two
 consequences above are small: a leftover covariance of about a tenth of
@@ -505,7 +487,7 @@ sandwich, do not rely on the model being right. They are the safer
 choices.
 
 The calibration relies on Cox's model for the multinomial, Bernoulli
-and Wallenius draws, which come from the fitted risk sets. The wild
+and Fisher draws, which come from the fitted risk sets. The wild
 draws need only the score residuals, as does a nonparametric resample
 of the subjects
 ({ref}`Fry, Panigrahi and Taylor, 2025 <cox-refs>`).
@@ -525,15 +507,16 @@ of the subjects
 - Burr, D. (1994). A comparison of certain bootstrap confidence
   intervals in the Cox model. *Journal of the American Statistical
   Association*, 89(428), 1290–1302.
-- Wallenius, K. T. (1963). *Biased sampling: the noncentral
-  hypergeometric probability distribution*. PhD thesis, Stanford
-  University.
-- Efraimidis, P. S., & Spirakis, P. G. (2006). Weighted random sampling
-  with a reservoir. *Information Processing Letters*, 97(5), 181–185.
-- Kool, W., van Hoof, H., & Welling, M. (2019). Stochastic beams and
-  where to find them: the Gumbel-top-k trick for sampling sequences
-  without replacement. *Proceedings of the 36th International
-  Conference on Machine Learning*, PMLR 97, 3499–3508.
+- Harkness, W. L. (1965). Properties of the extended hypergeometric
+  distribution. *The Annals of Mathematical Statistics*, 36(3), 938–945.
+- Fog, A. (2008). Sampling methods for Wallenius' and Fisher's
+  noncentral hypergeometric distributions. *Communications in
+  Statistics: Simulation and Computation*, 37(2), 241–257.
+- Kalbfleisch, J. D., & Prentice, R. L. (2002). *The Statistical
+  Analysis of Failure Time Data* (2nd ed.). Wiley.
+- Gail, M. H., Lubin, J. H., & Rubinstein, L. V. (1981). Likelihood
+  calculations for matched case-control studies and survival studies
+  with tied death times. *Biometrika*, 68(3), 703–707.
 - Wu, C. F. J. (1986). Jackknife, bootstrap and other resampling methods
   in regression analysis. *The Annals of Statistics*, 14(4), 1261–1295.
 - Lin, D. Y., & Wei, L. J. (1989). The robust inference for the Cox
