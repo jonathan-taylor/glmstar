@@ -12,6 +12,17 @@ from glmnet.cox import CoxFamily, CoxCIndexScorer, c_index, cox_survfit
 
 rng = np.random.default_rng(0)
 
+# coxdev >= 0.2.0 fixed the Efron diag_hessian at tied failures
+# (jonathan-taylor/cox_loglike#28, branch diag_hessian_fix5.1). diag_hessian
+# gives the IRLS working weights, so the fix changes the steps of the Cox path.
+# R's glmnet still has the old diag_hessian, so its Efron paths no longer match ours.
+# strict: these XPASS (and fail) once R's glmnet is fixed -- then remove the mark.
+xfail_R_efron = pytest.mark.xfail(
+    strict=True,
+    reason="R's glmnet has the Efron diag_hessian bug fixed in coxdev "
+           "(cox_loglike#28, diag_hessian_fix5.1); its Efron Cox paths differ from ours")
+TIES = ['breslow', pytest.param('efron', marks=xfail_R_efron)]
+
 def get_RCoxNet(Rinfo):
     RGLMNet = Rinfo["RGLMNet"]
     @dataclass
@@ -130,7 +141,7 @@ def check_soln(L, R_soln):
     assert np.allclose(L.summary_['Fraction Deviance Explained'], R_dev, rtol=0, atol=1e-8)
     assert np.all(L.intercepts_ == 0)
 
-@pytest.mark.parametrize('ties', ['breslow', 'efron'])
+@pytest.mark.parametrize('ties', TIES)
 @pytest.mark.parametrize('start', [False, True])
 def test_coxnet(Rinfo,
                 standardize,
@@ -161,10 +172,7 @@ def test_coxnet(Rinfo,
                                  standardize=standardize)
     check_soln(L, R_soln)
 
-@pytest.mark.xfail(strict=False,
-                   reason='glitch in the stratified path: it can stop earlier or later than '
-                          "R's (e.g. 55 vs 50 lambdas), so the path lengths differ")
-@pytest.mark.parametrize('ties', ['breslow', 'efron'])
+@pytest.mark.parametrize('ties', TIES)
 @pytest.mark.parametrize('start', [False, True])
 def test_coxnet_strata(Rinfo,
                        n,
@@ -192,7 +200,7 @@ def test_coxnet_strata(Rinfo,
                                  weights=weightsR)
     check_soln(L, R_soln)
 
-@pytest.mark.parametrize('ties', ['breslow', 'efron'])
+@pytest.mark.parametrize('ties', TIES)
 def test_coxnet_sparse(Rinfo,
                        standardize,
                        n,
@@ -234,6 +242,7 @@ def test_coxnet_sparse(Rinfo,
         assert L.coefs_.shape == L_dense.coefs_.shape
         assert np.linalg.norm(L.coefs_ - L_dense.coefs_) / max(np.linalg.norm(L_dense.coefs_), 1) < 1e-6
 
+@xfail_R_efron
 def test_coxnet_args(Rinfo,
                      alpha,
                      penalty_factor,
@@ -490,6 +499,7 @@ def _flatten_curves(curves):
 @pytest.mark.parametrize('start', [False, True])
 @pytest.mark.parametrize('strata', [False, True])
 @pytest.mark.parametrize('new', [False, True])
+@xfail_R_efron
 def test_coxnet_survfit(Rinfo, sample_weight, offset, start, strata, new, n=120, p=5):
     """Compare CoxNet.survfit to R's survfit.coxnet."""
 
