@@ -628,7 +628,11 @@ class GLMBase(BaseEstimator,
         X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
         sample_weight = weight
-        self.sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
+        # the family always sees the normalized weights, so that it gets one weight
+        # vector (Cox's deviance is rebuilt for each new one); the deviances and the
+        # information, linear in the weights, are scaled back by their total
+        weight_total = sample_weight.sum()
+        self.sample_weight_ = normed_sample_weight = sample_weight / weight_total
         
         response = np.asarray(response)
 
@@ -658,11 +662,12 @@ class GLMBase(BaseEstimator,
             
         if fit_null or not hasattr(self.regularizer_, 'warm_state'):
             (null_state,
-             self.null_deviance_) = self._family.get_null_deviance(
+             null_deviance) = self._family.get_null_deviance(
                                         response=response,
-                                        sample_weight=sample_weight,
+                                        sample_weight=normed_sample_weight,
                                         offset=offset,
                                         fit_intercept=self.fit_intercept)
+            self.null_deviance_ = weight_total * null_deviance
 
 
         if (hasattr(self.regularizer_, 'warm_state') and
@@ -711,8 +716,10 @@ class GLMBase(BaseEstimator,
                    self.control)
 
         if self.summarize:
+            # at the normalized weights: _summarize scales it by weight_total_
             self._information = self._family.information(state,
-                                                         sample_weight)
+                                                         normed_sample_weight)
+        self.weight_total_ = weight_total
             
         # checks on convergence and fitted values
         if not converged:
@@ -720,9 +727,9 @@ class GLMBase(BaseEstimator,
         if boundary:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
-        self.deviance_ = self._family.deviance(response,
-                                               state.mean_parameter,
-                                               sample_weight) # not the normalized weights!
+        self.deviance_ = weight_total * self._family.deviance(response,
+                                                              state.mean_parameter,
+                                                              normed_sample_weight)
 
         if offset is None:
             offset = np.zeros(y.shape[0])
@@ -957,11 +964,9 @@ class GLM(GLMBase):
         if self.ridge_coef != 0:
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
 
-        # IRLS used normalized weights,
-        # this unnormalizes them...
-
-        unscaled_precision_ = self.design_.quadratic_form(self._information,
-                                                          transformed=False)
+        # the information is at the normalized weights: scale it back
+        unscaled_precision_ = self.weight_total_ * self.design_.quadratic_form(self._information,
+                                                                               transformed=False)
         if self.ridge_coef != 0:
             D = np.ones(unscaled_precision_.shape[0])
             D[0] = 0
