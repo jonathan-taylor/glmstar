@@ -22,7 +22,10 @@ are tied and the ties are handled by Efron's approximation
 lasso's selection, and does inference after selection with `lassoinf`,
 as in [Score bootstraps with a linear term](score_bootstrap.md).
 
-The other vignettes randomize the selection with a perturbation $\omega$
+Resampling the score instead of the data goes back to Parzen, Wei and
+Ying ({ref}`1994 <cox-refs>`), and is the idea of the score bootstrap
+({ref}`Kline and Santos, 2012 <cox-refs>`). The other vignettes
+randomize the selection with a perturbation $\omega$
 of the score whose covariance is $(1-\pi)/\pi$ times that of the score,
 so that selecting with it imitates selecting on a random fraction $\pi$
 of the data. For Cox's model there are several natural resampling
@@ -136,12 +139,15 @@ perturbation is $\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$.
   with replacement, $N_k \sim \mathrm{Multinomial}(d_k, p_k)$, and
   center: $U^* = \sum_k \sum_i x_i(N_{ki} - d_k p_{ki})$. This is the
   "weird bootstrap" of Andersen, Borgan, Gill and Keiding
-  ({ref}`1993 <cox-refs>`), and its covariance is Breslow's
-  information.
+  ({ref}`1993 <cox-refs>`), compared with other bootstraps for Cox's
+  model by Burr ({ref}`1994 <cox-refs>`). Its covariance is the
+  information of Breslow's approximation for ties
+  ({ref}`Breslow, 1974 <cox-refs>`).
 - **Multinomial.** The difference of two independent multinomial
   draws, divided by $\sqrt 2$, as in the other vignettes: the same
   covariance, no centering, and a symmetric distribution.
-- **Bernoulli.** Andersen, Borgan, Gill and Keiding's original form:
+- **Bernoulli.** Andersen, Borgan, Gill and Keiding's original form
+  ({ref}`1993 <cox-refs>`):
   each subject at risk fails independently with probability
   $\pi_{ki} = \min(1, d_k p_{ki})$, centered by $\bar x_k$; again the
   difference of two draws over $\sqrt 2$. The variance of each jump is
@@ -151,16 +157,20 @@ perturbation is $\omega = \sqrt{(1-\pi)/\pi}\;U^*/n$.
   subjects not yet drawn: Wallenius' noncentral hypergeometric
   distribution ({ref}`Wallenius, 1963 <cox-refs>`). The $d_k$ largest
   values of $\hat\eta_i$ plus independent Gumbel noise are such a draw
-  ({ref}`Efraimidis and Spirakis, 2006 <cox-refs>`). Each subject fails
+  ({ref}`Efraimidis and Spirakis, 2006 <cox-refs>`;
+  {ref}`Kool, van Hoof and Welling, 2019 <cox-refs>`). Each subject fails
   at most once, as in the data. Again two draws.
 - **Wild.** Multiply each subject's score residual $\hat U_i$ (its
   contribution to the score, centered within the risk sets, with
   Efron's weights) by an independent standard normal $G_i$:
-  $U^* = \sum_i G_i \hat U_i$
-  ({ref}`Lin, Wei and Ying, 1993 <cox-refs>`). Its covariance is the
-  sandwich $\sum_i \hat U_i \hat U_i^T$
-  ({ref}`Lin and Wei, 1989 <cox-refs>`), which does not rely on the
-  model being right.
+  $U^* = \sum_i G_i \hat U_i$. This is a wild bootstrap
+  ({ref}`Wu, 1986 <cox-refs>`), as Lin, Wei and Ying
+  ({ref}`1993 <cox-refs>`) and Lin, Fleming and Wei
+  ({ref}`1994 <cox-refs>`) used for Cox's model; see Beyersmann, Di
+  Termini and Pauly ({ref}`2013 <cox-refs>`) for its theory in survival
+  analysis. Its covariance is the sandwich
+  $\sum_i \hat U_i \hat U_i^T$ ({ref}`Lin and Wei, 1989 <cox-refs>`),
+  which does not rely on the model being right.
 
 ```{code-cell} ipython3
 SCHEMES = ['multinomial (one draw)', 'multinomial', 'bernoulli', 'wallenius', 'wild']
@@ -478,19 +488,43 @@ DISCUSSION
 - Efron, B. (1977). The efficiency of Cox's likelihood function for
   censored data. *Journal of the American Statistical Association*,
   72(359), 557–565.
+- Breslow, N. E. (1974). Covariance analysis of censored survival data.
+  *Biometrics*, 30(1), 89–99.
 - Andersen, P. K., Borgan, Ø., Gill, R. D., & Keiding, N. (1993).
   *Statistical Models Based on Counting Processes*. Springer.
+- Burr, D. (1994). A comparison of certain bootstrap confidence
+  intervals in the Cox model. *Journal of the American Statistical
+  Association*, 89(428), 1290–1302.
 - Wallenius, K. T. (1963). *Biased sampling: the noncentral
   hypergeometric probability distribution*. PhD thesis, Stanford
   University.
 - Efraimidis, P. S., & Spirakis, P. G. (2006). Weighted random sampling
   with a reservoir. *Information Processing Letters*, 97(5), 181–185.
+- Kool, W., van Hoof, H., & Welling, M. (2019). Stochastic beams and
+  where to find them: the Gumbel-top-k trick for sampling sequences
+  without replacement. *Proceedings of the 36th International
+  Conference on Machine Learning*, PMLR 97, 3499–3508.
+- Wu, C. F. J. (1986). Jackknife, bootstrap and other resampling methods
+  in regression analysis. *The Annals of Statistics*, 14(4), 1261–1295.
 - Lin, D. Y., & Wei, L. J. (1989). The robust inference for the Cox
   proportional hazards model. *Journal of the American Statistical
   Association*, 84(408), 1074–1078.
 - Lin, D. Y., Wei, L. J., & Ying, Z. (1993). Checking the Cox model with
   cumulative sums of martingale-based residuals. *Biometrika*, 80(3),
   557–572.
+- Lin, D. Y., Fleming, T. R., & Wei, L. J. (1994). Confidence bands for
+  survival curves under the proportional hazards model. *Biometrika*,
+  81(1), 73–81.
+- Beyersmann, J., Di Termini, S., & Pauly, M. (2013). Weak convergence
+  of the wild bootstrap for the Aalen–Johansen estimator of the
+  cumulative incidence function of a competing risk. *Scandinavian
+  Journal of Statistics*, 40(3), 387–402.
+- Parzen, M. I., Wei, L. J., & Ying, Z. (1994). A resampling method
+  based on pivotal estimating functions. *Biometrika*, 81(2), 341–350.
+  <https://doi.org/10.1093/biomet/81.2.341>
+- Kline, P., & Santos, A. (2012). A score based approach to wild
+  bootstrap inference. *Journal of Econometric Methods*, 1(1), 23–41.
+  <https://doi.org/10.1515/2156-6674.1006>
 - Tian, X., & Taylor, J. (2018). Selective inference with a randomized
   response. *The Annals of Statistics*, 46(2), 679–710.
 - Fry, K., Panigrahi, S., & Taylor, J. (2025). Assumption-lean data
