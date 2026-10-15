@@ -34,9 +34,7 @@ data ({ref}`Fry, Panigrahi and Taylor, 2025 <logmis-refs>`). Its
 covariance is the middle of the sandwich, and it needs no model. Each
 perturbation is used with its own covariance of the score: the
 information for the parametric draws, the sandwich for the pairs
-bootstrap. At the end, a probit fit that includes the quadratic terms,
-the right model, shows both on data where the parametric perturbation is
-right.
+bootstrap.
 
 ```{code-cell} ipython3
 import numpy as np
@@ -109,14 +107,12 @@ logit $a = 1$. The model-based covariance of the score is the
 information $Q/n$, with $Q = \sum_i (\hat h_i^2/\hat V_i)\,\tilde x_i\tilde x_i^T/n$;
 the sandwich's middle is $\sum_i s_i s_i^T$.
 
-Everything below takes a `GLMNet` estimator, which carries the family:
-`logit_model` here and, at the end, `probit_model`. `unpenalized` is its
-fit at $\lambda = 0$, and `glm_summary` reads the weights of that fit's
-family from `glm_moments`.
+Everything below takes a `GLMNet` estimator, `logit_model`, which carries
+the family. `unpenalized` is its fit at $\lambda = 0$, and `glm_summary`
+reads the weights of that fit's family from `glm_moments`.
 
 ```{code-cell} ipython3
 logit_model = GLMNet(family=sm.families.Binomial())
-probit_model = GLMNet(family=sm.families.Binomial(link=sm.families.links.Probit()))
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
 def unpenalized(model, X, y, linear_term=None, exclude=()):
@@ -230,8 +226,8 @@ def sandwich(X, r_hat):
 ## The inference
 
 The randomized lasso, the combination and the carving are those of
-[Score bootstraps with a linear term](score_bootstrap.md), for either
-link. There are two versions:
+[Score bootstraps with a linear term](score_bootstrap.md). There are two
+versions:
 
 - **parametric**: the parametric perturbation, `Sigma` $= Q/n$ (the
   default of `glmstar_inference_problem`), and model-based standard
@@ -288,24 +284,17 @@ def randomized_inference(model, X, y, pairs):
     return E, {'combination': combination, 'carved': carved}
 ```
 
-The targets $\beta_E$ are projections: the regression of the population
-on $X_E$, with the link of the model, which we approximate by fitting
-each selected model to the sample of a million observations drawn
-above. `pop_design` holds the columns of every design used below.
+The targets $\beta_E$ are projections: the logistic regression of the
+population on $X_E$, which we approximate by fitting each selected model
+to the sample of a million observations drawn above.
 
 ```{code-cell} ipython3
-def curvature_design(X):
-    """X with the squares of the two strong features, for the probit below."""
-    return np.column_stack([X, X[:, :2]**2])
-
-pop_design = curvature_design(pop_X)
-del pop_X
 targets = {}
 
 def target(model, E):
-    key = (type(model.family.link).__name__, tuple(E))
+    key = tuple(E)
     if key not in targets:
-        targets[key] = unpenalized(model, pop_design[:, E], pop_y).coefs_[0]
+        targets[key] = unpenalized(model, pop_X[:, E], pop_y).coefs_[0]
     return targets[key]
 ```
 
@@ -336,17 +325,17 @@ We repeat the experiment and compare:
 
 For every selected coefficient we record whether its nominal 90%
 interval covers $\beta_{E,j}$, and the interval's length per standard
-deviation of the feature. `run_calibration` does this for a model and a
-design; `calibration` runs it for the misspecified logistic fit.
+deviation of the feature.
 
 ```{code-cell} ipython3
-def run_calibration(n_rep, model, design, labels, sd):
+def calibration(n_rep=300):
+    model = logit_model
     rows = []
 
     def record(method, variance, E, lower, upper):
         for j, lo, hi, t in zip(E, lower, upper, target(model, E)):
-            rows.append({'method': method, 'variance': variance, 'signal': labels[j],
-                         'covered': lo <= t <= hi, 'length': (hi - lo) * sd[j]})
+            rows.append({'method': method, 'variance': variance, 'signal': signal[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
     def glm_intervals(method, X, y, E):
         b, se_model, se_sandwich, _, _ = glm_summary(unpenalized(model, X[:, E], y), X[:, E], y)
@@ -355,7 +344,6 @@ def run_calibration(n_rep, model, design, labels, sd):
 
     for _ in range(n_rep):
         X, y = sim_data(n)
-        X = design(X)
 
         E = np.nonzero(lasso(model, X, y).coefs_[0])[0]
         if len(E):
@@ -374,9 +362,6 @@ def run_calibration(n_rep, model, design, labels, sd):
                     record(method, 'sandwich' if pairs else 'model-based', E, lower, upper)
 
     return pd.DataFrame(rows)
-
-def calibration(n_rep=300):
-    return run_calibration(n_rep, logit_model, lambda X: X, signal, scale)
 ```
 
 The experiment is run locally, not when the docs are built: the results
@@ -386,83 +371,26 @@ combination and carved intervals, `model-based` is the parametric
 version and `sandwich` the pairs version.
 
 ```{code-cell} ipython3
-def summarize(results):
-    results['method'] = pd.Categorical(results['method'],
-                                       ['naive', 'split', 'combination', 'carved'])
-    results['variance'] = pd.Categorical(results['variance'], ['model-based', 'sandwich'])
-    results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null', 'curvature'])
-    groups = results.groupby(['method', 'variance', 'signal'], observed=True)
-    return (groups['covered'].mean().unstack('signal').round(3),
-            groups['length'].mean().unstack('signal').round(3),
-            groups.size().unstack('signal'))
-
 results = load_results('logistic_misspecified')
 display(provenance(results))
 display(reproduce(results))
-coverage, length, count = summarize(results)
-coverage
+
+results['method'] = pd.Categorical(results['method'], ['naive', 'split', 'combination', 'carved'])
+results['variance'] = pd.Categorical(results['variance'], ['model-based', 'sandwich'])
+results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
+groups = results.groupby(['method', 'variance', 'signal'], observed=True)
+groups['covered'].mean().unstack('signal').round(3)
 ```
 
-The mean lengths, per standard deviation of the feature:
+The number of intervals, and their mean length per standard deviation of
+the feature:
 
 ```{code-cell} ipython3
-length
+pd.concat({'intervals': groups.size().unstack('signal'),
+           'mean length': groups['length'].mean().unstack('signal').round(3)}, axis=1)
 ```
 
 RESULTS-DISCUSSION
-
-## A well-specified probit
-
-Fitting the right model to the same data shows the two perturbations
-when the parametric one is right. The truth is a probit model whose
-linear predictor is linear in the features and the squares of the two
-strong ones,
-
-$$-2.3 + x^T\beta + u_1^2 + u_2^2,$$
-
-so we add $x_1^2$ and $x_2^2$ to the design and fit a probit lasso to
-all 32 columns. The parameters are not those above: the targets are
-probit coefficients, the projections of the probit regression on
-$X_E$, and they are the true coefficients when $E$ contains every
-signal. The two squares are labelled `curvature`.
-
-On this data set the sandwich and model-based standard errors of the
-probit fit agree:
-
-```{code-cell} ipython3
-W = curvature_design(X)
-signal_W = np.r_[signal, ['curvature'] * 2]
-scale_W = np.r_[scale, pop_design[:, p:].std(0)]
-_, se_model_W, se_sandwich_W, _, _ = glm_summary(unpenalized(probit_model, W, y), W, y)
-pd.DataFrame({'model': se_model_W, 'sandwich': se_sandwich_W,
-              'ratio': se_sandwich_W / se_model_W},
-             index=[f'X{j}' for j in range(p)] + ['X0^2', 'X1^2']).iloc[np.r_[0:8, p:p + 2]].round(4)
-```
-
-```{code-cell} ipython3
-def calibration_well_specified(n_rep=300):
-    return run_calibration(n_rep, probit_model, curvature_design, signal_W, scale_W)
-```
-
-The results below were computed with
-`python docs/experiments.py logistic_misspecified --function calibration_well_specified`
-and saved in `docs/results/logistic_misspecified-calibration_well_specified.csv`.
-
-```{code-cell} ipython3
-results_W = load_results('logistic_misspecified', 'calibration_well_specified')
-display(provenance(results_W))
-display(reproduce(results_W))
-coverage_W, length_W, count_W = summarize(results_W)
-coverage_W
-```
-
-The mean lengths, per standard deviation of the feature:
-
-```{code-cell} ipython3
-length_W
-```
-
-WELL-SPECIFIED-DISCUSSION
 
 (logmis-refs)=
 ## References
