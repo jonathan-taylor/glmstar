@@ -76,7 +76,7 @@ those columns are dominated by a few extreme observations, and the lasso
 shrinks their coefficients so far, about nine standard errors, that the
 one-step linearization of `glmstar_inference_problem` breaks down. With
 $h$ the shrinkage is about five standard errors, and the carved intervals
-hold.
+come close to nominal.
 
 A wrong link alone does little harm. In simulations not shown here, a
 probit or complementary log-log truth with a linear predictor left the
@@ -443,7 +443,40 @@ the feature:
 lengths
 ```
 
-RESULTS-DISCUSSION
+The naive intervals fail as before: they almost never cover the selected
+nulls, and cover the selected weak signals 22% to 33% of the time. With
+model-based variances they also undercover the strong signals, at 84%,
+which the sandwich corrects (92%).
+
+For the strong signals the model-based variance is the wrong one. Their
+score varies about 1.6 times as much as the information says, so the
+model-based standard errors are about $\sqrt{1.6} \approx 1.26$ times too
+small, and a nominal 90% interval covers about
+$2\Phi(1.645/1.26) - 1 \approx 0.81$ of the time. The split intervals with
+model-based variances give 0.80 for the strong signals, and the carved
+intervals of the parametric version 0.80. The pairs version brings the
+carved intervals back to 0.89 (Monte Carlo error about 0.007), as the
+split intervals with sandwich standard errors do (0.90).
+
+For the weak signals and the selected nulls the variance ratio is about
+1.2 to 1.3. The split intervals show it: model-based 0.87 and 0.83, against
+0.90 and 0.86 with the sandwich. The two carved versions are within
+Monte Carlo error of each other there (about 0.016 to 0.018 for these
+counts): 0.88 and 0.90 for the weak signals, 0.92 and 0.91 for the
+nulls. The carved intervals of the pairs version are about 40% as long
+as the split and combination ones for the strong signals, and about two
+thirds as long for the others.
+
+The parametric combination is close to calibrated even for the strong
+signals, at 0.89, as in [A misspecified Cox model](cox_misspecified.md).
+Its variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$ times that
+of the perturbation, and the parametric perturbation has the variance
+the model-based standard errors assume. Only the first part is
+misjudged, by a factor of about 1.6, so the whole is misjudged by about
+$(1.6 + 9)/(1 + 9) = 1.06$, and its intervals cover about
+$2\Phi(1.645/\sqrt{1.06}) - 1 \approx 0.89$ of the time, as they do.
+The carved intervals have no such cushion: the selection and the
+full-data score both carry the misspecification.
 
 ## A well-specified probit
 
@@ -497,7 +530,33 @@ the feature:
 lengths_W
 ```
 
-WELL-SPECIFIED-DISCUSSION
+With the right model the naive intervals still fail for what the lasso
+selects by chance: 0.76 for the weak signals and almost never for the
+nulls. The two curvature columns and the strong signals are selected
+every time, so their naive intervals are the Wald intervals, which
+cover 0.90 to 0.91. The split and combination intervals cover 0.88 to
+0.92 everywhere, with either variance.
+
+The carved intervals of the parametric version, now the right
+perturbation, cover 0.90 for the curvature, 0.89 for the strong signals
+and the nulls, and 0.85 for the weak signals. The Monte Carlo error is
+about 0.007 for the curvature and strong signals and 0.009 for the weak
+ones, so the weak signals fall about five points short. They are the
+coefficients the lasso shrinks most, relative to their standard errors,
+and the carving's one-step linearization at the lasso solution costs
+something there. The pairs version is a little worse: 0.85 for the
+curvature, 0.87 for the strong signals and 0.86 for the weak ones. Its
+`Sigma`, the middle of the sandwich, estimates the same covariance as
+the information but less precisely: it depends on the fourth moments of
+the heavy-tailed features and of $h(u_j)$. Both carved versions are
+still about a third as long as the split and combination intervals for
+the curvature and the strong signals, and about two thirds as long for
+the others.
+
+So the comparison is the one expected. When the model is right, the
+parametric perturbation is at least as good as the pairs bootstrap; when
+it is wrong, the pairs bootstrap is what keeps the carved intervals
+calibrated.
 
 (logmis-refs)=
 ## References
