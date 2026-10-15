@@ -38,6 +38,7 @@ project:
       children:
         - file: inference.md
         - file: score_bootstrap.md
+        - file: logistic_misspecified.md
         - file: overdispersed_poisson.md
         - file: probit_regression.md
         - file: autocorrelated_errors.md

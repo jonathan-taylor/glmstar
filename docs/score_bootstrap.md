@@ -521,7 +521,8 @@ variance of $y$ under the fitted model, and both the cancellation in
 the covariance above and the `scalar_noise` used for carving need that
 to match the true variance of the score. Without the model, the
 randomization can instead come from a nonparametric bootstrap of the
-observations, as in Fry, Panigrahi and Taylor (2025).
+observations, as in Fry, Panigrahi and Taylor (2025): see
+[A misspecified logistic regression](logistic_misspecified.md).
 
 (score-bootstrap-refs)=
 ## References
