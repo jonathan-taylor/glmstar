@@ -18,8 +18,8 @@ kernelspec:
 logistic lasso with a parametric perturbation of the score, drawn from
 the fitted logistic model, and noted that its calibration relies on the
 model being right. Here it is wrong, in both the link and the mean: the
-data come from a probit model whose linear predictor has quadratic
-terms, and we fit a logistic regression that is linear in the features.
+data come from a probit model whose linear predictor curves in the two
+strong features, and we fit a logistic regression that is linear in the features.
 
 The fitted coefficients then estimate a projection: the logistic
 regression closest to the truth, in the sense of the expected
@@ -40,7 +40,7 @@ bootstrap.
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from scipy.stats import norm
+from scipy.stats import norm, t as student_t
 from sklearn.base import clone
 
 from glmnet import GLMNet, LinearTerm
@@ -59,13 +59,24 @@ The design is that of [Score bootstraps with a linear term](score_bootstrap.md):
 $n = 5000$, two strong signals, six weak ones and 22 nulls, and
 correlated features with standard deviations from 0.2 to 5. But
 
-$$P(y = 1 \mid x) = \Phi\Big(-0.3 + x^T\beta + \big(u_1^2 - 1\big) + \big(u_2^2 - 1\big)\Big),$$
+$$P(y = 1 \mid x) = \Phi\Big(-0.3 + x^T\beta + \big(h(u_1) - m\big) + \big(h(u_2) - m\big)\Big),
+\qquad h(u) = \begin{cases} u^2 & |u| \le 1, \\ 2|u| - 1 & |u| > 1, \end{cases}$$
 
-with $\Phi$ the standard normal distribution function and $u_1, u_2$ the
-two strong features in standard units. The link is the probit, not the
-logit, and the linear predictor is not linear in $x$. The features are
-multivariate $t$ on 5 degrees of freedom: a correlated normal vector
-divided by one random scale per observation.
+with $\Phi$ the standard normal distribution function, $u_1, u_2$ the
+two strong features in standard units and $m = E\,h(u_j)$. The link is
+the probit, not the logit, and the linear predictor is not linear in
+$x$: $h$ is Huber's function, a square near 0 continued linearly, so the
+curvature is a V in each strong feature. The features are multivariate
+$t$ on 5 degrees of freedom: a correlated normal vector divided by one
+random scale per observation.
+
+Capping the square matters for the well-specified probit at the end,
+which puts $h(u_1)$ and $h(u_2)$ in its design. With $u^2$ in their place
+those columns are dominated by a few extreme observations, and the lasso
+shrinks their coefficients so far, about nine standard errors, that the
+one-step linearization of `glmstar_inference_problem` breaks down. With
+$h$ the shrinkage is about five standard errors, and the carved intervals
+hold.
 
 A wrong link alone does little harm. In simulations not shown here, a
 probit or complementary log-log truth with a linear predictor left the
@@ -85,11 +96,17 @@ beta = np.r_[0.3, -0.25, 0.09, -0.07, 0.06, 0.05, -0.04, 0.03, np.zeros(p - 8)] 
 signal = np.array(['strong'] * 2 + ['weak'] * 6 + ['null'] * (p - 8))
 df = 5   # degrees of freedom of the multivariate t features
 
+def h(u):
+    """Huber's function: u**2 for |u| <= 1, continued linearly."""
+    return np.where(np.abs(u) <= 1, u**2, 2 * np.abs(u) - 1)
+
+m = student_t(df, scale=np.sqrt((df - 2) / df)).expect(h)   # E h(u_j), u_j of variance 1
+
 def sim_data(n):
     Z = rng.standard_normal((n, p)) / np.sqrt(rng.chisquare(df, (n, 1)) / (df - 2))
     X = (Z @ R) * scale
     u = X[:, :2] / scale[:2]
-    eta = -0.3 + X @ beta + (u**2 - 1).sum(1)     # not linear in x
+    eta = -0.3 + X @ beta + (h(u) - m).sum(1)     # not linear in x
     return X, rng.binomial(1, norm.cdf(eta)).astype(float)
 
 X, y = sim_data(n)
@@ -107,8 +124,8 @@ logit $a = 1$. The model-based covariance of the score is the
 information $Q/n$, with $Q = \sum_i (\hat h_i^2/\hat V_i)\,\tilde x_i\tilde x_i^T/n$;
 the sandwich's middle is $\sum_i s_i s_i^T$.
 
-Everything below takes a `GLMNet` estimator, `logit_model`, which carries
-the family. `unpenalized` is its fit at $\lambda = 0$. `score_parts`
+Everything below takes a `GLMNet` estimator, which carries the family:
+`logit_model` here and, at the end, `probit_model`. `unpenalized` is its fit at $\lambda = 0$. `score_parts`
 evaluates a fit as `GLMNet` does, in a `GLMState`, and takes the score
 residuals from its `logl_score` and the information weights
 $w\,h^2/V$ from the family's `information`, as for `CoxFamilySpec`.
@@ -120,6 +137,7 @@ into standard errors.
 
 ```{code-cell} ipython3
 logit_model = GLMNet(family=sm.families.Binomial())
+probit_model = GLMNet(family=sm.families.Binomial(link=sm.families.links.Probit()))
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
 def unpenalized(model, X, y, linear_term=None, exclude=()):
@@ -243,8 +261,8 @@ def sandwich(X, r_hat):
 ## The inference
 
 The randomized lasso, the combination and the carving are those of
-[Score bootstraps with a linear term](score_bootstrap.md). There are two
-versions:
+[Score bootstraps with a linear term](score_bootstrap.md), for either
+link. There are two versions:
 
 - **parametric**: the parametric perturbation, `Sigma` $= Q/n$ (the
   default of `glmstar_inference_problem`), and model-based standard
@@ -301,17 +319,24 @@ def randomized_inference(model, X, y, pairs):
     return E, {'combination': combination, 'carved': carved}
 ```
 
-The targets $\beta_E$ are projections: the logistic regression of the
-population on $X_E$, which we approximate by fitting each selected model
-to the sample of a million observations drawn above.
+The targets $\beta_E$ are projections: the regression of the population
+on $X_E$, with the link of the model, which we approximate by fitting
+each selected model to the sample of a million observations drawn
+above. `pop_design` holds the columns of every design used below.
 
 ```{code-cell} ipython3
+def curvature_design(X):
+    """X with h of the two strong features, for the probit below."""
+    return np.column_stack([X, h(X[:, :2] / scale[:2])])
+
+pop_design = curvature_design(pop_X)
+del pop_X
 targets = {}
 
 def target(model, E):
-    key = tuple(E)
+    key = (type(model.family.link).__name__, tuple(E))
     if key not in targets:
-        targets[key] = unpenalized(model, pop_X[:, E], pop_y).coefs_[0]
+        targets[key] = unpenalized(model, pop_design[:, E], pop_y).coefs_[0]
     return targets[key]
 ```
 
@@ -342,17 +367,17 @@ We repeat the experiment and compare:
 
 For every selected coefficient we record whether its nominal 90%
 interval covers $\beta_{E,j}$, and the interval's length per standard
-deviation of the feature.
+deviation of the feature. `run_calibration` does this for a model and a
+design; `calibration` runs it for the misspecified logistic fit.
 
 ```{code-cell} ipython3
-def calibration(n_rep=300):
-    model = logit_model
+def run_calibration(n_rep, model, design, labels, sd):
     rows = []
 
     def record(method, variance, E, lower, upper):
         for j, lo, hi, t in zip(E, lower, upper, target(model, E)):
-            rows.append({'method': method, 'variance': variance, 'signal': signal[j],
-                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
+            rows.append({'method': method, 'variance': variance, 'signal': labels[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * sd[j]})
 
     def glm_intervals(method, X, y, E):
         b, se_model, se_sandwich, _, _ = glm_summary(unpenalized(model, X[:, E], y), X[:, E], y)
@@ -361,6 +386,7 @@ def calibration(n_rep=300):
 
     for _ in range(n_rep):
         X, y = sim_data(n)
+        X = design(X)
 
         E = np.nonzero(lasso(model, X, y).coefs_[0])[0]
         if len(E):
@@ -379,6 +405,9 @@ def calibration(n_rep=300):
                     record(method, 'sandwich' if pairs else 'model-based', E, lower, upper)
 
     return pd.DataFrame(rows)
+
+def calibration(n_rep=300):
+    return run_calibration(n_rep, logit_model, lambda X: X, signal, scale)
 ```
 
 The experiment is run locally, not when the docs are built: the results
@@ -388,58 +417,87 @@ combination and carved intervals, `model-based` is the parametric
 version and `sandwich` the pairs version.
 
 ```{code-cell} ipython3
+def summarize(results):
+    """Coverage, and the number of intervals with their mean length."""
+    results['method'] = pd.Categorical(results['method'],
+                                       ['naive', 'split', 'combination', 'carved'])
+    results['variance'] = pd.Categorical(results['variance'], ['model-based', 'sandwich'])
+    results['signal'] = pd.Categorical(results['signal'], ['curvature', 'strong', 'weak', 'null'])
+    groups = results.groupby(['method', 'variance', 'signal'], observed=True)
+    return (groups['covered'].mean().unstack('signal').round(3),
+            pd.concat({'intervals': groups.size().unstack('signal'),
+                       'mean length': groups['length'].mean().unstack('signal').round(3)},
+                      axis=1))
+
 results = load_results('logistic_misspecified')
 display(provenance(results))
 display(reproduce(results))
-
-results['method'] = pd.Categorical(results['method'], ['naive', 'split', 'combination', 'carved'])
-results['variance'] = pd.Categorical(results['variance'], ['model-based', 'sandwich'])
-results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
-groups = results.groupby(['method', 'variance', 'signal'], observed=True)
-groups['covered'].mean().unstack('signal').round(3)
+coverage, lengths = summarize(results)
+coverage
 ```
 
 The number of intervals, and their mean length per standard deviation of
 the feature:
 
 ```{code-cell} ipython3
-pd.concat({'intervals': groups.size().unstack('signal'),
-           'mean length': groups['length'].mean().unstack('signal').round(3)}, axis=1)
+lengths
 ```
 
-The naive intervals fail as before: they almost never cover the selected
-weak signals or nulls. With model-based variances they also undercover
-the strong signals, about 79%, which the sandwich corrects.
+RESULTS-DISCUSSION
 
-For the strong signals the model-based variance is the wrong one. Their
-score varies about 1.9 times as much as the information says, so the
-model-based standard errors are about $\sqrt{1.9} \approx 1.38$ times too
-small, and a nominal 90% interval covers about
-$2\Phi(1.645/1.38) - 1 \approx 0.77$ of the time. The split intervals with
-model-based variances give 0.77 for the strong signals, and the carved
-intervals of the parametric version 0.80. The pairs version brings the
-carved intervals back to 0.89 (Monte Carlo error about 0.008), with the
-split intervals with sandwich standard errors.
+## A well-specified probit
 
-For the weak signals and the selected nulls the variance ratio is about
-1.3, and the split intervals show it: model-based 0.80 and 0.89 against
-0.86 and 0.94 with the sandwich. The two carved versions are within
-Monte Carlo error of each other there (about 0.02 to 0.03 for these
-counts), at 0.87 to 0.88 for the weak signals and 0.91 for the nulls.
-The carved intervals of the pairs version are less than half as long as
-the split and combination ones for the strong signals and about two
-thirds as long for the others.
+Fitting the right model to the same data shows the two perturbations
+when the parametric one is right. The truth is a probit model whose
+linear predictor is linear in the features and in $h(u_1)$, $h(u_2)$,
 
-The parametric combination is close to calibrated even for the strong
-signals, as in [A misspecified Cox model](cox_misspecified.md). Its
-variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$ times that of
-the perturbation, and the parametric perturbation has the variance the
-model-based standard errors assume. Only the first part is misjudged,
-by a factor of about 1.9, so the whole is misjudged by about
-$(1.9 + 9)/(1 + 9) = 1.09$, and its intervals cover about
-$2\Phi(1.645/\sqrt{1.09}) - 1 \approx 0.885$ of the time, as they do.
-The carved intervals have no such cushion: the selection and the
-full-data score both carry the misspecification.
+$$-0.3 - 2m + x^T\beta + h(u_1) + h(u_2),$$
+
+so we add the two columns $h(u_1)$ and $h(u_2)$ to the design and fit a
+probit lasso to all 32 columns, with $\lambda$ chosen by the same rule and no
+special penalty factors. The parameters are not those above: the targets are probit
+coefficients, the projections of the probit regression on $X_E$, and
+they are the true coefficients when $E$ contains every signal. The two
+columns of $h$ are labelled `curvature`.
+
+On this data set the sandwich and model-based standard errors of the
+probit fit agree:
+
+```{code-cell} ipython3
+W = curvature_design(X)
+signal_W = np.r_[signal, ['curvature'] * 2]
+scale_W = np.r_[scale, pop_design[:, p:].std(0)]
+_, se_model_W, se_sandwich_W, _, _ = glm_summary(unpenalized(probit_model, W, y), W, y)
+pd.DataFrame({'model': se_model_W, 'sandwich': se_sandwich_W,
+              'ratio': se_sandwich_W / se_model_W},
+             index=[f'X{j}' for j in range(p)] + ['h(u1)', 'h(u2)']).iloc[np.r_[0:8, p:p + 2]].round(4)
+```
+
+```{code-cell} ipython3
+def calibration_well_specified(n_rep=300):
+    return run_calibration(n_rep, probit_model, curvature_design, signal_W, scale_W)
+```
+
+The results below were computed with
+`python docs/experiments.py logistic_misspecified --function calibration_well_specified`
+and saved in `docs/results/logistic_misspecified-calibration_well_specified.csv`.
+
+```{code-cell} ipython3
+results_W = load_results('logistic_misspecified', 'calibration_well_specified')
+display(provenance(results_W))
+display(reproduce(results_W))
+coverage_W, lengths_W = summarize(results_W)
+coverage_W
+```
+
+The number of intervals, and their mean length per standard deviation of
+the feature:
+
+```{code-cell} ipython3
+lengths_W
+```
+
+WELL-SPECIFIED-DISCUSSION
 
 (logmis-refs)=
 ## References
