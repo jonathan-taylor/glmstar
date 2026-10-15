@@ -363,3 +363,20 @@ def test_glmstar_problem_penalty_factor_hook(data):
     prob_fixed = glmstar_problem(fixed, X, df, lambda_val=lam)
     np.testing.assert_allclose(prob_hook.D, prob_fixed.D)
     assert prob_hook.kkt_violation() < 2e-5 * lam
+
+
+def test_glm_moments_extreme_probit():
+    # mu is clipped to [1e-9, 1 - 1e-9] as in GLMNet's fit, so that V = mu (1 - mu) does not
+    # underflow to 0 and the score and Fisher weights stay finite; moderate eta is unchanged
+    import statsmodels.api as sm
+    from scipy.stats import norm
+    from glmnet.inference.glm_problem import glm_moments
+    probit = sm.families.Binomial(link=sm.families.links.Probit())
+    eta = np.array([-40., -9., -1., 0., 2., 9., 40.])
+    mu, a, W = glm_moments(probit, eta)
+    assert np.all(np.isfinite(a)) and np.all(np.isfinite(W)) and np.all(W > 0)
+    assert np.all((mu >= 1e-9) & (mu <= 1 - 1e-9))
+    moderate = np.abs(eta) < 3
+    m = norm.cdf(eta[moderate])
+    np.testing.assert_allclose(a[moderate], norm.pdf(eta[moderate]) / (m * (1 - m)))
+    np.testing.assert_allclose(mu[moderate], m)

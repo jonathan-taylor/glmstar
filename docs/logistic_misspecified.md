@@ -18,8 +18,8 @@ kernelspec:
 logistic lasso with a parametric perturbation of the score, drawn from
 the fitted logistic model, and noted that its calibration relies on the
 model being right. Here it is wrong, in both the link and the mean: the
-data come from a probit model whose linear predictor has quadratic terms,
-and we fit a logistic regression that is linear in the features.
+data come from a probit model whose linear predictor has quadratic
+terms, and we fit a logistic regression that is linear in the features.
 
 The fitted coefficients then estimate a projection: the logistic
 regression closest to the truth, in the sense of the expected
@@ -27,13 +27,16 @@ log-likelihood ({ref}`White, 1982 <logmis-refs>`). Inference for the
 projection is still possible, but the score no longer varies as the
 information says. Its variance is the sandwich.
 
-So we replace the parametric perturbation with a nonparametric one: a
-pairs bootstrap of the score at the full-data maximum likelihood
-estimate, as in data fission with resampled data
-({ref}`Fry, Panigrahi and Taylor, 2025 <logmis-refs>`). Its covariance is
-the middle of the sandwich, and it needs no model. We compare the
-inference with each perturbation, using the model-based or the sandwich
-covariance in `lassoinf`.
+So we compare the parametric perturbation, drawn from the misspecified
+fit, with a nonparametric one: a pairs bootstrap of the score at the
+full-data maximum likelihood estimate, as in data fission with resampled
+data ({ref}`Fry, Panigrahi and Taylor, 2025 <logmis-refs>`). Its
+covariance is the middle of the sandwich, and it needs no model. Each
+perturbation is used with its own covariance of the score: the
+information for the parametric draws, the sandwich for the pairs
+bootstrap. At the end, a probit fit that includes the quadratic terms,
+the right model, shows both on data where the parametric perturbation is
+right.
 
 ```{code-cell} ipython3
 import numpy as np
@@ -42,10 +45,11 @@ import statsmodels.api as sm
 from scipy.sparse import diags
 from scipy.sparse.linalg import aslinearoperator
 from scipy.stats import norm
+from sklearn.base import clone
 
 from glmnet import GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
-from glmnet.inference import glmstar_inference_problem, score_perturbation
+from glmnet.inference import glm_moments, glmstar_inference_problem, score_perturbation
 from glmnet.inference.glm_problem import XTVXOperator
 from lassoinf import LassoInference
 
@@ -58,11 +62,21 @@ The design is that of [Score bootstraps with a linear term](score_bootstrap.md):
 $n = 5000$, two strong signals, six weak ones and 22 nulls, and
 correlated features with standard deviations from 0.2 to 5. But
 
-$$P(y = 1 \mid x) = \Phi\Big(-0.3 + x^T\beta + \tfrac12\big(u_1^2 - 1\big) + \tfrac12\big(u_2^2 - 1\big)\Big),$$
+$$P(y = 1 \mid x) = \Phi\Big(-0.3 + x^T\beta + \big(u_1^2 - 1\big) + \big(u_2^2 - 1\big)\Big),$$
 
 with $\Phi$ the standard normal distribution function and $u_1, u_2$ the
 two strong features in standard units. The link is the probit, not the
-logit, and the linear predictor is not linear in $x$.
+logit, and the linear predictor is not linear in $x$. The features are
+multivariate $t$ on 5 degrees of freedom: a correlated normal vector
+divided by one random scale per observation.
+
+A wrong link alone does little harm. With a linear predictor, a probit
+or complementary log-log truth leaves the score varying almost exactly as
+the logistic information says: the logistic curve takes up the
+difference over most of the range of $x^T\beta$. What breaks the
+information is a mean that the fit misses where the features are large,
+and the heavy tails put many observations there, with all their features
+large at once.
 
 ```{code-cell} ipython3
 rng = np.random.default_rng(1)
@@ -71,11 +85,13 @@ R = np.linalg.cholesky(rho ** np.abs(np.subtract.outer(np.arange(p), np.arange(p
 scale = np.exp(rng.uniform(np.log(0.2), np.log(5), p))   # standard deviations of the features
 beta = np.r_[0.3, -0.25, 0.09, -0.07, 0.06, 0.05, -0.04, 0.03, np.zeros(p - 8)] / scale
 signal = np.array(['strong'] * 2 + ['weak'] * 6 + ['null'] * (p - 8))
+df = 5   # degrees of freedom of the multivariate t features
 
 def sim_data(n):
-    X = (rng.standard_normal((n, p)) @ R) * scale
+    Z = rng.standard_normal((n, p)) / np.sqrt(rng.chisquare(df, (n, 1)) / (df - 2))
+    X = (Z @ R) * scale
     u = X[:, :2] / scale[:2]
-    eta = -0.3 + X @ beta + 0.5 * (u**2 - 1).sum(1)     # not linear in x
+    eta = -0.3 + X @ beta + (u**2 - 1).sum(1)     # not linear in x
     return X, rng.binomial(1, norm.cdf(eta)).astype(float)
 
 X, y = sim_data(n)
@@ -83,63 +99,81 @@ X, y = sim_data(n)
 
 ## The fit, its score and the sandwich
 
-The loss is the logistic negative log-likelihood divided by $n$, as
-`GLMNet` scales it. With $\tilde x_i = (1, x_i)$ and $\hat\mu_i$ the
-fitted means of the unpenalized logistic regression on all $p$
-features, observation $i$ contributes $s_i = \tilde x_i(y_i - \hat\mu_i)/n$
-to the score. The model-based covariance of the score is the information
-$Q/n$, with $Q = \sum_i \hat\mu_i(1-\hat\mu_i)\,\tilde x_i\tilde x_i^T/n$
-the Hessian of the loss; the sandwich's middle is
-$\sum_i s_i s_i^T$.
+The loss is the negative log-likelihood divided by $n$, as `GLMNet`
+scales it. With $\tilde x_i = (1, x_i)$, the fitted linear predictor
+$\hat\eta_i$ and mean $\hat\mu_i$ of the unpenalized fit on all the
+features, $h = d\mu/d\eta$ and $V = \mu(1-\mu)$, observation $i$
+contributes $s_i = \hat r_i\,\tilde x_i/n$ to the score, with score
+residual $\hat r_i = \hat a_i(y_i - \hat\mu_i)$ and $a = h/V$. For the
+logit $a = 1$. The model-based covariance of the score is the
+information $Q/n$, with $Q = \sum_i (\hat h_i^2/\hat V_i)\,\tilde x_i\tilde x_i^T/n$;
+the sandwich's middle is $\sum_i s_i s_i^T$.
+
+Everything below takes a `GLMNet` estimator, which carries the family:
+`logit_model` here and, at the end, `probit_model`. `unpenalized` is its
+fit at $\lambda = 0$, and `glm_summary` reads the weights of that fit's
+family from `glm_moments`.
 
 ```{code-cell} ipython3
-def logit_fit(X, y):
+logit_model = GLMNet(family=sm.families.Binomial())
+probit_model = GLMNet(family=sm.families.Binomial(link=sm.families.links.Probit()))
+tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
+
+def unpenalized(model, X, y, linear_term=None, exclude=()):
+    """The fit of model at lambda = 0, with a linear term and excluded columns."""
+    return clone(model).set_params(lambda_values=np.array([0.]), linear_term=linear_term,
+                                   exclude=list(exclude), control=tight).fit(X, y)
+
+def glm_summary(fit, X, y):
     """
-    The unpenalized logistic regression on X: coefficients (without the intercept),
-    model-based and sandwich standard errors, and fitted means.
+    For an unpenalized fit: coefficients, model-based and sandwich standard errors, the
+    linear predictor and the score residuals a (y - mu).
     """
     X1 = sm.add_constant(X, has_constant='add')
-    fit = sm.GLM(y, X1, family=sm.families.Binomial()).fit()
-    b, mu = fit.params, fit.fittedvalues
-    H_inv = np.linalg.inv(X1.T @ (X1 * (mu * (1 - mu))[:, None]))
-    meat = X1.T @ (X1 * ((y - mu)**2)[:, None])
-    return (b[1:], np.sqrt(np.diag(H_inv))[1:],
-            np.sqrt(np.diag(H_inv @ meat @ H_inv))[1:], mu)
+    eta = fit.intercepts_[0] + X @ fit.coefs_[0]
+    mu, a, W = glm_moments(fit.family, eta)
+    r = a * (y - mu)
+    H_inv = np.linalg.inv(X1.T @ (X1 * W[:, None]))
+    meat = X1.T @ (X1 * (r**2)[:, None])
+    return (fit.coefs_[0], np.sqrt(np.diag(H_inv))[1:],
+            np.sqrt(np.diag(H_inv @ meat @ H_inv))[1:], eta, r)
 ```
 
-On this data set the sandwich standard errors of the two strong
-coefficients are larger than the model-based ones:
+On this data set the sandwich standard errors of the logistic fit are
+larger than the model-based ones, most of all for the two strong
+coefficients:
 
 ```{code-cell} ipython3
-b_hat, se_model, se_sandwich, mu_hat = logit_fit(X, y)
+pilot = unpenalized(logit_model, X, y)
+b_hat, se_model, se_sandwich, eta_hat, r_hat = glm_summary(pilot, X, y)
 pd.DataFrame({'model': se_model, 'sandwich': se_sandwich, 'ratio': se_sandwich / se_model},
-             index=[f'X{j}' for j in range(p)]).head(8).round(4)
+             index=[f'X{j}' for j in range(p)]).head(10).round(4)
 ```
 
 The sandwich is right. Over many data sets the score at the projection,
 fitted here to a large sample, varies by about the sandwich, not the
 information. Binary data cannot be overdispersed, so this comes from
-the mean alone: where the logistic fit misses the curvature, the squared
+the mean alone: where the logistic fit misses the truth, the squared
 residuals $(y_i - \mu_i)^2$ are not $\mu_i(1 - \mu_i)$ on average.
 
 ```{code-cell} ipython3
 pop_X, pop_y = sim_data(1000000)
-pop_X1 = sm.add_constant(pop_X)
-projection = sm.GLM(pop_y, pop_X1, family=sm.families.Binomial()).fit().params
+projection = unpenalized(logit_model, pop_X, pop_y)
 
 scores, infos = [], []
 for _ in range(1000):
     X_s, y_s = sim_data(n)
     X1_s = sm.add_constant(X_s)
-    mu_s = 1 / (1 + np.exp(-X1_s @ projection))
+    mu_s = 1 / (1 + np.exp(-(projection.intercepts_[0] + X_s @ projection.coefs_[0])))
     scores.append(X1_s.T @ (y_s - mu_s))
     infos.append(np.sum(X1_s**2 * (mu_s * (1 - mu_s))[:, None], 0))
 X1 = sm.add_constant(X)
+mu_hat = 1 / (1 + np.exp(-eta_hat))
 pd.DataFrame({'Var(score) / information': np.var(scores, 0, ddof=1) / np.mean(infos, 0),
               'sandwich / information (this data set)':
-                  np.sum(X1**2 * ((y - mu_hat)**2)[:, None], 0)
+                  np.sum(X1**2 * (r_hat**2)[:, None], 0)
                   / np.sum(X1**2 * (mu_hat * (1 - mu_hat))[:, None], 0)},
-             index=['intercept'] + [f'X{j}' for j in range(p)]).head(9).round(2)
+             index=['intercept'] + [f'X{j}' for j in range(p)]).head(11).round(2)
 ```
 
 ## Two perturbations
@@ -148,7 +182,7 @@ Both perturbations are linear terms $-\omega$ for the lasso fit to $y$,
 with $\omega$ a draw of the score scaled by $\sqrt{(1-\pi)/\pi}$, as in
 [Score bootstraps with a linear term](score_bootstrap.md):
 
-- **parametric**: $\omega = \sqrt{(1-\pi)/\pi}\;\sum_i \tilde x_i\,(y^*_{1i} - y^*_{2i})/(\sqrt 2\, n)$,
+- **parametric**: $\omega = \sqrt{(1-\pi)/\pi}\;\sum_i \hat a_i\,\tilde x_i\,(y^*_{1i} - y^*_{2i})/(\sqrt 2\, n)$,
   with $y^*_1, y^*_2$ independent Bernoulli($\hat\mu$) replicates, drawn by
   `score_perturbation`. Given $\hat\mu$, its covariance is $(1-\pi)/\pi$
   times the information $Q/n$: it comes from the model.
@@ -170,15 +204,14 @@ with $\omega$ a draw of the score scaled by $\sqrt{(1-\pi)/\pi}$, as in
 ```{code-cell} ipython3
 pi = 0.9
 
-def parametric_perturbation(X, mu_hat):
-    eta_hat = np.log(mu_hat / (1 - mu_hat))
-    return score_perturbation(X, eta_hat, sm.families.Binomial(), (1 - pi) / pi, rng=rng)
+def parametric_perturbation(pilot, X, eta_hat):
+    return score_perturbation(X, eta_hat, pilot.family, (1 - pi) / pi, rng=rng)
 
-def pairs_perturbation(X, y, mu_hat):
+def pairs_perturbation(X, r_hat):
     n = X.shape[0]
     M = rng.multinomial(n, np.full(n, 1 / n), size=2)
-    r = np.sqrt((1 - pi) / pi) * (M[0] - M[1]) / np.sqrt(2) * (y - mu_hat) / n
-    return LinearTerm(coef=-(X.T @ r), intercept=-r.sum())
+    e = np.sqrt((1 - pi) / pi) * (M[0] - M[1]) / np.sqrt(2) * r_hat / n
+    return LinearTerm(coef=-(X.T @ e), intercept=-e.sum())
 ```
 
 For the pairs bootstrap the matching covariance of the score is the
@@ -188,82 +221,91 @@ $\tilde X^T D \tilde X$ with $D$ diagonal, an `XTVXOperator`, which costs
 $O(np)$ per product and is never formed:
 
 ```{code-cell} ipython3
-def sandwich(X, y, mu_hat):
+def sandwich(X, r_hat):
     n = X.shape[0]
     return XTVXOperator(sm.add_constant(X, has_constant='add'),
-                        aslinearoperator(diags((y - mu_hat)**2 / n**2)))
+                        aslinearoperator(diags(r_hat**2 / n**2)))
 ```
 
 ## The inference
 
 The randomized lasso, the combination and the carving are those of
-[Score bootstraps with a linear term](score_bootstrap.md). What changes
-is the perturbation, the covariance of the score passed to `lassoinf`
-and the standard errors of the combination:
+[Score bootstraps with a linear term](score_bootstrap.md), for either
+link. There are two versions:
 
-- **model-based**: the parametric perturbation, `Sigma` $= Q/n$ (the
+- **parametric**: the parametric perturbation, `Sigma` $= Q/n$ (the
   default of `glmstar_inference_problem`), and model-based standard
-  errors;
-- **robust**: the pairs bootstrap, `Sigma` the sandwich's middle, and
+  errors for the combination;
+- **pairs**: the pairs bootstrap, `Sigma` the sandwich's middle, and
   sandwich standard errors.
 
 In each, the randomization has `scalar_noise` $= (1-\pi)/\pi$ relative
 to `Sigma`. Given the data, that is exact: the parametric draws have
 $(1-\pi)/\pi$ times the information, the pairs draws $(1-\pi)/\pi$ times
 the sandwich's middle at the same $\hat\mu$. What matters is whether
-`Sigma` is the variance of the score, and only the sandwich is.
+`Sigma` is the variance of the score.
+
+As in [Probit regression](probit_regression.md), the selected model $E$
+is the one `lassoinf` conditions on, and $\hat\beta^*_E$ is the
+unpenalized fit on $X_E$ with the linear term $-\omega$.
 
 ```{code-cell} ipython3
-lam = 0.5 * np.sqrt(2 * np.log(p) / (pi * n))
 q = norm.ppf(0.95)  # for nominal 90% intervals
 
-tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
+def lasso(model, X, y, linear_term=None, control=None):
+    lam = 0.5 * np.sqrt(2 * np.log(X.shape[1]) / (pi * X.shape[0]))
+    return clone(model).set_params(lambda_values=np.array([lam]), linear_term=linear_term,
+                                   control=control or GLMNetControl()).fit(X, y)
 
-def logistic_lasso(X, y, linear_term=None, relax=False, control=None):
-    return GLMNet(family=sm.families.Binomial(),
-                  lambda_values=np.array([lam]),
-                  linear_term=linear_term,
-                  relax=relax,
-                  control=control or GLMNetControl()).fit(X, y)
-
-def randomized_inference(X, y, robust):
-    mu_hat = logit_fit(X, y)[3]
-    if robust:
-        omega, Sigma = pairs_perturbation(X, y, mu_hat), sandwich(X, y, mu_hat)
+def randomized_inference(model, X, y, pairs):
+    pilot = unpenalized(model, X, y)
+    _, _, _, eta_hat, r_hat = glm_summary(pilot, X, y)
+    if pairs:
+        omega, Sigma = pairs_perturbation(X, r_hat), sandwich(X, r_hat)
     else:
-        omega, Sigma = parametric_perturbation(X, mu_hat), None
-    fit = logistic_lasso(X, y, linear_term=omega, relax=True, control=tight)
-    E = np.nonzero(fit.coefs_[0])[0]
-    if len(E) == 0:
-        return E, None
+        omega, Sigma = parametric_perturbation(pilot, X, eta_hat), None
+    fit = lasso(model, X, y, linear_term=omega, control=tight)
+    if not np.any(fit.coefs_[0]):
+        return [], None
 
     # carving
     info = glmstar_inference_problem(fit, X, y, scalar_noise=(1 - pi) / pi, Sigma=Sigma)
-    # row 0 is the intercept
-    summary = LassoInference(**info.lasso_args(), level=0.9).summary_.loc[E + 1]
+    summary = LassoInference(**info.lasso_args(), level=0.9).summary_
+    summary = summary.loc[summary.index > 0]       # row 0 is the intercept
+    E = summary.index.values - 1
+    if len(E) == 0:
+        return E, None
     carved = (summary['beta_hat'].values, summary['lower_conf'].values,
               summary['upper_conf'].values)
 
     # combination
-    b_E, se_model, se_sandwich, _ = logit_fit(X[:, E], y)
-    T = (b_E - pi * fit.relaxed_coefs_[0][E]) / (1 - pi)
-    se = (se_sandwich if robust else se_model) / np.sqrt(1 - pi)
+    b_E, se_model, se_sandwich, _, _ = glm_summary(unpenalized(model, X[:, E], y), X[:, E], y)
+    others = sorted(set(range(X.shape[1])) - set(E))
+    b_star = unpenalized(model, X, y, linear_term=omega, exclude=others).coefs_[0][E]
+    T = (b_E - pi * b_star) / (1 - pi)
+    se = (se_sandwich if pairs else se_model) / np.sqrt(1 - pi)
     combination = (T, T - q * se, T + q * se)
     return E, {'combination': combination, 'carved': carved}
 ```
 
-The targets $\beta_E$ are projections: the logistic regression of the
-population on $X_E$, which we approximate by fitting each selected model
-to the sample of a million observations drawn above.
+The targets $\beta_E$ are projections: the regression of the population
+on $X_E$, with the link of the model, which we approximate by fitting
+each selected model to the sample of a million observations drawn
+above. `pop_design` holds the columns of every design used below.
 
 ```{code-cell} ipython3
+def curvature_design(X):
+    """X with the squares of the two strong features, for the probit below."""
+    return np.column_stack([X, X[:, :2]**2])
+
+pop_design = curvature_design(pop_X)
+del pop_X
 targets = {}
 
-def target(E):
-    key = tuple(E)
+def target(model, E):
+    key = (type(model.family.link).__name__, tuple(E))
     if key not in targets:
-        X1_E = pop_X1[:, np.r_[0, E + 1]]
-        targets[key] = sm.GLM(pop_y, X1_E, family=sm.families.Binomial()).fit().params[1:]
+        targets[key] = unpenalized(model, pop_design[:, E], pop_y).coefs_[0]
     return targets[key]
 ```
 
@@ -271,126 +313,156 @@ def target(E):
 
 ```{code-cell} ipython3
 tables = {}
-for robust in [False, True]:
-    E, intervals = randomized_inference(X, y, robust)
-    tables['robust' if robust else 'model-based'] = pd.DataFrame(
+for pairs in [False, True]:
+    E, intervals = randomized_inference(logit_model, X, y, pairs)
+    tables['pairs' if pairs else 'parametric'] = pd.DataFrame(
         {'lower': intervals['carved'][1], 'upper': intervals['carved'][2],
-         'target': target(E)}, index=[f'X{j}' for j in E])
+         'target': target(logit_model, E)}, index=[f'X{j}' for j in E])
 pd.concat(tables, axis=1).round(3)
 ```
 
 ## Calibration
 
-We repeat the experiment and compare, each with model-based and with
-robust variances:
+We repeat the experiment and compare:
 
-- **naive**: select with the lasso on the data, then use the logistic
-  regression intervals of the selected model on the same data;
+- **naive**: select with the lasso on the data, then use the intervals
+  of the selected model on the same data, with model-based or sandwich
+  standard errors;
 - **split**: select on a random 90% of the observations, then form
-  intervals on the other 10%;
-- **combination** and **carved**: the parametric perturbation with the
-  information, or the pairs bootstrap with the sandwich.
+  intervals on the other 10%, with model-based or sandwich standard
+  errors;
+- **combination** and **carved**: the parametric version or the pairs
+  version above.
 
 For every selected coefficient we record whether its nominal 90%
 interval covers $\beta_{E,j}$, and the interval's length per standard
-deviation of the feature.
+deviation of the feature. `run_calibration` does this for a model and a
+design; `calibration` runs it for the misspecified logistic fit.
 
 ```{code-cell} ipython3
-def calibration(n_rep=300):
+def run_calibration(n_rep, model, design, labels, sd):
     rows = []
 
     def record(method, variance, E, lower, upper):
-        for j, lo, hi, t in zip(E, lower, upper, target(E)):
-            rows.append({'method': method, 'variance': variance, 'signal': signal[j],
-                         'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
+        for j, lo, hi, t in zip(E, lower, upper, target(model, E)):
+            rows.append({'method': method, 'variance': variance, 'signal': labels[j],
+                         'covered': lo <= t <= hi, 'length': (hi - lo) * sd[j]})
 
-    def logit_intervals(method, X, y, E):
-        b, se_model, se_sandwich, _ = logit_fit(X[:, E], y)
+    def glm_intervals(method, X, y, E):
+        b, se_model, se_sandwich, _, _ = glm_summary(unpenalized(model, X[:, E], y), X[:, E], y)
         record(method, 'model-based', E, b - q * se_model, b + q * se_model)
-        record(method, 'robust', E, b - q * se_sandwich, b + q * se_sandwich)
+        record(method, 'sandwich', E, b - q * se_sandwich, b + q * se_sandwich)
 
     for _ in range(n_rep):
         X, y = sim_data(n)
+        X = design(X)
 
-        E = np.nonzero(logistic_lasso(X, y).coefs_[0])[0]
+        E = np.nonzero(lasso(model, X, y).coefs_[0])[0]
         if len(E):
-            logit_intervals('naive', X, y, E)
+            glm_intervals('naive', X, y, E)
 
         idx = rng.permutation(n)
         sel, held_out = idx[:int(pi * n)], idx[int(pi * n):]
-        E = np.nonzero(logistic_lasso(X[sel], y[sel]).coefs_[0])[0]
+        E = np.nonzero(lasso(model, X[sel], y[sel]).coefs_[0])[0]
         if len(E):
-            logit_intervals('split', X[held_out], y[held_out], E)
+            glm_intervals('split', X[held_out], y[held_out], E)
 
-        for robust in [False, True]:
-            E, intervals = randomized_inference(X, y, robust)
+        for pairs in [False, True]:
+            E, intervals = randomized_inference(model, X, y, pairs)
             if len(E):
                 for method, (_, lower, upper) in intervals.items():
-                    record(method, 'robust' if robust else 'model-based', E, lower, upper)
+                    record(method, 'sandwich' if pairs else 'model-based', E, lower, upper)
 
     return pd.DataFrame(rows)
+
+def calibration(n_rep=300):
+    return run_calibration(n_rep, logit_model, lambda X: X, signal, scale)
 ```
 
 The experiment is run locally, not when the docs are built: the results
 below were computed with `python docs/experiments.py logistic_misspecified`
-and saved in `docs/results/logistic_misspecified.csv`.
+and saved in `docs/results/logistic_misspecified.csv`. For the
+combination and carved intervals, `model-based` is the parametric
+version and `sandwich` the pairs version.
 
 ```{code-cell} ipython3
+def summarize(results):
+    results['method'] = pd.Categorical(results['method'],
+                                       ['naive', 'split', 'combination', 'carved'])
+    results['variance'] = pd.Categorical(results['variance'], ['model-based', 'sandwich'])
+    results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null', 'curvature'])
+    groups = results.groupby(['method', 'variance', 'signal'], observed=True)
+    return (groups['covered'].mean().unstack('signal').round(3),
+            groups['length'].mean().unstack('signal').round(3),
+            groups.size().unstack('signal'))
+
 results = load_results('logistic_misspecified')
 display(provenance(results))
 display(reproduce(results))
-
-results['method'] = pd.Categorical(results['method'], ['naive', 'split', 'combination', 'carved'])
-results['variance'] = pd.Categorical(results['variance'], ['model-based', 'robust'])
-results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
-(results.groupby(['method', 'variance'], observed=True)
-        .agg(intervals=('covered', 'size'),
-             coverage=('covered', 'mean'),
-             mean_length=('length', 'mean'))
-        .round(3))
+coverage, length, count = summarize(results)
+coverage
 ```
 
-By the strength of the signal, the coverage:
+The mean lengths, per standard deviation of the feature:
 
 ```{code-cell} ipython3
-(results.groupby(['method', 'variance', 'signal'], observed=True)['covered'].mean()
-        .unstack('signal').round(3))
+length
 ```
 
-The naive intervals fail as before: they never cover the selected
-nulls, and cover the weak signals less than 65% of the time. With
-model-based variances they also undercover the strong signals, about
-86%, which the sandwich corrects.
+RESULTS-DISCUSSION
 
-For the strong signals the model-based variance is the wrong one. Their
-score varies about 1.3 times as much as the information says, so the
-model-based standard errors are about $\sqrt{1.3} \approx 1.14$ times too
-small, and a nominal 90% interval covers about
-$2\Phi(1.645/1.14) - 1 \approx 0.85$ of the time. That is what the
-naive, split and carved intervals with model-based variances give for
-the strong signals. For the weak signals and the selected nulls, whose
-features the curvature leaves alone, the two variances agree and so do
-the intervals.
+## A well-specified probit
 
-With the pairs bootstrap and the sandwich, the split, combination and
-carved intervals cover the strong signals and the selected nulls at
-about 90% (Monte Carlo error about 0.007 for the strong signals, 0.025
-for the nulls). The combination and carved intervals cover the weak
-signals a little less, 0.88 to 0.89 (Monte Carlo error about 0.012), as
-they do with the model-based variances; the curvature does not touch
-these features, so this is not the variance. The carved intervals are
-less than two thirds as long as the split and combination ones for the
-weak signals and the nulls, and nearly as short as the naive ones for
-the strong signals.
+Fitting the right model to the same data shows the two perturbations
+when the parametric one is right. The truth is a probit model whose
+linear predictor is linear in the features and the squares of the two
+strong ones,
 
-The model-based combination is close to calibrated even for the strong
-signals, as in [A misspecified Cox model](cox_misspecified.md). Its
-variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$ times that of
-the perturbation, and the parametric perturbation has the variance the
-model-based standard errors assume. Only the first part is misjudged,
-by a factor of about 1.3, so the whole is misjudged by about
-$(1.3 + 9)/(1 + 9) = 1.03$. The carved intervals have no such cushion:
-the selection and the full-data score both carry the misspecification.
+$$-2.3 + x^T\beta + u_1^2 + u_2^2,$$
+
+so we add $x_1^2$ and $x_2^2$ to the design and fit a probit lasso to
+all 32 columns. The parameters are not those above: the targets are
+probit coefficients, the projections of the probit regression on
+$X_E$, and they are the true coefficients when $E$ contains every
+signal. The two squares are labelled `curvature`.
+
+On this data set the sandwich and model-based standard errors of the
+probit fit agree:
+
+```{code-cell} ipython3
+W = curvature_design(X)
+signal_W = np.r_[signal, ['curvature'] * 2]
+scale_W = np.r_[scale, pop_design[:, p:].std(0)]
+_, se_model_W, se_sandwich_W, _, _ = glm_summary(unpenalized(probit_model, W, y), W, y)
+pd.DataFrame({'model': se_model_W, 'sandwich': se_sandwich_W,
+              'ratio': se_sandwich_W / se_model_W},
+             index=[f'X{j}' for j in range(p)] + ['X0^2', 'X1^2']).iloc[np.r_[0:8, p:p + 2]].round(4)
+```
+
+```{code-cell} ipython3
+def calibration_well_specified(n_rep=300):
+    return run_calibration(n_rep, probit_model, curvature_design, signal_W, scale_W)
+```
+
+The results below were computed with
+`python docs/experiments.py logistic_misspecified --function calibration_well_specified`
+and saved in `docs/results/logistic_misspecified-calibration_well_specified.csv`.
+
+```{code-cell} ipython3
+results_W = load_results('logistic_misspecified', 'calibration_well_specified')
+display(provenance(results_W))
+display(reproduce(results_W))
+coverage_W, length_W, count_W = summarize(results_W)
+coverage_W
+```
+
+The mean lengths, per standard deviation of the feature:
+
+```{code-cell} ipython3
+length_W
+```
+
+WELL-SPECIFIED-DISCUSSION
 
 (logmis-refs)=
 ## References

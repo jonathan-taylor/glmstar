@@ -205,6 +205,10 @@ def glmnet_penalty_factor(penalty_factor, p, exclude=()):
     return pf * p / pf.sum(), excluded
 
 
+# GLMState.pmin: GLMNet clips binomial means to [pmin, 1 - pmin]
+_BINOMIAL_PMIN = 1e-9
+
+
 def _variance(name, mu):
     if name == 'gaussian':
         return np.ones_like(mu)
@@ -231,6 +235,11 @@ def glm_moments(family, eta):
             mu = np.exp(eta)
         return mu, np.ones_like(eta), _variance(family.name, mu)
     mu = family.link.inverse(eta)
+    if family.name == 'binomial':
+        # as GLMNet's fit (and R's glmnet): mu in [pmin, 1 - pmin], eta = link(mu); else
+        # V = mu (1 - mu) underflows to 0 for large |eta| (e.g. |eta| > 8.3 for the probit)
+        mu = np.clip(mu, _BINOMIAL_PMIN, 1 - _BINOMIAL_PMIN)
+        eta = family.link(mu)
     h = family.link.inverse_deriv(eta)
     var = _variance(family.name, mu)
     return mu, h / var, h**2 / var
