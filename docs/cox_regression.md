@@ -37,7 +37,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
@@ -94,27 +93,29 @@ print(f'{int(status.sum())} events at {len(event_times)} times, '
 ## The partial likelihood and its score
 
 `CoxNetIRLS` fits the lasso to the Efron partial likelihood. Its loss is
-the negative log partial likelihood divided by $n$. `coxdev`, which
-`CoxNetIRLS` uses, computes its gradient and Hessian with respect to the
-linear predictor $\eta = X\beta$, with the weights $1/n$. `CoxNetIRLS`
+the negative log partial likelihood divided by $n$. Its family,
+`CoxFamilySpec`, evaluates a `CoxState` at the linear predictor
+$\eta = X\beta$ as `CoxNetIRLS` does, with `coxdev`: the score from the
+state's `logl_score` and the information from the family's
+`information`, here with the weights $1/n$. `CoxNetIRLS`
 with `lambda_values=[0]` fits the unpenalized Cox regression, and the
 inverse Hessian divided by $n$ estimates the covariance of the fit.
 
 ```{code-cell} ipython3
-def efron_deviance(time, status):
-    """The Efron deviance of the data, with the weights 1/n of the loss."""
-    n = len(time)
-    return CoxDeviance(event=time, status=status, sample_weight=np.ones(n) / n,
-                       tie_breaking='efron')
+def cox_family(time, status):
+    """The Cox family of the data, with Efron's ties."""
+    return CoxFamilySpec(pd.DataFrame({'event': time, 'status': status}),
+                         event_id='event', status_id='status', tie_breaking='efron')
 
 def loss_gradient_hessian(X, time, status, b):
-    """Gradient and Hessian of the Efron loss at coefficients b."""
+    """Gradient and Hessian of the Efron loss at coefficients b, with the weights 1/n."""
     n = X.shape[0]
-    cox = efron_deviance(time, status)
-    eta = X @ b
-    gradient = X.T @ cox(eta, np.ones(n) / n).gradient / 2
-    info = cox.information(eta, np.ones(n) / n)
-    hessian = X.T @ np.column_stack([info @ X[:, j] for j in range(X.shape[1])])
+    family = cox_family(time, status)
+    state = CoxState(coef=np.asarray(b, float))
+    state.update(np.column_stack([np.ones(n), X]), family, None)   # the intercept is 0
+    w = np.ones(n) / n
+    gradient = -X.T @ state.logl_score(family, None, w)
+    hessian = X.T @ (family.information(state, w) @ X)
     return gradient, hessian
 
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
@@ -200,10 +201,6 @@ scale of the total score; differencing two of them is left to us.
 
 ```{code-cell} ipython3
 SCHEMES = ['multinomial', 'multinomial (two draws)', 'bernoulli', 'fisher', 'wild']
-
-def cox_family(time, status):
-    return CoxFamilySpec(pd.DataFrame({'event': time, 'status': status}),
-                         event_id='event', status_id='status', tie_breaking='efron')
 
 def score_draws(X, family, eta, scheme, n_draws=None):
     """Draws U* of the resampled total score: (p,), or (p, n_draws)."""

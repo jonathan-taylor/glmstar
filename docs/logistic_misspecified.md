@@ -47,7 +47,8 @@ from sklearn.base import clone
 
 from glmnet import GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
-from glmnet.inference import glm_moments, glmstar_inference_problem, score_perturbation
+from glmnet.family import GLMFamilySpec, GLMState
+from glmnet.inference import glmstar_inference_problem, score_perturbation
 from glmnet.inference.glm_problem import XTVXOperator
 from lassoinf import LassoInference
 
@@ -68,9 +69,10 @@ logit, and the linear predictor is not linear in $x$. The features are
 multivariate $t$ on 5 degrees of freedom: a correlated normal vector
 divided by one random scale per observation.
 
-A wrong link alone does little harm. With a linear predictor, a probit
-or complementary log-log truth leaves the score varying almost exactly as
-the logistic information says: the logistic curve takes up the
+A wrong link alone does little harm. In simulations not shown here, a
+probit or complementary log-log truth with a linear predictor left the
+score varying almost exactly as the logistic information says, with
+normal or heavy-tailed features: the logistic curve takes up the
 difference over most of the range of $x^T\beta$. What breaks the
 information is a mean that the fit misses where the features are large,
 and the heavy tails put many observations there, with all their features
@@ -108,8 +110,11 @@ information $Q/n$, with $Q = \sum_i (\hat h_i^2/\hat V_i)\,\tilde x_i\tilde x_i^
 the sandwich's middle is $\sum_i s_i s_i^T$.
 
 Everything below takes a `GLMNet` estimator, `logit_model`, which carries
-the family. `unpenalized` is its fit at $\lambda = 0$, and `glm_summary`
-reads the weights of that fit's family from `glm_moments`.
+the family. `unpenalized` is its fit at $\lambda = 0$. `score_parts`
+evaluates a fit as `GLMNet` does, in a `GLMState`, and takes the score
+residuals from its `logl_score` and the information weights
+$w\,h^2/V$ from the family's `information`, as for `CoxFamilySpec`.
+`glm_summary` turns them into standard errors.
 
 ```{code-cell} ipython3
 logit_model = GLMNet(family=sm.families.Binomial())
@@ -120,19 +125,28 @@ def unpenalized(model, X, y, linear_term=None, exclude=()):
     return clone(model).set_params(lambda_values=np.array([0.]), linear_term=linear_term,
                                    exclude=list(exclude), control=tight).fit(X, y)
 
+def score_parts(fit, X, y):
+    """
+    At a fit: the design X1 = [1, X], the score residuals r = a (y - mu) and the
+    information weights W (a DiagonalOperator), so that the score is X1^T r and the
+    information X1^T W X1.
+    """
+    family = GLMFamilySpec(base=fit.family)
+    X1 = sm.add_constant(X, has_constant='add')
+    state = GLMState(coef=fit.coefs_[0], intercept=fit.intercepts_[0])
+    state.update(X1, family, None)
+    return X1, state.logl_score(family, y, np.ones(X.shape[0])), family.information(state)
+
 def glm_summary(fit, X, y):
     """
     For an unpenalized fit: coefficients, model-based and sandwich standard errors, the
-    linear predictor and the score residuals a (y - mu).
+    linear predictor and the score residuals.
     """
-    X1 = sm.add_constant(X, has_constant='add')
-    eta = fit.intercepts_[0] + X @ fit.coefs_[0]
-    mu, a, W = glm_moments(fit.family, eta)
-    r = a * (y - mu)
-    H_inv = np.linalg.inv(X1.T @ (X1 * W[:, None]))
+    X1, r, W = score_parts(fit, X, y)
+    H_inv = np.linalg.inv(X1.T @ (W @ X1))
     meat = X1.T @ (X1 * (r**2)[:, None])
     return (fit.coefs_[0], np.sqrt(np.diag(H_inv))[1:],
-            np.sqrt(np.diag(H_inv @ meat @ H_inv))[1:], eta, r)
+            np.sqrt(np.diag(H_inv @ meat @ H_inv))[1:], X1 @ np.r_[fit.intercepts_[0], fit.coefs_[0]], r)
 ```
 
 On this data set the sandwich standard errors of the logistic fit are
@@ -156,19 +170,19 @@ residuals $(y_i - \mu_i)^2$ are not $\mu_i(1 - \mu_i)$ on average.
 pop_X, pop_y = sim_data(1000000)
 projection = unpenalized(logit_model, pop_X, pop_y)
 
+def diag_information(W, X1):
+    return np.sum(X1 * (W @ X1), 0)
+
 scores, infos = [], []
 for _ in range(1000):
     X_s, y_s = sim_data(n)
-    X1_s = sm.add_constant(X_s)
-    mu_s = 1 / (1 + np.exp(-(projection.intercepts_[0] + X_s @ projection.coefs_[0])))
-    scores.append(X1_s.T @ (y_s - mu_s))
-    infos.append(np.sum(X1_s**2 * (mu_s * (1 - mu_s))[:, None], 0))
-X1 = sm.add_constant(X)
-mu_hat = 1 / (1 + np.exp(-eta_hat))
+    X1_s, r_s, W_s = score_parts(projection, X_s, y_s)
+    scores.append(X1_s.T @ r_s)
+    infos.append(diag_information(W_s, X1_s))
+X1, _, W_hat = score_parts(pilot, X, y)
 pd.DataFrame({'Var(score) / information': np.var(scores, 0, ddof=1) / np.mean(infos, 0),
               'sandwich / information (this data set)':
-                  np.sum(X1**2 * (r_hat**2)[:, None], 0)
-                  / np.sum(X1**2 * (mu_hat * (1 - mu_hat))[:, None], 0)},
+                  np.sum(X1**2 * (r_hat**2)[:, None], 0) / diag_information(W_hat, X1)},
              index=['intercept'] + [f'X{j}' for j in range(p)]).head(11).round(2)
 ```
 
@@ -390,7 +404,39 @@ pd.concat({'intervals': groups.size().unstack('signal'),
            'mean length': groups['length'].mean().unstack('signal').round(3)}, axis=1)
 ```
 
-RESULTS-DISCUSSION
+The naive intervals fail as before: they almost never cover the selected
+weak signals or nulls. With model-based variances they also undercover
+the strong signals, about 79%, which the sandwich corrects.
+
+For the strong signals the model-based variance is the wrong one. Their
+score varies about 1.9 times as much as the information says, so the
+model-based standard errors are about $\sqrt{1.9} \approx 1.38$ times too
+small, and a nominal 90% interval covers about
+$2\Phi(1.645/1.38) - 1 \approx 0.77$ of the time. The split intervals with
+model-based variances give 0.77 for the strong signals, and the carved
+intervals of the parametric version 0.80. The pairs version brings the
+carved intervals back to 0.89 (Monte Carlo error about 0.008), with the
+split intervals with sandwich standard errors.
+
+For the weak signals and the selected nulls the variance ratio is about
+1.3, and the split intervals show it: model-based 0.80 and 0.89 against
+0.86 and 0.94 with the sandwich. The two carved versions are within
+Monte Carlo error of each other there (about 0.02 to 0.03 for these
+counts), at 0.87 to 0.88 for the weak signals and 0.91 for the nulls.
+The carved intervals of the pairs version are less than half as long as
+the split and combination ones for the strong signals and about two
+thirds as long for the others.
+
+The parametric combination is close to calibrated even for the strong
+signals, as in [A misspecified Cox model](cox_misspecified.md). Its
+variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$ times that of
+the perturbation, and the parametric perturbation has the variance the
+model-based standard errors assume. Only the first part is misjudged,
+by a factor of about 1.9, so the whole is misjudged by about
+$(1.9 + 9)/(1 + 9) = 1.09$, and its intervals cover about
+$2\Phi(1.645/\sqrt{1.09}) - 1 \approx 0.885$ of the time, as they do.
+The carved intervals have no such cushion: the selection and the
+full-data score both carry the misspecification.
 
 (logmis-refs)=
 ## References
