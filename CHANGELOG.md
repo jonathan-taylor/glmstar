@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Requirements:** coxdev >= 0.3.0. `c_index` now uses coxdev's C-index,
+  and glmstar's own concordance extension is removed.
+
 ## 0.2.0 (2026-10-14)
 
 ### Breaking changes

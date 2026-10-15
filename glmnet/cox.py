@@ -14,7 +14,6 @@ from sklearn.base import BaseEstimator
 
 from coxdev import CoxDeviance
 
-from ._concordance import concordance as _concordance
     
 from .glm import (GLMFamilySpec,
                   GLMState,
@@ -39,10 +38,7 @@ def c_index(pred,
     events tied at ``t``. A pair is concordant if ``pred_i > pred_j``, counts
     1/2 if the predictions are tied, and has weight ``w_i * w_j``.
 
-    Computed in O(n log n) per column, as in the survival package's
-    concordance vignette: subjects are processed in decreasing time order,
-    with the risk set's weights kept in a binary indexed tree over the ranks
-    of `pred`.
+    A thin wrapper around ``coxdev.CoxDeviance.c_index``.
 
     Parameters
     ----------
@@ -65,22 +61,12 @@ def c_index(pred,
     float or np.ndarray
         C index, one per column of `pred`; NaN if no pairs are comparable.
     """
-    pred = np.asarray(pred, float)
-    squeeze = pred.ndim == 1
-    pred = pred.reshape((pred.shape[0], -1))
-    time = np.asarray(time, float)
-    status = np.asarray(status).astype(np.int32)
-    n = time.shape[0]
-    start = np.full(n, -np.inf) if start is None else np.asarray(start, float)
-    if strata is None:
-        strata = np.zeros(n, np.int32)
-    else:
-        strata = pd.factorize(np.asarray(strata))[0].astype(np.int32)
-    w = np.ones(n) if sample_weight is None else np.asarray(sample_weight, float)
-
-    num, den = _concordance(np.asfortranarray(pred), time, status, start, strata, w)
-    value = num / den if den > 0 else np.full(pred.shape[1], np.nan)
-    return value[0] if squeeze else value
+    cox = CoxDeviance(event=time,
+                      status=status,
+                      strata=strata,
+                      start=start,
+                      sample_weight=sample_weight)
+    return cox.c_index(pred, sample_weight=sample_weight)
 
 @dataclass
 class CoxSurvivalCurves(object):

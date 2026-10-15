@@ -20,7 +20,7 @@ dependencies = [
     "scikit-learn>=1.2",
     "joblib",
     "statsmodels>=0.13",
-    "coxdev>=0.2.0",
+    "coxdev>=0.3.0",
     "tqdm",
     "matplotlib"
 ]
