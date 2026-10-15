@@ -186,3 +186,26 @@ def test_scaler_to_raw_conversion(intercept,
                        scaled_state_roundtrip._stack)
     
     
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+def test_add_constant(sparse):
+    # [1, X] on the original scale, as statsmodels' add_constant, without copying a dense X
+    from scipy.sparse.linalg import aslinearoperator
+    from glmnet.base import Design, DiagonalOperator
+    rng = np.random.default_rng(0)
+    n, p = 50, 4
+    X = rng.standard_normal((n, p)) * 3 + 2
+    X1 = np.column_stack([np.ones(n), X])
+    D = Design.add_constant(scipy.sparse.csc_array(X) if sparse else X)
+    if not sparse:
+        assert D.X is X
+    b, r, w = rng.standard_normal(p + 1), rng.standard_normal(n), rng.uniform(0.5, 2, n)
+    np.testing.assert_allclose(D @ b, X1 @ b)
+    np.testing.assert_allclose(D.T @ r, X1.T @ r)
+    np.testing.assert_allclose(D @ np.eye(p + 1), X1)
+    np.testing.assert_allclose(D.quadratic_form(DiagonalOperator(w)), X1.T @ (X1 * w[:, None]))
+    np.testing.assert_allclose(D.quadratic_form(aslinearoperator(np.diag(w))),
+                               X1.T @ (X1 * w[:, None]))
+    np.testing.assert_allclose((D.T @ DiagonalOperator(w) @ D) @ np.eye(p + 1),
+                               X1.T @ (X1 * w[:, None]))

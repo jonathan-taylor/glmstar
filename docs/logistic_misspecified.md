@@ -40,16 +40,14 @@ bootstrap.
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
-from scipy.sparse import diags
-from scipy.sparse.linalg import aslinearoperator
 from scipy.stats import norm
 from sklearn.base import clone
 
 from glmnet import GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
+from glmnet.base import Design, DiagonalOperator
 from glmnet.family import GLMFamilySpec, GLMState
 from glmnet.inference import glmstar_inference_problem, score_perturbation
-from glmnet.inference.glm_problem import XTVXOperator
 from lassoinf import LassoInference
 
 from experiments import load_results, provenance, reproduce
@@ -114,7 +112,11 @@ the family. `unpenalized` is its fit at $\lambda = 0$. `score_parts`
 evaluates a fit as `GLMNet` does, in a `GLMState`, and takes the score
 residuals from its `logl_score` and the information weights
 $w\,h^2/V$ from the family's `information`, as for `CoxFamilySpec`.
-`glm_summary` turns them into standard errors.
+`Design.add_constant(X)` is $\tilde X = [\mathbf{1}, X]$ as a glmstar
+`Design`, like statsmodels' `add_constant` but without copying $X$: it
+multiplies the coefficients of a fit on the original scale, and its
+`quadratic_form` gives $\tilde X^T G \tilde X$. `glm_summary` turns these
+into standard errors.
 
 ```{code-cell} ipython3
 logit_model = GLMNet(family=sm.families.Binomial())
@@ -127,26 +129,27 @@ def unpenalized(model, X, y, linear_term=None, exclude=()):
 
 def score_parts(fit, X, y):
     """
-    At a fit: the design X1 = [1, X], the score residuals r = a (y - mu) and the
-    information weights W (a DiagonalOperator), so that the score is X1^T r and the
-    information X1^T W X1.
+    At a fit: the design D = [1, X], the score residuals r = a (y - mu) and the
+    information weights W (a DiagonalOperator), so that the score is D^T r and the
+    information D^T W D.
     """
     family = GLMFamilySpec(base=fit.family)
-    X1 = sm.add_constant(X, has_constant='add')
+    D = Design.add_constant(X)
     state = GLMState(coef=fit.coefs_[0], intercept=fit.intercepts_[0])
-    state.update(X1, family, None)
-    return X1, state.logl_score(family, y, np.ones(X.shape[0])), family.information(state)
+    state.update(D, family, None)
+    return D, state.logl_score(family, y, np.ones(X.shape[0])), family.information(state)
 
 def glm_summary(fit, X, y):
     """
     For an unpenalized fit: coefficients, model-based and sandwich standard errors, the
     linear predictor and the score residuals.
     """
-    X1, r, W = score_parts(fit, X, y)
-    H_inv = np.linalg.inv(X1.T @ (W @ X1))
-    meat = X1.T @ (X1 * (r**2)[:, None])
+    D, r, W = score_parts(fit, X, y)
+    H_inv = np.linalg.inv(D.quadratic_form(W))
+    meat = D.quadratic_form(DiagonalOperator(r**2))
     return (fit.coefs_[0], np.sqrt(np.diag(H_inv))[1:],
-            np.sqrt(np.diag(H_inv @ meat @ H_inv))[1:], X1 @ np.r_[fit.intercepts_[0], fit.coefs_[0]], r)
+            np.sqrt(np.diag(H_inv @ meat @ H_inv))[1:],
+            D @ np.r_[fit.intercepts_[0], fit.coefs_[0]], r)
 ```
 
 On this data set the sandwich standard errors of the logistic fit are
@@ -170,19 +173,17 @@ residuals $(y_i - \mu_i)^2$ are not $\mu_i(1 - \mu_i)$ on average.
 pop_X, pop_y = sim_data(1000000)
 projection = unpenalized(logit_model, pop_X, pop_y)
 
-def diag_information(W, X1):
-    return np.sum(X1 * (W @ X1), 0)
-
 scores, infos = [], []
 for _ in range(1000):
     X_s, y_s = sim_data(n)
-    X1_s, r_s, W_s = score_parts(projection, X_s, y_s)
-    scores.append(X1_s.T @ r_s)
-    infos.append(diag_information(W_s, X1_s))
-X1, _, W_hat = score_parts(pilot, X, y)
+    D_s, r_s, W_s = score_parts(projection, X_s, y_s)
+    scores.append(D_s.T @ r_s)
+    infos.append(np.diag(D_s.quadratic_form(W_s)))
+D, _, W_hat = score_parts(pilot, X, y)
 pd.DataFrame({'Var(score) / information': np.var(scores, 0, ddof=1) / np.mean(infos, 0),
               'sandwich / information (this data set)':
-                  np.sum(X1**2 * (r_hat**2)[:, None], 0) / diag_information(W_hat, X1)},
+                  np.diag(D.quadratic_form(DiagonalOperator(r_hat**2)))
+                  / np.diag(D.quadratic_form(W_hat))},
              index=['intercept'] + [f'X{j}' for j in range(p)]).head(11).round(2)
 ```
 
@@ -221,20 +222,22 @@ def pairs_perturbation(X, r_hat):
     n = X.shape[0]
     M = rng.multinomial(n, np.full(n, 1 / n), size=2)
     e = np.sqrt((1 - pi) / pi) * (M[0] - M[1]) / np.sqrt(2) * r_hat / n
-    return LinearTerm(coef=-(X.T @ e), intercept=-e.sum())
+    omega = Design.add_constant(X).T @ e          # [intercept, coefficients]
+    return LinearTerm(coef=-omega[1:], intercept=-omega[0])
 ```
 
 For the pairs bootstrap the matching covariance of the score is the
 sandwich's middle $\sum_i s_i s_i^T$. `glmstar_inference_problem` takes it
-as `Sigma`, an array or a `LinearOperator`. Here it is
-$\tilde X^T D \tilde X$ with $D$ diagonal, an `XTVXOperator`, which costs
-$O(np)$ per product and is never formed:
+as `Sigma`, an array or a `LinearOperator`. Here it is the product
+$\tilde X^T \mathrm{diag}(\hat r^2/n^2)\, \tilde X$ of the `Design` and a
+`DiagonalOperator`, a `LinearOperator` that costs $O(np)$ per product
+and is never formed:
 
 ```{code-cell} ipython3
 def sandwich(X, r_hat):
     n = X.shape[0]
-    return XTVXOperator(sm.add_constant(X, has_constant='add'),
-                        aslinearoperator(diags(r_hat**2 / n**2)))
+    D = Design.add_constant(X)
+    return D.T @ DiagonalOperator(r_hat**2 / n**2) @ D
 ```
 
 ## The inference

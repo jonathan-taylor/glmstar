@@ -40,6 +40,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from glmnet import LinearTerm
+from glmnet.base import Design
 from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
@@ -111,11 +112,12 @@ def loss_gradient_hessian(X, time, status, b):
     """Gradient and Hessian of the Efron loss at coefficients b, with the weights 1/n."""
     n = X.shape[0]
     family = cox_family(time, status)
+    D = Design.add_constant(X)                 # the intercept of a CoxState is 0
     state = CoxState(coef=np.asarray(b, float))
-    state.update(np.column_stack([np.ones(n), X]), family, None)   # the intercept is 0
+    state.update(D, family, None)
     w = np.ones(n) / n
-    gradient = -X.T @ state.logl_score(family, None, w)
-    hessian = X.T @ (family.information(state, w) @ X)
+    gradient = -(D.T @ state.logl_score(family, None, w))[1:]
+    hessian = D.quadratic_form(family.information(state, w))[1:, 1:]
     return gradient, hessian
 
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)

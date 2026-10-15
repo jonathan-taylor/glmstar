@@ -87,6 +87,40 @@ class Design(LinearOperator):
                                          scaling=self.scaling_)
         self.scaler_ = ScaleOperator(centers=self.centers_,
                                      scaling=self.scaling_)
+
+    @staticmethod
+    def add_constant(X, weights=None):
+        """
+        [1, X] as a Design, like ``statsmodels.api.add_constant(X)`` but without copying
+        a dense X: the columns are neither centered nor scaled, so the Design multiplies
+        (intercept, coef) on the original scale of X, and its transpose gives
+        [sum(r), X^T r].
+
+        Parameters
+        ----------
+        X: Union[np.ndarray, scipy.sparse.csc_array]
+            Input matrix, of shape `(n_samples, n_features)`; kept as is if dense.
+        weights: Optional[np.ndarray]
+            Observation weights, default all one (used by `quadratic_form` only through
+            ``G``, and kept for the Design API).
+
+        Returns
+        -------
+        Design
+        """
+        design = Design.__new__(Design)
+        design.X = scipy.sparse.csc_array(X) if scipy.sparse.issparse(X) else X
+        design.dtype = float
+        LinearOperator.__init__(design, dtype=float, shape=(X.shape[0], X.shape[1] + 1))
+        design.weights = np.ones(X.shape[0]) if weights is None else np.asarray(weights)
+        design.centers_ = np.zeros(X.shape[1])
+        design.scaling_ = np.ones(X.shape[1])
+        design.unscaler_ = UnscaleOperator(centers=design.centers_,
+                                           scaling=design.scaling_)
+        design.scaler_ = ScaleOperator(centers=design.centers_,
+                                       scaling=design.scaling_)
+        return design
+
     # LinearOperator API
 
     def _matvec(self, x):
