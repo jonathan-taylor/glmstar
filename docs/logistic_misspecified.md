@@ -357,7 +357,40 @@ By the strength of the signal, the coverage:
         .unstack('signal').round(3))
 ```
 
-RESULTS-DISCUSSION
+The naive intervals fail as before: they never cover the selected
+nulls, and cover the weak signals less than 65% of the time. With
+model-based variances they also undercover the strong signals, about
+86%, which the sandwich corrects.
+
+For the strong signals the model-based variance is the wrong one. Their
+score varies about 1.3 times as much as the information says, so the
+model-based standard errors are about $\sqrt{1.3} \approx 1.14$ times too
+small, and a nominal 90% interval covers about
+$2\Phi(1.645/1.14) - 1 \approx 0.85$ of the time. That is what the
+naive, split and carved intervals with model-based variances give for
+the strong signals. For the weak signals and the selected nulls, whose
+features the curvature leaves alone, the two variances agree and so do
+the intervals.
+
+With the pairs bootstrap and the sandwich, the split, combination and
+carved intervals cover the strong signals and the selected nulls at
+about 90% (Monte Carlo error about 0.007 for the strong signals, 0.025
+for the nulls). The combination and carved intervals cover the weak
+signals a little less, 0.88 to 0.89 (Monte Carlo error about 0.012), as
+they do with the model-based variances; the curvature does not touch
+these features, so this is not the variance. The carved intervals are
+less than two thirds as long as the split and combination ones for the
+weak signals and the nulls, and nearly as short as the naive ones for
+the strong signals.
+
+The model-based combination is close to calibrated even for the strong
+signals, as in [A misspecified Cox model](cox_misspecified.md). Its
+variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$ times that of
+the perturbation, and the parametric perturbation has the variance the
+model-based standard errors assume. Only the first part is misjudged,
+by a factor of about 1.3, so the whole is misjudged by about
+$(1.3 + 9)/(1 + 9) = 1.03$. The carved intervals have no such cushion:
+the selection and the full-data score both carry the misspecification.
 
 (logmis-refs)=
 ## References
