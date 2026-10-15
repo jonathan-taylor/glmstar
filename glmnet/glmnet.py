@@ -392,7 +392,9 @@ class GLMNet(BaseEstimator,
         # we use column of y to retrieve optional weight
 
         sample_weight = weight
-        self.normed_sample_weight_ = normed_sample_weight = sample_weight / sample_weight.sum()
+        # as in GLM.fit, the family sees only the normalized weights
+        weight_total = sample_weight.sum()
+        self.normed_sample_weight_ = normed_sample_weight = sample_weight / weight_total
         
         self.reg_glm_est_ = self.regularized_estimator(
                                lambda_val=self.control.big,
@@ -463,14 +465,13 @@ class GLMNet(BaseEstimator,
         coefs_ = []
         intercepts_ = []
         dev_ratios_ = []
-        sample_weight_sum = sample_weight.sum()
-        
         (null_fit,
-         self.null_deviance_) = self._family.get_null_deviance(
+         null_deviance) = self._family.get_null_deviance(
                                     response=response,
-                                    sample_weight=sample_weight,
+                                    sample_weight=normed_sample_weight,
                                     offset=offset,
                                     fit_intercept=self.fit_intercept)
+        self.null_deviance_ = weight_total * null_deviance
 
         # the fit at the first lambda starts from warm_state, and each later
         # one from the fit before it

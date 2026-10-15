@@ -364,8 +364,8 @@ class CoxState(GLMState):
             Log-likelihood score.
         """
         link_parameter = self.link_parameter
-        family._result = family._coxdev(link_parameter,
-                                        sample_weight)
+        family._result = family._coxdev_at(sample_weight)(link_parameter,
+                                                          sample_weight)
         # the gradient is the gradient of the deviance
         # we want gradient of the log-likelihood
         return - family._result.gradient / 2
@@ -452,25 +452,28 @@ class CoxFamilySpec(object):
         else:
             strata = np.zeros(n, dtype=int)
         self.strata = strata
-        
-        if self.start_id is not None:
-            start = event_data[self.start_id]
-            self._coxdev = CoxDeviance(
-                np.asarray(event, float),
-                status,
-                start=np.asarray(start, float),
-                strata=strata,
-                tie_breaking=self.tie_breaking
-            )
-        else:
-            start = None
-            self._coxdev = CoxDeviance(
-                np.asarray(event, float),
-                status,
-                start=None,
-                strata=strata,
-                tie_breaking=self.tie_breaking
-            )
+
+        start = event_data[self.start_id] if self.start_id is not None else None
+        self._coxdev_args = dict(event=np.asarray(event, float),
+                                 status=status,
+                                 start=None if start is None else np.asarray(start, float),
+                                 strata=strata,
+                                 tie_breaking=self.tie_breaking)
+        self._coxdev_ = None
+
+    def _coxdev_at(self, sample_weight):
+        """
+        The CoxDeviance of the data, built on first use with `sample_weight`:
+        it sorts the data again whenever it is called with other weights, so
+        building it with the weights of its first call saves one sort.
+        """
+        if self._coxdev_ is None:
+            self._coxdev_ = CoxDeviance(**self._coxdev_args, sample_weight=sample_weight)
+        return self._coxdev_
+
+    @property
+    def _coxdev(self):
+        return self._coxdev_at(None)
 
     # GLMFamilySpec API
     def link(self, mu):
@@ -486,8 +489,8 @@ class CoxFamilySpec(object):
                  sample_weight=None):
 
         link_parameter = mu
-        self._result = self._coxdev(link_parameter,
-                                    sample_weight)
+        self._result = self._coxdev_at(sample_weight)(link_parameter,
+                                                      sample_weight)
         if np.isnan(self._result.deviance):
             raise ValueError
         return self._result.deviance
@@ -522,8 +525,8 @@ class CoxFamilySpec(object):
 
         link_parameter = state.link_parameter
         linear_predictor = state.linear_predictor
-        self._result = self._coxdev(link_parameter,
-                                    sample_weight)
+        self._result = self._coxdev_at(sample_weight)(link_parameter,
+                                                      sample_weight)
         # self._coxdev computes value, gradient and hessian of deviance
         # we want the gradient, hessian of deviance / 2
         gradient = self._result.gradient / 2
@@ -538,8 +541,8 @@ class CoxFamilySpec(object):
     def information(self,
                     state,
                     sample_weight):
-        info = self._coxdev.information(state.link_parameter,
-                                        sample_weight)
+        info = self._coxdev_at(sample_weight).information(state.link_parameter,
+                                                          sample_weight)
         if not hasattr(info, '_xp'):
             # coxdev <= 0.1.6 does not call LinearOperator.__init__, which
             # SciPy >= 1.18 needs (it sets the array namespace used by @)
@@ -604,14 +607,15 @@ class CoxFamilySpec(object):
         """
         if method not in self.sample_score_methods:
             raise ValueError(f'method must be one of {self.sample_score_methods}, got {method!r}')
-        if not hasattr(self._coxdev, 'sample_score'):
+        coxdev = self._coxdev_at(sample_weight)
+        if not hasattr(coxdev, 'sample_score'):
             raise ImportError('sample_score needs a version of coxdev with CoxDeviance.sample_score')
         rng = np.random.default_rng(rng)
-        return self._coxdev.sample_score(np.asarray(linear_predictor, float),
-                                         sample_weight=sample_weight,
-                                         method=method,
-                                         n_draws=n_draws,
-                                         seed=int(rng.integers(2**63)))
+        return coxdev.sample_score(np.asarray(linear_predictor, float),
+                                   sample_weight=sample_weight,
+                                   method=method,
+                                   n_draws=n_draws,
+                                   seed=int(rng.integers(2**63)))
 
     def _default_scorers(self):
 
@@ -660,12 +664,10 @@ class CoxLM(GLM):
                    sample_weight,
                    X_shape):
 
-        # IRLS used normalized weights,
-        # this unnormalizes them...
+        # the information is at the normalized weights: scale it back
+        unscaled_precision_ = self.weight_total_ * self.design_.quadratic_form(self._information,
+                                                                               transformed=False)
 
-        unscaled_precision_ = self.design_.quadratic_form(self._information,
-                                                          transformed=False)
-        
         keep = np.ones(unscaled_precision_.shape[0]-1, bool)
         if exclude is not []:
             keep[exclude] = 0
@@ -914,7 +916,7 @@ class CoxScorer(Scorer):
                         event_data=event_split)
 
         split_w = sample_weight[split]
-        dev_split = fam_split._coxdev(predictions[split], split_w).deviance
+        dev_split = fam_split._coxdev_at(split_w)(predictions[split], split_w).deviance
         w_sum = sample_weight[split].sum()
 
         return dev_split / w_sum, w_sum
@@ -940,7 +942,7 @@ class CoxDiffScorer(CoxScorer):
                        status_id=coxfam.status_id,
                        start_id=coxfam.start_id,
                        event_data=event_data)
-        dev_full = fam_full._coxdev(predictions, sample_weight).deviance
+        dev_full = fam_full._coxdev_at(sample_weight)(predictions, sample_weight).deviance
 
         # now compute deviance on complement
         
@@ -954,7 +956,7 @@ class CoxDiffScorer(CoxScorer):
                           start_id=coxfam.start_id,
                           event_data=event_c)
         split_c_w = sample_weight[split_c]
-        dev_c = fam_split_c._coxdev(predictions[split_c], split_c_w).deviance
+        dev_c = fam_split_c._coxdev_at(split_c_w)(predictions[split_c], split_c_w).deviance
 
         w_sum = sample_weight.sum() - split_c_w.sum()
         return (dev_full - dev_c) / w_sum, w_sum
