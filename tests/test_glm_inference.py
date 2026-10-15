@@ -1,6 +1,10 @@
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.sparse as sp
+from scipy.sparse.linalg import LinearOperator, aslinearoperator
 from scipy.special import expit
 import statsmodels.genmod.families as smf
 
@@ -9,6 +13,7 @@ from glmnet.glmnet import GLMNetControl
 
 from glmnet.inference import glmnet_problem, glmstar_problem
 from glmnet.inference import glm_inference_problem, glmstar_inference_problem
+from glmnet.inference.glm_inference import _newton_step
 
 N, P = 300, 10
 SM_FAMILIES = {'gaussian': smf.Gaussian(), 'binomial': smf.Binomial(), 'poisson': smf.Poisson()}
@@ -99,7 +104,98 @@ def test_weights_offset_ridge(data):
     ridge = np.r_[0., lam * (1 - alpha) * scale**2]
     G_full = X1.T @ (wn * (np.exp(o + X1 @ b) - y)) + ridge * b
     np.testing.assert_allclose(li.Z_full, -G_full + prob.Q_hat @ b, atol=1e-10)
-    np.testing.assert_allclose(li.Sigma, prob.Q_hat / w.sum())
+    # the ridge term is not random: Sigma is the information without it
+    np.testing.assert_allclose(prob.ridge, ridge)
+    np.testing.assert_allclose(prob.Q_hat - prob.information(), np.diag(ridge), atol=1e-14)
+    np.testing.assert_allclose(li.Sigma, prob.information() / w.sum())
+
+
+def test_elastic_net_operator_information(data):
+    # information() for the matrix-free Hessian matches the dense one
+    X, df, rows = data
+    y = df['binomial'].values
+    coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
+    kw = dict(family='binomial', alpha=0.3)
+    dense = glmnet_problem(X, y, coef, 0.1, 0.05, **kw)
+    op = glmnet_problem(X, y, coef, 0.1, 0.05, hessian='operator', **kw)
+    np.testing.assert_allclose(op.information() @ np.eye(P + 1), dense.information(), atol=1e-12)
+    assert np.all(dense.ridge[1:] > 0) and dense.ridge[0] == 0
+    # with alpha = 1 the information is Q_hat
+    lasso = glmnet_problem(X, y, coef, 0.1, 0.05, family='binomial')
+    assert lasso.information() is lasso.Q_hat
+
+
+def _dense(A, k):
+    return A @ np.eye(k) if isinstance(A, LinearOperator) else np.asarray(A)
+
+
+def _psd_form(P, fit_intercept=True, seed=0):
+    # a general (not diagonal) quadratic form on the coefficients, 0 for the intercept
+    A = np.random.default_rng(seed).standard_normal((P, P))
+    R = np.zeros((P + fit_intercept,) * 2)
+    R[fit_intercept:, fit_intercept:] = 0.1 * A @ A.T / P
+    return R
+
+
+def test_ridge_forms(data):
+    # the quadratic part of the penalty as a float, a vector (with or without the
+    # intercept), or a dense, sparse or matrix-free quadratic form
+    X, df, _ = data
+    y = df['binomial'].values
+    coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
+    k = P + 1
+    beta = np.random.default_rng(1).standard_normal(k)
+    for hessian in ['dense', 'operator']:
+        base = glmnet_problem(X, y, coef, 0.1, 0.05, family='binomial', hessian=hessian)
+        Q = _dense(base.Q_hat, k)
+
+        # diagonal: a float is c * I on the coefficients, the intercept unpenalized
+        c = 0.3
+        diagonal = np.r_[0., np.full(P, c)]
+        for ridge in [c, diagonal, diagonal[1:], np.diag(diagonal),
+                      sp.diags(diagonal).tocsr(), aslinearoperator(np.diag(diagonal))]:
+            prob = dataclasses.replace(base, ridge=ridge)
+            np.testing.assert_allclose(_dense(prob.information(), k), Q - np.diag(diagonal),
+                                       atol=1e-14)
+            np.testing.assert_allclose(prob.ridge_gradient(beta), diagonal * beta, atol=1e-14)
+
+        # general
+        R = _psd_form(P)
+        for ridge in [R, sp.csr_matrix(R), aslinearoperator(R)]:
+            prob = dataclasses.replace(base, ridge=ridge)
+            np.testing.assert_allclose(_dense(prob.information(), k), Q - R, atol=1e-14)
+            np.testing.assert_allclose(prob.ridge_gradient(beta), R @ beta, atol=1e-14)
+
+    # zero is no quadratic term
+    assert dataclasses.replace(base, ridge=0.).information() is base.Q_hat
+    assert dataclasses.replace(base, ridge=np.zeros((k, k))).ridge_form() is None
+
+    # without an intercept a float penalizes every coordinate
+    no_int = glmnet_problem(X, y, coef, 0., 0.05, family='binomial', fit_intercept=False)
+    prob = dataclasses.replace(no_int, ridge=c)
+    np.testing.assert_allclose(prob.ridge_gradient(beta[1:]), c * beta[1:])
+
+    for bad in [np.ones(P - 1), np.ones((P, P)), sp.eye(P)]:
+        with pytest.raises(ValueError, match='ridge'):
+            dataclasses.replace(base, ridge=bad).ridge_form()
+    with pytest.raises(ValueError, match='ridge'):
+        dataclasses.replace(no_int, ridge=np.ones(P - 1)).ridge_form()
+
+
+def test_carving_general_ridge(data):
+    # with held-out rows, Z_full has the gradient R b_tilde of a general quadratic form and
+    # Sigma the information Q_hat - R
+    X, df, rows = data
+    y = df['binomial'].values
+    coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
+    lasso = glmnet_problem(X[rows], y[rows], coef, 0.1, 0.05, family='binomial')
+    R = _psd_form(P)
+    prob = dataclasses.replace(lasso, ridge=R)
+    li = glm_inference_problem(prob, X, y, 'binomial', selection_rows=rows)
+    li_lasso = glm_inference_problem(lasso, X, y, 'binomial', selection_rows=rows)
+    b_tilde = _newton_step(X, y, lasso.beta_hat, 'binomial', np.ones(N), np.zeros(N), True)
+    np.testing.assert_allclose(li.Z_full, li_lasso.Z_full - R @ b_tilde, atol=1e-12)
+    np.testing.assert_allclose(li.Sigma, (lasso.Q_hat - R) / N, atol=1e-14)
 
 
 def test_gaussian_dispersion(data):

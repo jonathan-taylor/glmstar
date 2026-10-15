@@ -128,14 +128,89 @@ class GLMProblem:
     U: np.ndarray
     fit_intercept: bool
     linear_term: Optional[np.ndarray] = None   # in the same coordinates; None if 0
+    # the quadratic part 1/2 beta' R beta of the penalty (the elastic net's ridge term), in
+    # the coordinates of beta_hat: None for none; a float c for c * I on the coefficients,
+    # the intercept unpenalized; a vector, the diagonal of R, of length len(beta_hat) or, with
+    # an intercept, of the coefficients alone (the intercept unpenalized); or a general
+    # quadratic form R, a (k, k) array, sparse matrix or LinearOperator with k = len(beta_hat)
+    ridge: object = None
 
     def lasso_args(self):
         """Keyword arguments for lassoinf.LassoInference (add Z_full, Sigma, ...)."""
-        return {k: v for k, v in asdict(self).items() if k not in ('fit_intercept', 'linear_term')}
+        return {k: v for k, v in asdict(self).items() if k not in ('fit_intercept', 'linear_term', 'ridge')}
+
+    def ridge_form(self):
+        """
+        The quadratic form R of the penalty in the coordinates of beta_hat: None if there is
+        none, a vector if R is diagonal (its diagonal), else the (k, k) array, sparse matrix
+        or LinearOperator given as ``ridge``.
+        """
+        return _ridge_form(self.ridge, len(self.beta_hat), self.fit_intercept)
+
+    def ridge_gradient(self, beta):
+        """Gradient R beta of the quadratic part 1/2 beta' R beta of the penalty."""
+        R = self.ridge_form()
+        beta = np.asarray(beta, dtype=float)
+        if R is None:
+            return np.zeros_like(beta)
+        if isinstance(R, np.ndarray) and R.ndim == 1:
+            return R * beta
+        return np.asarray(R @ beta).reshape(beta.shape)
+
+    def information(self):
+        """
+        Q_hat without the quadratic part R of the penalty (the elastic net's ridge term): the
+        information, whose multiple dispersion / sum(weights) is the covariance of the
+        score. R is in the Hessian Q_hat but is not random.
+        """
+        R = self.ridge_form()
+        Q = self.Q_hat
+        if R is None:
+            return Q
+        diagonal = isinstance(R, np.ndarray) and R.ndim == 1
+        if isinstance(Q, LinearOperator) or isinstance(R, LinearOperator):
+            R = aslinearoperator(sp.diags(R) if diagonal else R)
+            return aslinearoperator(Q) - R
+        if diagonal:
+            return Q - np.diag(R)
+        return Q - (R.toarray() if sp.issparse(R) else np.asarray(R))
+
 
     def kkt_violation(self):
         """Largest violation of the KKT conditions at beta_hat (0 at the exact solution)."""
         return float(np.max(kkt_violation(self.beta_hat, self.G_hat, self.D, self.L, self.U), initial=0.))
+
+
+def _ridge_form(ridge, k, fit_intercept):
+    """
+    Normalize ``ridge`` (see GLMProblem) for a problem with k coordinates: None, the diagonal
+    as a vector of length k, or the (k, k) quadratic form.
+    """
+    if ridge is None:
+        return None
+    if isinstance(ridge, LinearOperator) or sp.issparse(ridge):
+        if ridge.shape != (k, k):
+            raise ValueError(f'ridge should have shape {(k, k)}, but has shape {ridge.shape}')
+        return ridge
+    ridge = np.asarray(ridge, dtype=float)
+    if ridge.ndim == 0:
+        diagonal = np.full(k, float(ridge))
+        if fit_intercept:
+            diagonal[0] = 0.
+    elif ridge.ndim == 1:
+        if ridge.shape[0] == k:
+            diagonal = ridge
+        elif fit_intercept and ridge.shape[0] == k - 1:
+            diagonal = np.r_[0., ridge]
+        else:
+            raise ValueError(f'a ridge vector should have length {k}'
+                             + (f' or {k - 1}' if fit_intercept else '')
+                             + f', but has length {ridge.shape[0]}')
+    elif ridge.shape == (k, k):
+        return None if not np.any(ridge) else ridge
+    else:
+        raise ValueError(f'ridge should have shape {(k, k)}, but has shape {ridge.shape}')
+    return None if not np.any(diagonal) else diagonal
 
 
 def kkt_violation(beta, G, D, L, U, tol=1e-8):
@@ -391,7 +466,8 @@ def glmnet_problem(X,
     else:
         lin_vec = lin.coef
     return GLMProblem(beta_hat=beta_hat, G_hat=G_hat, Q_hat=Q, D=D, L=L, U=U,
-                      fit_intercept=fit_intercept, linear_term=lin_vec)
+                      fit_intercept=fit_intercept, linear_term=lin_vec,
+                      ridge=np.r_[0., ridge] if fit_intercept else ridge)
 
 
 def _glmstar_family(glmnet_obj):

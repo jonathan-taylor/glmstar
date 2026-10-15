@@ -273,14 +273,9 @@ def glm_inference_problem(problem,
         Z_full = -problem.G_hat + Q @ b
     else:
         b_tilde = _newton_step(X, y, b, family, weights, offset, fit_intercept)
-        # G = loss gradient + ridge * beta + linear term; recover ridge * beta_hat
-        ridge_b = problem.G_hat - _loss_gradient(X[rows], y[rows], b, family, weights[rows],
-                                                 offset[rows], fit_intercept)
-        if lin is not None:
-            ridge_b = ridge_b - lin
-        with np.errstate(divide='ignore', invalid='ignore'):
-            ridge_b_tilde = np.where(b != 0, ridge_b * b_tilde / b, 0.)
-        G_full = _loss_gradient(X, y, b_tilde, family, weights, offset, fit_intercept) + ridge_b_tilde
+        # G = loss gradient + R beta, with R the quadratic part of the penalty
+        G_full = (_loss_gradient(X, y, b_tilde, family, weights, offset, fit_intercept)
+                  + problem.ridge_gradient(b_tilde))
         Z_full = -G_full + Q @ b_tilde
 
     if Sigma is not None:
@@ -298,7 +293,9 @@ def glm_inference_problem(problem,
             dispersion = 1.
     return GLMInferenceProblem(problem=problem,
                                Z_full=np.asarray(Z_full),
-                               Sigma=_scale(Q, dispersion / weights.sum()),
+                               # the ridge term is not random: the score's covariance is the
+                               # information without it
+                               Sigma=_scale(problem.information(), dispersion / weights.sum()),
                                scalar_noise=scalar_noise,
                                dispersion=dispersion)
 
