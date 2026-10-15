@@ -31,11 +31,9 @@ So we replace the parametric perturbation with a nonparametric one: a
 pairs bootstrap of the score at the full-data maximum likelihood
 estimate, as in data fission with resampled data
 ({ref}`Fry, Panigrahi and Taylor, 2025 <logmis-refs>`). Its covariance is
-the middle of the sandwich, and it needs no model. We cross the two
-perturbations, parametric and pairs, with the two covariances of the
-score, model-based and sandwich, used by `lassoinf` and the standard
-errors. This separates what the perturbation does from what the
-variance does.
+the middle of the sandwich, and it needs no model. We compare the
+inference with each perturbation, using the model-based or the sandwich
+covariance in `lassoinf`.
 
 ```{code-cell} ipython3
 import numpy as np
@@ -199,30 +197,21 @@ def sandwich(X, y, mu_hat):
 ## The inference
 
 The randomized lasso, the combination and the carving are those of
-[Score bootstraps with a linear term](score_bootstrap.md). We vary two
-things:
+[Score bootstraps with a linear term](score_bootstrap.md). What changes
+is the perturbation, the covariance of the score passed to `lassoinf`
+and the standard errors of the combination:
 
-- the **perturbation** $\omega$ of the selection: **parametric** draws
-  from the fitted, misspecified, logistic model, or the **pairs**
-  bootstrap;
-- the **variance** of the score: **model-based**, `Sigma` $= Q/n$ (the
-  default of `glmstar_inference_problem`) and model-based standard
-  errors for the combination, or the **sandwich**, `Sigma` its middle
-  and sandwich standard errors.
+- **model-based**: the parametric perturbation, `Sigma` $= Q/n$ (the
+  default of `glmstar_inference_problem`), and model-based standard
+  errors;
+- **robust**: the pairs bootstrap, `Sigma` the sandwich's middle, and
+  sandwich standard errors.
 
-In all four, `scalar_noise` $= (1-\pi)/\pi$: the randomization is assumed
-to have $(1-\pi)/\pi$ times `Sigma`. Given the data, that holds only on
-the diagonal of the table below: the parametric draws have
+In each, the randomization has `scalar_noise` $= (1-\pi)/\pi$ relative
+to `Sigma`. Given the data, that is exact: the parametric draws have
 $(1-\pi)/\pi$ times the information, the pairs draws $(1-\pi)/\pi$ times
-the sandwich's middle at the same $\hat\mu$.
-
-|                | model-based `Sigma` | sandwich `Sigma` |
-|----------------|---------------------|------------------|
-| **parametric** | perturbation matches `Sigma`; `Sigma` is wrong | `Sigma` is right; perturbation does not match it |
-| **pairs**      | `Sigma` is wrong, and the perturbation does not match it | both right |
-
-Each perturbation is drawn once per data set; the lasso it randomizes
-then gives both variances, so the two columns share the selection.
+the sandwich's middle at the same $\hat\mu$. What matters is whether
+`Sigma` is the variance of the score, and only the sandwich is.
 
 ```{code-cell} ipython3
 lam = 0.5 * np.sqrt(2 * np.log(p) / (pi * n))
@@ -237,37 +226,30 @@ def logistic_lasso(X, y, linear_term=None, relax=False, control=None):
                   relax=relax,
                   control=control or GLMNetControl()).fit(X, y)
 
-def randomized_inference(X, y, perturbation):
-    """
-    Select with the lasso randomized by the 'parametric' or 'pairs' perturbation; return
-    the selected set and the intervals {(method, variance): (estimate, lower, upper)}.
-    """
+def randomized_inference(X, y, robust):
     mu_hat = logit_fit(X, y)[3]
-    if perturbation == 'pairs':
-        omega = pairs_perturbation(X, y, mu_hat)
+    if robust:
+        omega, Sigma = pairs_perturbation(X, y, mu_hat), sandwich(X, y, mu_hat)
     else:
-        omega = parametric_perturbation(X, mu_hat)
+        omega, Sigma = parametric_perturbation(X, mu_hat), None
     fit = logistic_lasso(X, y, linear_term=omega, relax=True, control=tight)
     E = np.nonzero(fit.coefs_[0])[0]
     if len(E) == 0:
-        return E, {}
+        return E, None
 
+    # carving
+    info = glmstar_inference_problem(fit, X, y, scalar_noise=(1 - pi) / pi, Sigma=Sigma)
+    # row 0 is the intercept
+    summary = LassoInference(**info.lasso_args(), level=0.9).summary_.loc[E + 1]
+    carved = (summary['beta_hat'].values, summary['lower_conf'].values,
+              summary['upper_conf'].values)
+
+    # combination
     b_E, se_model, se_sandwich, _ = logit_fit(X[:, E], y)
     T = (b_E - pi * fit.relaxed_coefs_[0][E]) / (1 - pi)
-    intervals = {}
-    for variance, Sigma, se in [('model-based', None, se_model),
-                                ('sandwich', sandwich(X, y, mu_hat), se_sandwich)]:
-        # carving
-        info = glmstar_inference_problem(fit, X, y, scalar_noise=(1 - pi) / pi, Sigma=Sigma)
-        # row 0 is the intercept
-        summary = LassoInference(**info.lasso_args(), level=0.9).summary_.loc[E + 1]
-        intervals['carved', variance] = (summary['beta_hat'].values,
-                                         summary['lower_conf'].values,
-                                         summary['upper_conf'].values)
-        # combination
-        se_T = se / np.sqrt(1 - pi)
-        intervals['combination', variance] = (T, T - q * se_T, T + q * se_T)
-    return E, intervals
+    se = (se_sandwich if robust else se_model) / np.sqrt(1 - pi)
+    combination = (T, T - q * se, T + q * se)
+    return E, {'combination': combination, 'carved': carved}
 ```
 
 The targets $\beta_E$ are projections: the logistic regression of the
@@ -287,29 +269,27 @@ def target(E):
 
 ### One data set
 
-The carved intervals after selecting with the pairs bootstrap:
-
 ```{code-cell} ipython3
-E, intervals = randomized_inference(X, y, 'pairs')
-table = pd.concat({variance: pd.DataFrame({'lower': intervals['carved', variance][1],
-                                           'upper': intervals['carved', variance][2]},
-                                          index=[f'X{j}' for j in E])
-                   for variance in ['model-based', 'sandwich']}, axis=1)
-table['target'] = target(E)
-table.round(3)
+tables = {}
+for robust in [False, True]:
+    E, intervals = randomized_inference(X, y, robust)
+    tables['robust' if robust else 'model-based'] = pd.DataFrame(
+        {'lower': intervals['carved'][1], 'upper': intervals['carved'][2],
+         'target': target(E)}, index=[f'X{j}' for j in E])
+pd.concat(tables, axis=1).round(3)
 ```
 
 ## Calibration
 
 We repeat the experiment and compare, each with model-based and with
-sandwich variances:
+robust variances:
 
 - **naive**: select with the lasso on the data, then use the logistic
   regression intervals of the selected model on the same data;
 - **split**: select on a random 90% of the observations, then form
   intervals on the other 10%;
-- **combination** and **carved**: select with the parametric or the
-  pairs perturbation.
+- **combination** and **carved**: the parametric perturbation with the
+  information, or the pairs bootstrap with the sandwich.
 
 For every selected coefficient we record whether its nominal 90%
 interval covers $\beta_{E,j}$, and the interval's length per standard
@@ -319,16 +299,15 @@ deviation of the feature.
 def calibration(n_rep=300):
     rows = []
 
-    def record(method, perturbation, variance, E, lower, upper):
+    def record(method, variance, E, lower, upper):
         for j, lo, hi, t in zip(E, lower, upper, target(E)):
-            rows.append({'method': method, 'perturbation': perturbation,
-                         'variance': variance, 'signal': signal[j],
+            rows.append({'method': method, 'variance': variance, 'signal': signal[j],
                          'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
     def logit_intervals(method, X, y, E):
         b, se_model, se_sandwich, _ = logit_fit(X[:, E], y)
-        record(method, 'none', 'model-based', E, b - q * se_model, b + q * se_model)
-        record(method, 'none', 'sandwich', E, b - q * se_sandwich, b + q * se_sandwich)
+        record(method, 'model-based', E, b - q * se_model, b + q * se_model)
+        record(method, 'robust', E, b - q * se_sandwich, b + q * se_sandwich)
 
     for _ in range(n_rep):
         X, y = sim_data(n)
@@ -343,10 +322,11 @@ def calibration(n_rep=300):
         if len(E):
             logit_intervals('split', X[held_out], y[held_out], E)
 
-        for perturbation in ['parametric', 'pairs']:
-            E, intervals = randomized_inference(X, y, perturbation)
-            for (method, variance), (_, lower, upper) in intervals.items():
-                record(method, perturbation, variance, E, lower, upper)
+        for robust in [False, True]:
+            E, intervals = randomized_inference(X, y, robust)
+            if len(E):
+                for method, (_, lower, upper) in intervals.items():
+                    record(method, 'robust' if robust else 'model-based', E, lower, upper)
 
     return pd.DataFrame(rows)
 ```
@@ -361,11 +341,9 @@ display(provenance(results))
 display(reproduce(results))
 
 results['method'] = pd.Categorical(results['method'], ['naive', 'split', 'combination', 'carved'])
-results['perturbation'] = pd.Categorical(results['perturbation'], ['none', 'parametric', 'pairs'])
-results['variance'] = pd.Categorical(results['variance'], ['model-based', 'sandwich'])
+results['variance'] = pd.Categorical(results['variance'], ['model-based', 'robust'])
 results['signal'] = pd.Categorical(results['signal'], ['strong', 'weak', 'null'])
-by = ['method', 'perturbation', 'variance']
-(results.groupby(by, observed=True)
+(results.groupby(['method', 'variance'], observed=True)
         .agg(intervals=('covered', 'size'),
              coverage=('covered', 'mean'),
              mean_length=('length', 'mean'))
@@ -375,11 +353,44 @@ by = ['method', 'perturbation', 'variance']
 By the strength of the signal, the coverage:
 
 ```{code-cell} ipython3
-(results.groupby(by + ['signal'], observed=True)['covered'].mean()
+(results.groupby(['method', 'variance', 'signal'], observed=True)['covered'].mean()
         .unstack('signal').round(3))
 ```
 
-RESULTS-DISCUSSION
+The naive intervals fail as before: they never cover the selected
+nulls, and cover the weak signals less than 65% of the time. With
+model-based variances they also undercover the strong signals, about
+86%, which the sandwich corrects.
+
+For the strong signals the model-based variance is the wrong one. Their
+score varies about 1.3 times as much as the information says, so the
+model-based standard errors are about $\sqrt{1.3} \approx 1.14$ times too
+small, and a nominal 90% interval covers about
+$2\Phi(1.645/1.14) - 1 \approx 0.85$ of the time. That is what the
+naive, split and carved intervals with model-based variances give for
+the strong signals. For the weak signals and the selected nulls, whose
+features the curvature leaves alone, the two variances agree and so do
+the intervals.
+
+With the pairs bootstrap and the sandwich, the split, combination and
+carved intervals cover the strong signals and the selected nulls at
+about 90% (Monte Carlo error about 0.007 for the strong signals, 0.025
+for the nulls). The combination and carved intervals cover the weak
+signals a little less, 0.88 to 0.89 (Monte Carlo error about 0.012), as
+they do with the model-based variances; the curvature does not touch
+these features, so this is not the variance. The carved intervals are
+less than two thirds as long as the split and combination ones for the
+weak signals and the nulls, and nearly as short as the naive ones for
+the strong signals.
+
+The model-based combination is close to calibrated even for the strong
+signals, as in [A misspecified Cox model](cox_misspecified.md). Its
+variance is that of $\hat\beta_E$ plus $\pi/(1-\pi) = 9$ times that of
+the perturbation, and the parametric perturbation has the variance the
+model-based standard errors assume. Only the first part is misjudged,
+by a factor of about 1.3, so the whole is misjudged by about
+$(1.3 + 9)/(1 + 9) = 1.03$. The carved intervals have no such cushion:
+the selection and the full-data score both carry the misspecification.
 
 (logmis-refs)=
 ## References
