@@ -30,7 +30,7 @@ FAMILIES = {
 CASES = ['plain', 'weights', 'offset', 'exclude', 'no_intercept', 'sparse']
 
 
-def _fits(name, case):
+def _fits(name, case, sandwich=False):
     family, draw = FAMILIES[name]
     y = draw(0.3 + 0.5 * X[:, 0] - 0.4 * X[:, 1]).astype(float)
     w = W if case == 'weights' else np.ones(n)
@@ -40,10 +40,17 @@ def _fits(name, case):
     Y = pd.DataFrame({'y': y, 'w': w, 'offset': OFFSET if offset is not None else 0.})
     X_fit = scipy.sparse.csc_array(X) if case == 'sparse' else X
     g = GLM(family=family, summarize=True, response_id='y', weight_id='w', offset_id='offset',
-            exclude=exclude, fit_intercept=fit_intercept, control=TIGHT).fit(X_fit, Y)
+            exclude=exclude, fit_intercept=fit_intercept, sandwich=sandwich,
+            control=TIGHT).fit(X_fit, Y)
     kept = [j for j in range(p) if j not in exclude]
     D = sm.add_constant(X[:, kept]) if fit_intercept else X[:, kept]
-    s = sm.GLM(y, D, family=family, var_weights=w, offset=offset).fit(tol=1e-12)
+    model = sm.GLM(y, D, family=family, var_weights=w, offset=offset)
+    if sandwich:
+        # HC0 with the expected information as its bread (statsmodels' IRLS uses
+        # the observed for a non-canonical link), as R's sandwich(glm)
+        s = model.fit(method='newton', optim_hessian='eim', tol=1e-12, maxiter=100, cov_type='HC0')
+    else:
+        s = model.fit(tol=1e-12)
     return g, s, X_fit, D, offset
 
 
@@ -59,14 +66,13 @@ def test_against_statsmodels(name, case):
     np.testing.assert_allclose(g.dispersion_, s.scale, **tol)
     if name != 'gaussian':      # the Gaussian's p-values and intervals use t, statsmodels' GLM z
         np.testing.assert_allclose(g.summary_.iloc[:, 3].values, s.pvalues, **tol)
-        np.testing.assert_allclose(g.conf_int().values, s.conf_int(), **tol)
+        np.testing.assert_allclose(g.summary_[['[0.025', '0.975]']].values, s.conf_int(), **tol)
 
     np.testing.assert_allclose(g.loglike_, s.llf, **tol)
     np.testing.assert_allclose(g.aic_, s.aic, **tol)
     np.testing.assert_allclose(g.bic_, s.bic_llf, **tol)
 
-    np.testing.assert_allclose(g.fittedvalues_, s.fittedvalues, **tol)
-    np.testing.assert_allclose(g.resid_, s.resid_response, **tol)
+    np.testing.assert_allclose(g.predict(X_fit, offset=offset), s.fittedvalues, **tol)
     for kind, expected in [('response', s.resid_response), ('pearson', s.resid_pearson),
                            ('deviance', s.resid_deviance)]:
         np.testing.assert_allclose(g.residuals(kind), expected, **tol)
@@ -77,14 +83,27 @@ def test_against_statsmodels(name, case):
     linear = s.get_prediction(D[rows], offset=off_new, which='linear')
     np.testing.assert_allclose(g.predict_se(X_new), linear.se, **tol)
     if name != 'gaussian':
-        mean = s.get_prediction(D[rows], offset=off_new).summary_frame()
-        ci = g.predict_conf_int(X_new, offset=off_new)
-        np.testing.assert_allclose(ci['fit'], mean['mean'], **tol)
-        np.testing.assert_allclose(ci[['lower', 'upper']].values,
-                                   mean[['mean_ci_lower', 'mean_ci_upper']].values, **tol)
+        ci = g.conf_int(X_new)
+        linear = s.get_prediction(D[rows], which='linear')
+        np.testing.assert_allclose(ci['estimate'], linear.predicted, **tol)
+        np.testing.assert_allclose(ci[['lower', 'upper']].values, linear.conf_int(), **tol)
 
     # the expected information, as R's hatvalues (statsmodels defaults to the observed)
     np.testing.assert_allclose(g.leverage(X_fit), s.get_hat_matrix_diag(observed=False), **tol)
+
+
+@pytest.mark.parametrize('case', ['plain', 'weights', 'offset', 'exclude', 'sparse'])
+@pytest.mark.parametrize('name', list(FAMILIES))
+def test_sandwich(name, case):
+    g, s, X_fit, D, offset = _fits(name, case, sandwich=True)
+    tol = dict(rtol=1e-6, atol=1e-8)
+    np.testing.assert_allclose(g.covariance_, s.cov_params(), **tol)
+    np.testing.assert_allclose(g.summary_['std err'].values, s.bse, **tol)
+    np.testing.assert_allclose(g.predict_se(X_fit[:5]), s.get_prediction(D[:5], which='linear').se, **tol)
+    # the leverage does not change
+    np.testing.assert_allclose(g.leverage(X_fit), s.get_hat_matrix_diag(observed=False), **tol)
+    with pytest.warns(UserWarning, match='sandwich'):
+        anova(g, g)
 
 
 @pytest.mark.parametrize('name', list(FAMILIES))
@@ -139,8 +158,9 @@ def test_islp_design_and_summarize():
     assert list(g.params_.index) == list(s.params.index)
     np.testing.assert_allclose(g.params_, s.params)
     np.testing.assert_allclose(g.predict(D), s.predict(D))
-    np.testing.assert_allclose(g.predict_conf_int(D[:5])[['lower', 'upper']].values,
+    np.testing.assert_allclose(g.conf_int(D[:5])[['lower', 'upper']].values,
                                s.get_prediction(D[:5]).conf_int())
+    np.testing.assert_allclose(g.summary_[['[0.025', '0.975]']].values, s.conf_int())
 
     summarize = pytest.importorskip('ISLP.models').summarize
     for conf_int in [False, True]:
@@ -157,3 +177,21 @@ def test_binomial_glm_predict_class(family):
     pred = g.predict(X)
     assert set(pred) <= {'up', 'down'}
     np.testing.assert_array_equal(pred == 'up', g.predict(X, prediction_type='response') > 0.5)
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+def test_intercept_only(sparse):
+    # every variable excluded, or a ModelSpec design of the intercept alone
+    y = rng.poisson(2, n).astype(float)
+    family = sm.families.Poisson()
+    s = sm.GLM(y, np.ones((n, 1)), family=family).fit(tol=1e-12)
+    X_fit = scipy.sparse.csc_array(X) if sparse else X
+    D = pd.DataFrame({'intercept': np.ones(n)})
+    for g in [GLM(family=family, summarize=True, exclude=list(range(p)), control=TIGHT).fit(X_fit, y),
+              GLM(family=family, summarize=True, control=TIGHT).fit(D, y)]:
+        assert list(g.params_.index) == ['intercept']
+        np.testing.assert_allclose(g.params_.values, s.params)
+        np.testing.assert_allclose(g.summary_['std err'].values, s.bse)
+        np.testing.assert_allclose(g.aic_, s.aic)
+        assert g.df_resid_ == n - 1
+    np.testing.assert_allclose(g.predict(D), s.predict(np.ones((n, 1))))

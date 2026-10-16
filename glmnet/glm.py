@@ -321,12 +321,17 @@ class GLMRegularizer(object):
             else:
                 lm = Ridge(fit_intercept=self.fit_intercept,
                            alpha=self.ridge_coef)
-            lm.fit(design.X[:, kept], z, sample_weight=w)
             coefnew = np.zeros(p)
-            coefnew[kept] = lm.coef_
+            if kept.shape[0] > 0:
+                lm.fit(design.X[:, kept], z, sample_weight=w)
+                coefnew[kept] = lm.coef_
+                intercept = lm.intercept_
+            else:
+                # the intercept alone
+                intercept = np.sum(w * z) / np.sum(w) if self.fit_intercept else 0.
             # the state is in the design's (centered) coordinates, as in
             # the dense case; design.X is the raw (uncentered) sparse matrix
-            intnew = lm.intercept_ + coefnew @ design.centers_
+            intnew = intercept + coefnew @ design.centers_
 
         else:
             sqrt_w = np.sqrt(w)
@@ -349,7 +354,7 @@ class GLMRegularizer(object):
                 try:
                     beta = np.linalg.solve(Q, V)
                 except LinAlgError as e:
-                    if self.control.logging: logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
+                    logging.debug("Error in solve: possible singular matrix, trying pseudo-inverse")
                     if self.ridge_coef != 0:
                         XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
                         Wz = np.hstack([Wz, np.zeros(Q.shape[0])])
@@ -659,7 +664,7 @@ class GLMBase(BaseEstimator,
 
         # the variables in the model, and the residual degrees of freedom
         self._kept = np.ones(nvar, bool)
-        self._kept[np.asarray(self.exclude, int)] = False
+        self._kept[np.asarray(self._excluded(), int)] = False
         self.df_resid_ = int(np.sum(weight > 0)) - self._kept.sum() - self.fit_intercept
 
         if dispersion is None:
@@ -707,18 +712,27 @@ class GLMBase(BaseEstimator,
         linpred = np.asarray(linpred, float).reshape(-1)
         return linpred if offset is None else linpred + np.asarray(offset, float)
 
+    def _excluded(self):
+        """`exclude`, and a constant `intercept` column kept as the only column of X."""
+        return list(self.exclude) + getattr(self, '_excluded_intercept', [])
+
     def _drop_intercept_column(self, X, fitting=False):
         """
         A DataFrame `X` from a design builder such as ISLP's `ModelSpec` may have a
         constant column `intercept`, which duplicates the fitted intercept: it is
-        dropped, with a warning when fitting.
+        dropped, with a warning when fitting. As the only column (the
+        intercept-only model) it is kept but excluded instead.
         """
         if fitting:
             self._intercept_column = (self.fit_intercept and
                                       isinstance(X, pd.DataFrame) and
                                       'intercept' in X.columns and
                                       np.all(np.asarray(X['intercept']) == 1))
-            if self._intercept_column:
+            self._excluded_intercept = []
+            if self._intercept_column and X.shape[1] == 1:
+                self._intercept_column = False
+                self._excluded_intercept = [0]
+            elif self._intercept_column:
                 warnings.warn("dropping the constant column 'intercept' of X: "
                               "the model has an intercept (fit_intercept=True)")
         if (getattr(self, '_intercept_column', False) and
@@ -794,10 +808,15 @@ class GLM(GLMBase):
         `[]`. Equivalent to an infinite penalty factor.
     summarize: bool
         Compute a Wald-type statistical summary from fitted GLM.
+    sandwich: bool
+        Use the sandwich (robust) estimate of the covariance of the
+        coefficients, `covariance_`, in `summary_`, `conf_int` and
+        `predict_se`, in place of the model-based one. Default is False.
     ridge_coef: float
         Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
     """
     summarize: bool = False
+    sandwich: bool = False
     ridge_coef: float = 0
 
     def _get_regularizer(self,
@@ -817,7 +836,7 @@ class GLM(GLMBase):
         """
         return GLMRegularizer(fit_intercept=self.fit_intercept,
                               ridge_coef=self.ridge_coef,
-                              exclude=self.exclude)
+                              exclude=self._excluded())
 
     def _finalize_family(self,
                          response):
@@ -837,9 +856,10 @@ class GLM(GLMBase):
         if not hasattr(self, "_family"):
             return GLMFamilySpec.from_family(self.family, response)
 
-    # the constant column 'intercept' of a ModelSpec design is dropped (see
-    # `_drop_intercept_column`); RegGLM, fitted by GLMNet, does not
-    _drops_intercept_column = True
+    # the analysis of an unpenalized fit: the constant column 'intercept' of a
+    # ModelSpec design is dropped (see `_drop_intercept_column`), and the
+    # log-likelihood is computed; RegGLM, fitted along GLMNet's path, does neither
+    _unpenalized = True
 
     def fit(self,
             X,
@@ -881,7 +901,7 @@ class GLM(GLMBase):
         self: object
             GLM class instance.
         """
-        if self._drops_intercept_column:
+        if self._unpenalized:
             X = self._drop_intercept_column(X, fitting=True)
         super().fit(X,
                     y,
@@ -890,6 +910,13 @@ class GLM(GLMBase):
                     warm_state=warm_state,
                     dispersion=dispersion,
                     check=check)
+
+        if self._unpenalized:
+            # with k the number of coefficients and n the number of observations
+            k, n = len(self.params_), np.sum(self._weight > 0)
+            self.loglike_ = self._loglike()
+            self.aic_ = -2 * self.loglike_ + 2 * k
+            self.bic_ = -2 * self.loglike_ + np.log(n) * k
 
         if self.summarize:
             self.covariance_, self.summary_ = self._summarize()
@@ -900,7 +927,8 @@ class GLM(GLMBase):
 
     def _summarize(self):
         """
-        The covariance of `params_` and the Wald summary table.
+        The covariance of `params_` and the Wald summary table, with the
+        confidence intervals of level 0.95.
 
         Returns
         -------
@@ -910,35 +938,70 @@ class GLM(GLMBase):
         if self.ridge_coef != 0:
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
 
-        # the information is at the normalized weights: scale it back
-        unscaled_precision_ = self.weight_total_ * self.design_.quadratic_form(self._get_information(),
-                                                                               transformed=False)
-        if self.ridge_coef != 0:
-            D = np.ones(unscaled_precision_.shape[0])
-            D[0] = 0
-            unscaled_precision_ += self.ridge_coef * np.diag(D)
-        
-        keep = np.hstack([self.fit_intercept, self._kept]).astype(bool)
-        covariance_ = self.dispersion_ * np.linalg.inv(unscaled_precision_[keep][:,keep])
+        bread = np.linalg.inv(self._precision())
+        if self.sandwich:
+            covariance_ = bread @ self._score_meat() @ bread
+        else:
+            covariance_ = self.dispersion_ * bread
 
         SE = np.sqrt(np.diag(covariance_)) 
         coef = self.params_.values
         T = coef / SE
 
         if self._family.is_gaussian:
-            summary_ = pd.DataFrame({'coef':coef,
-                                     'std err': SE,
-                                     't': T,
-                                     'P>|t|': 2 * t_dbn.sf(np.fabs(T),
-                                                           df=self.df_resid_)},
-                                    index=self.params_.index)
+            stat, pval = 't', 2 * t_dbn.sf(np.fabs(T), df=self.df_resid_)
         else:
-            summary_ = pd.DataFrame({'coef':coef,
-                                     'std err': SE,
-                                     'z': T,
-                                     'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
-                                    index=self.params_.index)
+            stat, pval = 'z', 2 * normal_dbn.sf(np.fabs(T))
+        q = self._quantile(0.05)
+        summary_ = pd.DataFrame({'coef': coef,
+                                 'std err': SE,
+                                 stat: T,
+                                 f'P>|{stat}|': pval,
+                                 '[0.025': coef - q * SE,
+                                 '0.975]': coef + q * SE},
+                                index=self.params_.index)
         return covariance_, summary_
+
+    def _keep(self):
+        """The intercept (if fitted) and the variables in the model."""
+        return np.hstack([self.fit_intercept, self._kept]).astype(bool)
+
+    def _precision(self):
+        """
+        The information of `params_` at the weights of the fit, without the
+        dispersion, with any ridge term.
+        """
+        # the information is at the normalized weights: scale it back
+        precision = self.weight_total_ * self.design_.quadratic_form(self._get_information(),
+                                                                     transformed=False)
+        if self.ridge_coef != 0:
+            D = np.ones(precision.shape[0])
+            D[0] = 0
+            precision += self.ridge_coef * np.diag(D)
+        keep = self._keep()
+        return precision[keep][:, keep]
+
+    def _score_meat(self):
+        """
+        The middle of the sandwich, the sum over the observations of the outer
+        products of their scores of `params_`, without the dispersion.
+        """
+        # the score of observation i is x_i w_i (y_i - mu_i) (dmu/deta)_i / V(mu_i)
+        r = self.state_.logl_score(self._family, self._response, self._weight)
+        meat = self.design_.quadratic_form(DiagonalOperator(r**2), transformed=False)
+        keep = self._keep()
+        return meat[keep][:, keep]
+
+    def _loglike(self):
+        # the Gaussian's at the maximum likelihood estimate of its variance
+        if self._family.is_gaussian:
+            scale = self.deviance_ / np.sum(self._weight > 0)
+        else:
+            scale = self.dispersion_
+        return self._family.base.loglike(np.asarray(self._response, float).reshape(-1),
+                                         self.state_.mu,
+                                         var_weights=self._weight,
+                                         scale=scale)
 
     def _get_information(self):
         """The information of the fit (at the normalized weights)."""
@@ -958,36 +1021,21 @@ class GLM(GLMBase):
             return t_dbn.ppf(1 - alpha / 2, df=self.df_resid_)
         return normal_dbn.ppf(1 - alpha / 2)
 
-    def conf_int(self, alpha=0.05):
-        """
-        Wald confidence intervals for `params_`, of level `1 - alpha`.
-
-        Returns
-        -------
-        pd.DataFrame
-            Columns `lower` and `upper`, indexed as `params_`.
-        """
-        se = np.sqrt(np.diag(self._get_covariance()))
-        q = self._quantile(alpha)
-        return pd.DataFrame({'lower': self.params_ - q * se,
-                             'upper': self.params_ + q * se})
-
     def summary(self, alpha=0.05):
         """
         A statsmodels `Summary`: `tables[0]` describes the fit, `tables[1]` is
-        `summary_` with the confidence intervals of `conf_int(alpha)`, as for
-        a statsmodels results instance (so that ISLP's `summarize` works).
+        `summary_` with confidence intervals of level `1 - alpha`, as for a
+        statsmodels results instance (so that ISLP's `summarize` works).
         """
         from statsmodels.iolib.summary import Summary
         from statsmodels.iolib.table import SimpleTable
 
-        coefs = self._summarize()[1] if self.summary_ is None else self.summary_
-        intervals = self.conf_int(alpha)
+        coefs = (self._summarize()[1] if self.summary_ is None else self.summary_).iloc[:, :4]
+        q = self._quantile(alpha)
+        lower, upper = coefs['coef'] - q * coefs['std err'], coefs['coef'] + q * coefs['std err']
         # statsmodels' formats
-        data = [[f'{row[0]:.4f}'] + [f'{v:.3f}' for v in row[1:]]
-                for row in coefs.values]
-        data = [row + [f'{lo:.3f}', f'{hi:.3f}']
-                for row, lo, hi in zip(data, intervals['lower'], intervals['upper'])]
+        data = [[f'{row[0]:.4f}'] + [f'{v:.3f}' for v in row[1:]] + [f'{lo:.3f}', f'{hi:.3f}']
+                for row, lo, hi in zip(coefs.values, lower, upper)]
         headers = list(coefs.columns) + [f'[{alpha / 2:g}', f'{1 - alpha / 2:g}]']
         fit = [['Family:', getattr(self._family, 'name', None) or type(self._family.base).__name__],
                ['No. Observations:', f'{len(self._weight)}'],
@@ -995,58 +1043,28 @@ class GLM(GLMBase):
                ['Deviance:', f'{self.deviance_:.4f}'],
                ['Dispersion:', f'{self.dispersion_:.4g}'],
                ['Log-Likelihood:', f'{self.loglike_:.4f}'],
-               ['AIC:', f'{self.aic_:.4f}']]
+               ['AIC:', f'{self.aic_:.4f}'],
+               ['Covariance:', 'sandwich' if self.sandwich else 'model']]
         smry = Summary()
         smry.tables = [SimpleTable(fit, title=f'{type(self).__name__} results'),
                        SimpleTable(data, headers=headers, stubs=list(coefs.index))]
         return smry
 
-    @property
-    def loglike_(self):
+    def residuals(self, kind='response'):
         """
-        The log-likelihood, with the weights as prior weights (as R's `glm`), or
-        the partial log-likelihood for Cox. The Gaussian's is at the maximum
-        likelihood estimate of its variance, deviance / (number of observations).
+        Residuals of the fit: 'response' (y - mu), 'pearson' or 'deviance', with
+        the weights as prior weights, as R's `residuals.glm`.
         """
-        if self._family.is_gaussian:
-            scale = self.deviance_ / np.sum(self._weight > 0)
-        else:
-            scale = self.dispersion_
-        return self._family.loglike(self._response, self.state_.mu, self._weight, scale)
-
-    @property
-    def aic_(self):
-        """`-2 loglike_ + 2 k`, with `k` the number of coefficients (as statsmodels' GLM)."""
-        return -2 * self.loglike_ + 2 * len(self.params_)
-
-    @property
-    def bic_(self):
-        """`-2 loglike_ + log(n) k`, with `k` the number of coefficients."""
-        return -2 * self.loglike_ + np.log(np.sum(self._weight > 0)) * len(self.params_)
-
-    @property
-    def fittedvalues_(self):
-        """The fitted values, on the scale of `predict(prediction_type='response')`."""
-        return self._family.predict(self.state_.link_parameter)
-
-    @property
-    def resid_(self):
-        """The default residuals of the family: see `residuals`."""
-        return self.residuals()
-
-    def residuals(self, kind=None):
-        """
-        Residuals of the fit.
-
-        Parameters
-        ----------
-        kind: str, optional
-            For a GLM, 'response' (the default, y - mu), 'pearson' or 'deviance',
-            with the weights as prior weights. For Cox, 'martingale' (the default)
-            or 'deviance'.
-        """
-        kwargs = {} if kind is None else {'kind': kind}
-        return self._family.residuals(self._response, self.state_.mu, self._weight, **kwargs)
+        y = np.asarray(self._response, float).reshape(-1)
+        mu, w = self.state_.mu, self._weight
+        family = self._family.base
+        if kind == 'response':
+            return y - mu
+        if kind == 'pearson':
+            return np.sqrt(w) * (y - mu) / np.sqrt(family.variance(mu))
+        if kind == 'deviance':
+            return family.resid_dev(y, mu, var_weights=w)
+        raise ValueError("residuals are 'response', 'pearson' or 'deviance'")
 
     def _rows(self, X):
         """[1, X] on the variables in the model, as `params_`, keeping a sparse X sparse."""
@@ -1080,23 +1098,24 @@ class GLM(GLMBase):
         """
         return np.sqrt(self._quadratic_rows(X, self._get_covariance()))
 
-    def predict_conf_int(self, X, alpha=0.05, prediction_type='response', offset=None):
+    def conf_int(self, X_new, alpha=0.05):
         """
-        Confidence intervals of level `1 - alpha` for the linear predictor at the
-        rows of `X`, from `predict_se`, mapped to the scale of `prediction_type`.
+        Wald confidence intervals of level `1 - alpha` for the linear
+        combinations of `params_` given by the rows of `X_new` (with the
+        intercept if fitted), i.e. for the linear predictor at `X_new` without
+        an offset. The intervals for the coefficients themselves are in
+        `summary_`.
 
         Returns
         -------
         pd.DataFrame
-            Columns `fit`, `lower` and `upper`.
+            Columns `estimate`, `lower` and `upper`.
         """
-        eta = self._linear_predictor(X, offset)
-        half = self._quantile(alpha) * self.predict_se(X)
-        fit, a, b = (self._family.predict(v, prediction_type=prediction_type)
-                     for v in (eta, eta - half, eta + half))
-        return pd.DataFrame({'fit': fit,
-                             'lower': np.minimum(a, b),
-                             'upper': np.maximum(a, b)})
+        estimate = self._linear_predictor(X_new)
+        half = self._quantile(alpha) * self.predict_se(X_new)
+        return pd.DataFrame({'estimate': estimate,
+                             'lower': estimate - half,
+                             'upper': estimate + half})
 
     def leverage(self, X):
         """
@@ -1106,7 +1125,7 @@ class GLM(GLMBase):
         is the diagonal of the hat matrix. For Cox, W is not diagonal: this is the
         generalized leverage, which R does not report.
         """
-        C = self._get_covariance() / self.dispersion_
+        C = np.linalg.inv(self._precision())
         W = self._get_information()
         if isinstance(W, DiagonalOperator):
             return self.weight_total_ * W.weights * self._quadratic_rows(X, C)
@@ -1131,6 +1150,10 @@ def anova(*fits):
     """
     if len({len(fit._weight) for fit in fits}) > 1:
         raise ValueError('the fits are to different numbers of observations')
+    if any(fit.sandwich for fit in fits):
+        warnings.warn('a fit uses the sandwich covariance: the drop in deviance is not '
+                      'chi-squared when the model is wrong, so the p-values of anova are '
+                      'not robust')
     scale = min(fits, key=lambda fit: fit.df_resid_).dispersion_
     df = np.array([fit.df_resid_ for fit in fits], float)
     dev = np.array([fit.deviance_ for fit in fits], float)

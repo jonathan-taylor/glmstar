@@ -4,6 +4,7 @@ from functools import partial
 
 import numpy as np
 import pandas as pd
+import scipy.sparse
 import matplotlib.pyplot as plt
 
 from scipy.stats import norm as normal_dbn
@@ -481,38 +482,6 @@ class CoxFamilySpec(object):
             raise ValueError
         return self._result.deviance
     
-    def loglike(self,
-                y,
-                mu,
-                sample_weight,
-                scale=1.):
-        """The partial log-likelihood at the linear predictor `mu`."""
-        result = self._coxdev_at(sample_weight)(mu, sample_weight)
-        return result.loglik_sat - result.deviance / 2
-
-    def residuals(self,
-                  y,
-                  mu,
-                  sample_weight,
-                  kind='martingale'):
-        """
-        Martingale or deviance residuals at the linear predictor `mu`, as R's
-        `residuals.coxph`.
-        """
-        w = np.asarray(sample_weight, float)
-        result = self._coxdev_at(w)(mu, w)
-        # the deviance's gradient in the linear predictor is -2 w M, with M
-        # the martingale residuals
-        M = np.where(w > 0, -result.gradient / 2 / np.where(w > 0, w, 1), 0)
-        if kind == 'martingale':
-            return M
-        if kind == 'deviance':
-            status = np.asarray(self._coxdev_args['status'], float)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                d = -2 * (M + np.where(status > 0, status * np.log(status - M), 0))
-            return np.sign(M) * np.sqrt(np.maximum(d, 0))
-        raise ValueError("Cox residuals are 'martingale' or 'deviance'")
-
     def null_fit(self,
                  y,
                  sample_weight,
@@ -675,6 +644,46 @@ class CoxLM(GLM):
                          weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
+
+    def _loglike(self):
+        # the partial log-likelihood
+        result = self._family._coxdev_at(self._weight)(self.state_.mu, self._weight)
+        return result.loglik_sat - result.deviance / 2
+
+    def _score_meat(self):
+        # the score residuals (Lin and Wei, 1989), as R's coxph(robust=TRUE)
+        design = self.design_
+        X = design.X[:, np.nonzero(self._kept)[0]]
+        coxdev = self._family._coxdev_at(self.sample_weight_)
+        U = coxdev.score_residuals(self.state_.link_parameter, X,
+                                   sample_weight=self.sample_weight_)
+        U = U.reshape((U.shape[0], -1))
+        # a dense design is stored standardized; the score residuals are
+        # centered in each risk set, so only its scaling matters
+        if not scipy.sparse.issparse(design.X):
+            U = U * design.scaling_[self._kept][None, :]
+        # they are linear in the weights, which are normalized
+        U = self.weight_total_ * U
+        return U.T @ U
+
+    def residuals(self, kind='martingale'):
+        """
+        Martingale (the default) or deviance residuals of the fit, as R's
+        `residuals.coxph`.
+        """
+        w = np.asarray(self._weight, float)
+        result = self._family._coxdev_at(w)(self.state_.mu, w)
+        # the deviance's gradient in the linear predictor is -2 w M, with M
+        # the martingale residuals
+        M = np.where(w > 0, -result.gradient / 2 / np.where(w > 0, w, 1), 0)
+        if kind == 'martingale':
+            return M
+        if kind == 'deviance':
+            status = np.asarray(self._family._coxdev_args['status'], float)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                d = -2 * (M + np.where(status > 0, status * np.log(status - M), 0))
+            return np.sign(M) * np.sqrt(np.maximum(d, 0))
+        raise ValueError("Cox residuals are 'martingale' or 'deviance'")
 
 
 @dataclass

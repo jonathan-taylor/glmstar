@@ -20,7 +20,6 @@ project:
         - file: input_data_rationale.md
         - file: coxnet.md
         - file: glmnet_family.md
-        - file: islp_glm.md
         - file: custom_family.md
         - file: penalty_factor.md
         - file: relax.md

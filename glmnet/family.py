@@ -122,40 +122,6 @@ class GLMFamilySpec(object):
             return self.base.deviance(response,
                                       mean_parameter)
 
-    def loglike(self,
-                response,
-                mean_parameter,
-                sample_weight,
-                scale=1.):
-        """
-        Log-likelihood, with `sample_weight` as prior weights (statsmodels'
-        `var_weights`, the `weights` of R's `glm`).
-        """
-        return self.base.loglike(np.asarray(response, float).reshape(-1),
-                                 mean_parameter,
-                                 var_weights=sample_weight,
-                                 scale=scale)
-
-    def residuals(self,
-                  response,
-                  mean_parameter,
-                  sample_weight,
-                  kind='response'):
-        """
-        Residuals 'response' (y - mu), 'pearson' or 'deviance', with
-        `sample_weight` as prior weights, as R's `residuals.glm`.
-        """
-        y = np.asarray(response, float).reshape(-1)
-        mu = np.asarray(mean_parameter, float).reshape(-1)
-        w = np.asarray(sample_weight, float).reshape(-1)
-        if kind == 'response':
-            return y - mu
-        if kind == 'pearson':
-            return np.sqrt(w) * (y - mu) / np.sqrt(self.base.variance(mu))
-        if kind == 'deviance':
-            return self.base.resid_dev(y, mu, var_weights=w)
-        raise ValueError("residuals are 'response', 'pearson' or 'deviance'")
-
     def null_fit(self,
                  response,
                  fit_intercept=True,

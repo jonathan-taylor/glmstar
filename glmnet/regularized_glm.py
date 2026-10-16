@@ -299,7 +299,7 @@ class RegGLM(GLM,
     """
     control: RegGLMControl = field(default_factory=RegGLMControl)
 
-    _drops_intercept_column = False
+    _unpenalized = False
 
     def get_LM(self):
         """

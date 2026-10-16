@@ -38,6 +38,7 @@ def test_coxph(Rinfo, ties, weighted):
     family = CoxFamilySpec(event_data=Y, tie_breaking=ties)
     fit = CoxLM(family=family, summarize=True, weight_id='w', control=TIGHT_COX).fit(X, Y)
     small = CoxLM(family=family, weight_id='w', exclude=[2], control=TIGHT_COX).fit(X, Y)
+    robust = CoxLM(family=family, summarize=True, sandwich=True, weight_id='w', control=TIGHT_COX).fit(X, Y)
 
     _to_R(Rinfo, x0=X[:, 0], x1=X[:, 1], x2=X[:, 2], event=event, status=status, w=w)
     rpy = Rinfo['rpy']
@@ -46,18 +47,21 @@ f <- coxph(Surv(event, status) ~ x0 + x1 + x2, weights=w, ties="{ties}", robust=
            control=coxph.control(eps=1e-14, iter.max=100))
 f1 <- coxph(Surv(event, status) ~ x0 + x1, weights=w, ties="{ties}", robust=FALSE,
            control=coxph.control(eps=1e-14, iter.max=100))
-a <- anova(f1, f)''')
+a <- anova(f1, f)
+fr <- coxph(Surv(event, status) ~ x0 + x1 + x2, weights=w, ties="{ties}", robust=TRUE,
+           control=coxph.control(eps=1e-14, iter.max=100))''')
     get = lambda expr: np.asarray(rpy.r(expr), float)
 
     np.testing.assert_allclose(fit.params_.values, get('coef(f)'), rtol=1e-6)
     np.testing.assert_allclose(fit.summary_['std err'].values, get('sqrt(diag(vcov(f)))'), rtol=1e-6)
     np.testing.assert_allclose(fit.loglike_, get('f$loglik[2]')[0], rtol=1e-10)
     np.testing.assert_allclose(fit.aic_, get('AIC(f)')[0], rtol=1e-10)
-    np.testing.assert_allclose(fit.resid_, get('residuals(f, "martingale")'), atol=1e-5)
+    np.testing.assert_allclose(fit.residuals(), get('residuals(f, "martingale")'), atol=1e-5)
     np.testing.assert_allclose(fit.residuals('deviance'), get('residuals(f, "deviance")'), atol=1e-5)
     table = anova(small, fit)
     np.testing.assert_allclose(table['chi2'].iloc[1], get('a[2, "Chisq"]')[0], rtol=1e-6)
     np.testing.assert_allclose(table['P(>chi2)'].iloc[1], get('a[2, "Pr(>|Chi|)"]')[0], rtol=1e-5)
+    np.testing.assert_allclose(robust.covariance_, get('vcov(fr)').reshape(3, 3), rtol=1e-5)
     # the generalized leverage has trace p
     np.testing.assert_allclose(fit.leverage(X).sum(), 3)
 
