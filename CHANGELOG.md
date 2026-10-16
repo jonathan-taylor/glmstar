@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Documentation and maintenance
+
+- **Smaller wheels:** `glmnet/test_data`, 144 unused pickles (5.6 MB) from
+  the first packaging commit, is removed. Nothing read them, but they were
+  installed with every wheel and sdist (#115).
+
 ## 0.3.0 (2026-10-16)
 
 ### Deprecated
