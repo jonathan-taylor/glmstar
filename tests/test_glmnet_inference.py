@@ -11,9 +11,9 @@ import statsmodels.genmod.families as smf
 from glmnet import GLMNet
 from glmnet.glmnet import GLMNetControl
 
-from glmnet.inference import glmnet_problem, glmstar_problem
+from glmnet.inference import problem_from_solution, glmstar_problem
 from glmnet.inference import glm_inference_problem, glmstar_inference_problem
-from glmnet.inference.glm_inference import _newton_step
+from glmnet.inference.glmnet_inference import _newton_step
 
 N, P = 300, 10
 SM_FAMILIES = {'gaussian': smf.Gaussian(), 'binomial': smf.Binomial(), 'poisson': smf.Poisson()}
@@ -83,13 +83,13 @@ def test_carving_newton_step(data):
 
 
 def test_weights_offset_ridge(data):
-    # glm_inference from a GLMProblem, with weights, offset and a ridge term
+    # glmnet_inference from a GLMProblem, with weights, offset and a ridge term
     X, df, rows = data
     y, w, o = df['poisson'].values, df['w'].values, df['o'].values
     lam, alpha = 0.05, 0.5
     # any coefficients will do for the algebra
     coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
-    prob = glmnet_problem(X[rows], y[rows], coef, 0.1, lam, family='poisson', weights=w[rows],
+    prob = problem_from_solution(X[rows], y[rows], coef, 0.1, lam, family='poisson', weights=w[rows],
                           offset=o[rows], alpha=alpha)
     li = glm_inference_problem(prob, X, y, 'poisson', weights=w, offset=o, selection_rows=rows)
     np.testing.assert_allclose(li.scalar_noise, (w.sum() - w[rows].sum()) / w[rows].sum())
@@ -116,12 +116,12 @@ def test_elastic_net_operator_information(data):
     y = df['binomial'].values
     coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
     kw = dict(family='binomial', alpha=0.3)
-    dense = glmnet_problem(X, y, coef, 0.1, 0.05, **kw)
-    op = glmnet_problem(X, y, coef, 0.1, 0.05, hessian='operator', **kw)
+    dense = problem_from_solution(X, y, coef, 0.1, 0.05, **kw)
+    op = problem_from_solution(X, y, coef, 0.1, 0.05, hessian='operator', **kw)
     np.testing.assert_allclose(op.information() @ np.eye(P + 1), dense.information(), atol=1e-12)
     assert np.all(dense.ridge[1:] > 0) and dense.ridge[0] == 0
     # with alpha = 1 the information is Q_hat
-    lasso = glmnet_problem(X, y, coef, 0.1, 0.05, family='binomial')
+    lasso = problem_from_solution(X, y, coef, 0.1, 0.05, family='binomial')
     assert lasso.information() is lasso.Q_hat
 
 
@@ -146,7 +146,7 @@ def test_ridge_forms(data):
     k = P + 1
     beta = np.random.default_rng(1).standard_normal(k)
     for hessian in ['dense', 'operator']:
-        base = glmnet_problem(X, y, coef, 0.1, 0.05, family='binomial', hessian=hessian)
+        base = problem_from_solution(X, y, coef, 0.1, 0.05, family='binomial', hessian=hessian)
         Q = _dense(base.Q_hat, k)
 
         # diagonal: a float is c * I on the coefficients, the intercept unpenalized
@@ -171,7 +171,7 @@ def test_ridge_forms(data):
     assert dataclasses.replace(base, ridge=np.zeros((k, k))).ridge_form() is None
 
     # without an intercept a float penalizes every coordinate
-    no_int = glmnet_problem(X, y, coef, 0., 0.05, family='binomial', fit_intercept=False)
+    no_int = problem_from_solution(X, y, coef, 0., 0.05, family='binomial', fit_intercept=False)
     prob = dataclasses.replace(no_int, ridge=c)
     np.testing.assert_allclose(prob.ridge_gradient(beta[1:]), c * beta[1:])
 
@@ -188,7 +188,7 @@ def test_carving_general_ridge(data):
     X, df, rows = data
     y = df['binomial'].values
     coef = np.r_[0.25, -0.2, 0.1, np.zeros(P - 3)]
-    lasso = glmnet_problem(X[rows], y[rows], coef, 0.1, 0.05, family='binomial')
+    lasso = problem_from_solution(X[rows], y[rows], coef, 0.1, 0.05, family='binomial')
     R = _psd_form(P)
     prob = dataclasses.replace(lasso, ridge=R)
     li = glm_inference_problem(prob, X, y, 'binomial', selection_rows=rows)
@@ -221,3 +221,38 @@ def test_operator_matches_dense(data):
     np.testing.assert_allclose(op.Z_full, dense.Z_full, atol=1e-10)
     np.testing.assert_allclose(op.Sigma @ np.eye(P + 1), dense.Sigma, atol=1e-12)
     assert op.scalar_noise == dense.scalar_noise
+
+
+@pytest.mark.parametrize('old, new', [('glm_problem', 'glmnet_problem'),
+                                      ('glm_inference', 'glmnet_inference')])
+def test_deprecated_module_names(old, new):
+    # the modules' old names still work, with a DeprecationWarning
+    import importlib, sys
+    sys.modules.pop(f'glmnet.inference.{old}', None)
+    with pytest.warns(DeprecationWarning, match=new):
+        module = importlib.import_module(f'glmnet.inference.{old}')
+    renamed = importlib.import_module(f'glmnet.inference.{new}')
+    for name in renamed.__all__ + ['np']:
+        assert getattr(module, name) is getattr(renamed, name)
+
+
+def test_deprecated_glmnet_problem():
+    # glmnet_problem, renamed problem_from_solution, still works with a
+    # DeprecationWarning; as a name, glmnet.inference.glmnet_problem is the module
+    import importlib, types, warnings
+    from glmnet.inference import problem_from_solution
+    import glmnet.inference.glmnet_problem as module
+    assert isinstance(module, types.ModuleType) and module.problem_from_solution is problem_from_solution
+    rng = np.random.default_rng(0)
+    X, y = rng.standard_normal((40, 3)), rng.standard_normal(40)
+    args = (X, y, np.array([0.5, 0., 0.]), 0.1, 0.2)
+    expected = problem_from_solution(*args)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', DeprecationWarning)
+        old_module = importlib.import_module('glmnet.inference.glm_problem')
+    from glmnet.inference import glmnet_problem
+    for old in [glmnet_problem, old_module.glmnet_problem]:
+        with pytest.warns(DeprecationWarning, match='problem_from_solution'):
+            problem = old(*args)
+        np.testing.assert_allclose(problem.G_hat, expected.G_hat)
+        np.testing.assert_allclose(problem.beta_hat, expected.beta_hat)

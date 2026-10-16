@@ -32,7 +32,7 @@ or `rpy2` is not installed.
 | Cox paths: strata, start/stop times, Breslow and Efron ties | `tests/paths/test_coxnet.py`, `tests/compare_R/test_coxnet_r_comparison.py`, `tests/paths/test_cox_predict_ties.py` (prediction types and the ties default). |
 | Any GLM family (`family = <family object>`, IRLS) | `tests/test_irls_r_parity.py` compares with R's `glmnet.path` at tight tolerances: gaussian, logit, probit, Poisson and Gamma(log); penalty factors (0 and ∞ included), `alpha`, limits, offset, no intercept, `standardize=False`, `exclude`; R's path stopping rules. See also `tests/flex/` and `tests/compare_R/test_probit_r_comparison.py`. |
 | `exclude`, `penalty.factor` (fixed or functions) | `get_penalty_factor`, where an infinite factor excludes a variable: `tests/test_penalty_factor_hook.py` (against R 5.1 for an adaptive lasso; reruns on each CV fold), `tests/paths/test_gaussnet.py`. |
-| `lower.limits`, `upper.limits` | The path tests, `tests/test_glm_problem.py` (limits are respected, and the user's limits are not overwritten). |
+| `lower.limits`, `upper.limits` | The path tests, `tests/test_glmnet_problem.py` (limits are respected, and the user's limits are not overwritten). |
 | `dfmax`, `pmax` | `tests/paths/test_pmax.py`, `test_multiclassnet_df_max`. Compared with R, including the "exceeds pmax" warning. |
 | `cv.glmnet`: deviance, MSE, MAE, class, AUC, C-index; `lambda.min`, `lambda.1se` | The CV tests in `tests/paths/` compare `cvm`/`cvsd` with R given the same `foldid`. Also `tests/test_scorer.py`. |
 | `coef(cvfit, s = "lambda.1se")`, `predict(cvfit, ...)` | `cv_coefs`, `cv_predict`: `tests/paths/test_cv_choice.py`, compared with R. |
