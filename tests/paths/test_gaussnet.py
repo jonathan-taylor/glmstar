@@ -106,6 +106,8 @@ def get_data(n, p, sample_weight, offset):
 
 
 
+# df_max=20 gives pmax=30, which some of these paths exceed; R's glmnet warns too
+@pytest.mark.filterwarnings("ignore:.*Number of nonzero coefficients along the path exceeds pmax")
 def test_gaussnet(Rinfo, covariance,
                   standardize,
                   fit_intercept,

@@ -43,6 +43,12 @@
 
 - The Cox inference vignettes fit with `CoxNetIRLS` at lambda = 0 (#101).
 - The workflows' actions run on Node 24 (#112).
+- **Tests:** the warnings that R's glmnet gives too (`pmax` exceeded,
+  relaxed refits that do not converge) are marked as expected, so the
+  test suite's warnings summary is empty. The Cox case of
+  `test_big_glm_exclude_limits_matches_R` compared two empty models: glmnet's
+  Cox fit at lambda = 0 does not converge when a limit binds, in R as in
+  glmstar. It is now a strict expected failure (#114).
 
 ## 0.2.0 (2026-10-14)
 
