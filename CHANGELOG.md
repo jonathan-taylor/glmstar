@@ -12,6 +12,21 @@
 
 ### New
 
+- **The standard analysis of an unpenalized `GLM` fit**, the same for
+  every family, Cox included (`CoxLM`), so that ISLP's labs can use `GLM`
+  where they use `sm.OLS` / `sm.GLM` (#107):
+  - `summary_`: coefficients, standard errors, t or z, p-values and 95%
+    intervals; `summary(alpha)` for ISLP's `summarize`;
+  - `sandwich=True`: the robust (HC0) covariance, with the expected
+    information as the bread as in R's `sandwich(glm)`; for Cox, from
+    coxdev's score residuals, as `coxph(robust=TRUE)`;
+  - `conf_int(X_new)` and `predict_se(X)` for the linear predictor,
+    `residuals(kind)`, `leverage(X)` (R's `hatvalues`), and `loglike_`,
+    `aic_` and `bic_`;
+  - `anova(*fits)`, the analysis of deviance, as R's
+    `anova(test="Chisq")`;
+  - ISLP `ModelSpec` designs: the constant `intercept` column is dropped
+    with a warning; intercept-only fits work.
 - **`Design.add_constant(X)`:** `[1, X]` as a `Design` on the original scale
   of `X`, like statsmodels' `add_constant` but without copying a dense `X`
   (#108).
@@ -23,6 +38,11 @@
 
 ### Fixes
 
+- **Unpenalized `GLM`** (#107):
+  - the Gaussian dispersion was fixed at 1, so the standard errors were
+    wrong; it is now deviance / `df_resid_`;
+  - `exclude` was ignored by the Newton step;
+  - `BinomialGLM.predict('class')` raised an error.
 - **Refitting:** each `fit` starts afresh. Refitting an estimator on new
   data used to reuse the design and family of the earlier fit: `GLM`,
   `BinomialGLM`, `CoxLM`, `RegGLM`, `ElNet` and the C++ path estimators

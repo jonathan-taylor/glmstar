@@ -329,9 +329,10 @@ class GLMRegularizer(object):
             else:
                 # the intercept alone
                 intercept = np.sum(w * z) / np.sum(w) if self.fit_intercept else 0.
-            # the state is in the design's (centered) coordinates, as in
-            # the dense case; design.X is the raw (uncentered) sparse matrix
+            # the state is in the design's (centered and scaled) coordinates, as
+            # in the dense case; design.X is the raw sparse matrix
             intnew = intercept + coefnew @ design.centers_
+            coefnew = coefnew * design.scaling_
 
         else:
             sqrt_w = np.sqrt(w)
