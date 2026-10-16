@@ -88,9 +88,15 @@ def center(link, family):
     return link - link.mean(-1, keepdims=True) if family == 'multinomial' else link
 
 
+# with p > n - 3 some active sets are too large to refit: their unpenalized
+# refits do not converge, and glmnet warns and leaves them out, as R's does
+P_GT_N = pytest.param((25, 40), marks=[
+    pytest.mark.filterwarnings("ignore:.*Convergence for .* lambda value not reached"),
+    pytest.mark.filterwarnings("ignore:an empty model has been returned")])
+
+
 @pytest.mark.parametrize('family', FAMILIES)
-# with p > n - 3 some active sets are too large to refit
-@pytest.mark.parametrize('shape', [(N, P), (25, 40)])
+@pytest.mark.parametrize('shape', [(N, P), P_GT_N])
 def test_relax_matches_R(Rinfo, family, shape):
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')

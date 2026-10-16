@@ -2,13 +2,53 @@
 
 ## Unreleased
 
+### Deprecated
+
 - **Renamed, for the lasso / elastic net:** the modules
   `glmnet.inference.glm_problem` and `glm_inference` are now `glmnet_problem`
   and `glmnet_inference`, and the function `glmnet_problem` is now
   `problem_from_solution`. The old names still work, with a
-  `DeprecationWarning`, and will be removed in a later release.
+  `DeprecationWarning`, and will be removed in a later release (#109).
+
+### New
+
+- **`Design.add_constant(X)`:** `[1, X]` as a `Design` on the original scale
+  of `X`, like statsmodels' `add_constant` but without copying a dense `X`
+  (#108).
+- **`warm_state` works**, on the original scale of the features, for
+  `GLMNet`, `RegGLM` and `GLM`; `GLMNet.fit` starts its first lambda from
+  it (#101).
 - **Requirements:** coxdev >= 0.3.0. `c_index` now uses coxdev's C-index,
-  and glmstar's own concordance extension is removed.
+  and glmstar's own concordance extension is removed (#103).
+
+### Fixes
+
+- **Refitting:** each `fit` starts afresh. Refitting an estimator on new
+  data used to reuse the design and family of the earlier fit: `GLM`,
+  `BinomialGLM`, `CoxLM`, `RegGLM`, `ElNet` and the C++ path estimators
+  gave wrong fits or failed, and a refit `CoxNetIRLS` used the old data's
+  null deviance and lambda path (#111).
+- **`GLM` on a sparse `X` with `standardize=True`** returned coefficients
+  on the wrong scale (#110).
+- **Elastic net inference:** `Sigma` no longer includes the ridge term of
+  the Hessian, which overstated the score's variance for `alpha < 1` (#90).
+- **Binomial means** are clipped to `[1e-9, 1 - 1e-9]` in `glm_moments`, as
+  in `GLMNet`'s fit; the variance used to underflow to 0 for large `|eta|`
+  (#108).
+- **Weights:** the family sees only the normalized weights, so a
+  `CoxNetIRLS` fit no longer rebuilds its `CoxDeviance` several times
+  (#104).
+
+### Documentation and maintenance
+
+- The Cox inference vignettes fit with `CoxNetIRLS` at lambda = 0 (#101).
+- The workflows' actions run on Node 24 (#112).
+- **Tests:** the warnings that R's glmnet gives too (`pmax` exceeded,
+  relaxed refits that do not converge) are marked as expected, so the
+  test suite's warnings summary is empty. The Cox case of
+  `test_big_glm_exclude_limits_matches_R` compared two empty models: glmnet's
+  Cox fit at lambda = 0 does not converge when a limit binds, in R as in
+  glmstar. It is now a strict expected failure (#114).
 
 ## 0.2.0 (2026-10-14)
 
