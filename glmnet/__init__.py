@@ -1,7 +1,7 @@
 from importlib.metadata import version, PackageNotFoundError
 
 try:
-    __version__ = version("glmnet")
+    __version__ = version("glmstar")
 except PackageNotFoundError:
     # package is not installed, perhaps we are in a git repo
     try:
