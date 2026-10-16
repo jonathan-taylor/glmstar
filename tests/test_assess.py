@@ -8,7 +8,7 @@ from statsmodels.genmod.families import links as sm_links
 
 from glmnet import GLMNet
 from glmnet.family import is_link
-from glmnet.inference.glm_problem import _glmstar_family, resolve_family
+from glmnet.inference.glmnet_problem import _glmstar_family, resolve_family
 from glmnet.paths import GaussNet, LogNet, FishNet, MultiClassNet, MultiGaussNet, CoxNet
 from glmnet.cox import CoxFamily
 from glmnet.assess import assess, confusion, roc, _link_predictions

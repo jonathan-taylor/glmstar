@@ -16,7 +16,7 @@ from glmnet import GLMNet, GaussNet, LogNet, FishNet
 from glmnet.glmnet import GLMNetControl
 from glmnet.paths.fastnet import FastNetControl
 
-from glmnet.inference import glmnet_problem, glmstar_problem, glmnet_response_scale, kkt_violation
+from glmnet.inference import problem_from_solution, glmstar_problem, glmnet_response_scale, kkt_violation
 
 needs_cvxpy = pytest.mark.skipif(cp is None, reason='requires cvxpy')
 
@@ -84,7 +84,7 @@ def _check_problem(prob, X, y, family, w, offset, fit_intercept, lam, alpha=1., 
     # 3. with information='lasso', Q is the Hessian: derivative of the extracted gradient
     def problem(theta, information):
         a0, coef = (theta[0], theta[1:]) if fit_intercept else (0., theta)
-        return glmnet_problem(X, y, coef, a0, lam, family=family, weights=w, offset=offset, alpha=alpha,
+        return problem_from_solution(X, y, coef, a0, lam, family=family, weights=w, offset=offset, alpha=alpha,
                               penalty_factor=pf, exclude=exclude, standardize=standardize,
                               fit_intercept=fit_intercept, y_scale=y_scale, information=information)
     gradient = lambda theta: problem(theta, 'lasso').G_hat
@@ -264,7 +264,7 @@ def test_glmnet_problem_matches_objective(data, family, standardize, fit_interce
     coef, a0 = _solve_cvxpy(X, y, family, w, offset, fit_intercept, lam, o['alpha'], o['pf'], o['exclude'],
                             o['lower'], o['upper'], standardize, y_scale)
     # default y_scale is R glmnet's convention
-    prob = glmnet_problem(X, y, coef, a0, lam, family=family, weights=w, offset=offset, alpha=o['alpha'],
+    prob = problem_from_solution(X, y, coef, a0, lam, family=family, weights=w, offset=offset, alpha=o['alpha'],
                           penalty_factor=o['pf'], exclude=o['exclude'], lower_limits=o['lower'],
                           upper_limits=o['upper'], standardize=standardize, fit_intercept=fit_intercept)
     _check_problem(prob, X, y, family, w, offset, fit_intercept, lam, alpha=o['alpha'], pf=o['pf'],
@@ -278,9 +278,9 @@ def test_glmnet_problem_matches_objective(data, family, standardize, fit_interce
 def test_glmnet_problem_arguments(data):
     X, df = data
     with pytest.raises(ValueError, match='family'):
-        glmnet_problem(X, df['gaussian'], np.zeros(P), 0., 0.1, family='gamma')
+        problem_from_solution(X, df['gaussian'], np.zeros(P), 0., 0.1, family='gamma')
     with pytest.raises(ValueError, match='hessian'):
-        glmnet_problem(X, df['gaussian'], np.zeros(P), 0., 0.1, hessian='sparse')
+        problem_from_solution(X, df['gaussian'], np.zeros(P), 0., 0.1, hessian='sparse')
     beta = np.array([0., 1., -1., 0.5])
     G = np.array([0.5, -1., 1., -2.])
     D = np.ones(4)
@@ -315,9 +315,9 @@ def test_relaxed_information(data, family, fit_intercept):
     coef, a0 = _solve_cvxpy(X, y, family, w, offset, fit_intercept, lam, 1., None, (),
                             np.full(P, -np.inf), np.full(P, np.inf), True, 1.)
     coef = np.where(np.abs(coef) > 1e-8, coef, 0.)
-    prob = glmnet_problem(X, y, coef, a0, lam, family=family, weights=w, offset=offset,
+    prob = problem_from_solution(X, y, coef, a0, lam, family=family, weights=w, offset=offset,
                           fit_intercept=fit_intercept)
-    lasso = glmnet_problem(X, y, coef, a0, lam, family=family, weights=w, offset=offset,
+    lasso = problem_from_solution(X, y, coef, a0, lam, family=family, weights=w, offset=offset,
                            fit_intercept=fit_intercept, information='lasso')
     np.testing.assert_allclose(prob.G_hat, lasso.G_hat)
     X1 = np.column_stack([np.ones(N), X]) if fit_intercept else X
@@ -340,8 +340,8 @@ def test_relaxed_information_gaussian(data):
     y = df['gaussian'].values
     coef, a0 = _solve_cvxpy(X, y, 'gaussian', np.ones(N), np.zeros(N), True, 0.03, 1., None, (),
                             np.full(P, -np.inf), np.full(P, np.inf), True, 1.)
-    relaxed = glmnet_problem(X, y, coef, a0, 0.03)
-    lasso = glmnet_problem(X, y, coef, a0, 0.03, information='lasso')
+    relaxed = problem_from_solution(X, y, coef, a0, 0.03)
+    lasso = problem_from_solution(X, y, coef, a0, 0.03, information='lasso')
     np.testing.assert_allclose(relaxed.Q_hat, lasso.Q_hat)
 
 
@@ -363,3 +363,20 @@ def test_glmstar_problem_penalty_factor_hook(data):
     prob_fixed = glmstar_problem(fixed, X, df, lambda_val=lam)
     np.testing.assert_allclose(prob_hook.D, prob_fixed.D)
     assert prob_hook.kkt_violation() < 2e-5 * lam
+
+
+def test_glm_moments_extreme_probit():
+    # mu is clipped to [1e-9, 1 - 1e-9] as in GLMNet's fit, so that V = mu (1 - mu) does not
+    # underflow to 0 and the score and Fisher weights stay finite; moderate eta is unchanged
+    import statsmodels.api as sm
+    from scipy.stats import norm
+    from glmnet.inference.glmnet_problem import glm_moments
+    probit = sm.families.Binomial(link=sm.families.links.Probit())
+    eta = np.array([-40., -9., -1., 0., 2., 9., 40.])
+    mu, a, W = glm_moments(probit, eta)
+    assert np.all(np.isfinite(a)) and np.all(np.isfinite(W)) and np.all(W > 0)
+    assert np.all((mu >= 1e-9) & (mu <= 1 - 1e-9))
+    moderate = np.abs(eta) < 3
+    m = norm.cdf(eta[moderate])
+    np.testing.assert_allclose(a[moderate], norm.pdf(eta[moderate]) / (m * (1 - m)))
+    np.testing.assert_allclose(mu[moderate], m)

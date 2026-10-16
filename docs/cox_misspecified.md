@@ -41,7 +41,7 @@ from glmnet import LinearTerm
 from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
-from glmnet.inference.glm_inference import GLMInferenceProblem
+from glmnet.inference.glmnet_inference import GLMInferenceProblem
 from lassoinf import LassoInference
 
 from experiments import load_results, provenance, reproduce

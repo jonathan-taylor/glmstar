@@ -23,7 +23,7 @@ jobs:
           fi
 
       - name: Checkout Parent Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
 
@@ -38,7 +38,7 @@ jobs:
         uses: pypa/cibuildwheel@v3.3.1 # Use the latest version
 
       - name: Upload wheel artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.os }}
           path: ./wheelhouse/*.whl # cibuildwheel puts wheels in this directory
@@ -60,7 +60,7 @@ jobs:
           git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
 
       - name: Checkout Parent Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
           submodules: recursive
@@ -69,7 +69,7 @@ jobs:
         run: git submodule update --init --recursive
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -87,7 +87,7 @@ jobs:
           python -c "import os; import glob; files = glob.glob('dist/*'); print('Files in dist/:'); [print(f) for f in files]"
 
       - name: Upload source distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: source-distribution
           path: dist/*.tar.gz
@@ -102,7 +102,7 @@ jobs:
   #     id-token: write
   #   steps:
   #   - name: Download all artifacts
-  #     uses: actions/download-artifact@v4
+  #     uses: actions/download-artifact@v8
 
   #   - name: List downloaded artifacts
   #     run: |
@@ -152,7 +152,7 @@ jobs:
   #     id-token: write
   #   steps:
   #   - name: Download all artifacts
-  #     uses: actions/download-artifact@v4
+  #     uses: actions/download-artifact@v8
 
   #   - name: List downloaded artifacts
   #     run: |

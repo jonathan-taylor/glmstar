@@ -322,11 +322,11 @@ def test_probit_is_not_logit():
 
 def test_probit_information():
     # at the MLE (lambda = 0) the gradient vanishes and n Q_hat is statsmodels' Fisher information
-    from glmnet.inference import glmnet_problem
+    from glmnet.inference import problem_from_solution
     X, Y = _data('binomial')
     y = np.asarray(Y['y'])
     mle = sm.GLM(y, sm.add_constant(X), family=PROBIT).fit(tol=1e-12)
-    problem = glmnet_problem(X, y, mle.params[1:], mle.params[0], 0., family=PROBIT,
+    problem = problem_from_solution(X, y, mle.params[1:], mle.params[0], 0., family=PROBIT,
                              information='lasso')
     assert np.abs(problem.G_hat).max() < 1e-8
     np.testing.assert_allclose(np.linalg.inv(N * problem.Q_hat), mle.cov_params(), rtol=1e-5)
@@ -335,7 +335,7 @@ def test_probit_information():
 @pytest.mark.parametrize('method', ['replicates', 'gaussian'])
 def test_score_perturbation_covariance(method):
     # Var(omega) = scalar_noise * dispersion * Q / sum(w), Q the Fisher information at eta
-    from glmnet.inference import score_perturbation, glmnet_problem
+    from glmnet.inference import score_perturbation, problem_from_solution
     X = rng.standard_normal((50, 3))
     eta = 0.3 + X @ np.array([0.5, -0.3, 0.])
     w = rng.integers(1, 4, 50).astype(float)
@@ -343,7 +343,7 @@ def test_score_perturbation_covariance(method):
         score_perturbation(X, eta, PROBIT, 0.25, weights=w, dispersion=2., method=method, rng=rng))
         for _ in range(20000)])
     # Q_hat at the LASSO solution 0 + eta: the information at eta
-    problem = glmnet_problem(X, np.full(50, 0.5), np.zeros(3), 0., 0., family=PROBIT, weights=w,
+    problem = problem_from_solution(X, np.full(50, 0.5), np.zeros(3), 0., 0., family=PROBIT, weights=w,
                              offset=eta, information='lasso')
     Sigma = 0.25 * 2. * problem.Q_hat / w.sum()
     # within 5 Monte Carlo standard errors (about sqrt(Sigma_jj Sigma_kk / ndraw))
@@ -354,7 +354,7 @@ def test_score_perturbation_covariance(method):
 
 def test_randomized_inference_problem():
     from glmnet import LinearTerm
-    from glmnet.inference import glmstar_problem, glm_inference_problem, glmnet_problem, score_perturbation
+    from glmnet.inference import glmstar_problem, glm_inference_problem, problem_from_solution, score_perturbation
     X, Y = _data('binomial')
     y = np.asarray(Y['y'])
     lam = 0.03
@@ -372,8 +372,8 @@ def test_randomized_inference_problem():
     # Z_full linearizes the score of y without the linear term: with Q_hat at the LASSO
     # solution, it is the same as for the problem without it at the same solution
     kw = dict(family=PROBIT, scaling=fit.design_.scaling_, y_scale=1., information='lasso')
-    with_lt = glmnet_problem(X, y, fit.coefs_[0], fit.intercepts_[0], lam, linear_term=lt, **kw)
-    without = glmnet_problem(X, y, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
+    with_lt = problem_from_solution(X, y, fit.coefs_[0], fit.intercepts_[0], lam, linear_term=lt, **kw)
+    without = problem_from_solution(X, y, fit.coefs_[0], fit.intercepts_[0], lam, **kw)
     np.testing.assert_allclose(with_lt.G_hat - without.G_hat, np.r_[lt.intercept, lt.coef], atol=1e-14)
     info = glm_inference_problem(with_lt, X, y, PROBIT, scalar_noise=0.25)
     info_0 = glm_inference_problem(without, X, y, PROBIT, scalar_noise=0.25)
@@ -410,3 +410,31 @@ def test_inference_problem_with_score_covariance():
     default = glmstar_inference_problem(fit, X, Y)
     np.testing.assert_allclose(info.Z_full, default.Z_full)
     np.testing.assert_allclose(default.Sigma, default.dispersion * default.problem.Q_hat / N)
+
+
+def test_inference_problem_with_score_covariance_operator():
+    # Sigma may be a LinearOperator, e.g. the sandwich X1^T diag(r^2) X1 / n^2 of a
+    # misspecified model; lassoinf gives the same intervals as with the dense matrix
+    from scipy.sparse.linalg import LinearOperator, aslinearoperator
+    from glmnet.inference import glmstar_inference_problem, score_perturbation
+    from glmnet.inference.glmnet_problem import XTVXOperator
+    lassoinf = pytest.importorskip('lassoinf')
+    X, Y = _data('binomial')
+    y = np.asarray(Y['y'])
+    X1 = np.column_stack([np.ones(N), X])
+    eta = X1 @ sm.GLM(y, X1, family=sm.families.Binomial()).fit().params
+    omega = score_perturbation(X, eta, sm.families.Binomial(), 1 / 9, rng=0)
+    fit = GLMNet(family=sm.families.Binomial(), lambda_values=np.array([0.02]),
+                 linear_term=omega, control=GLMNetControl(epsnr=1e-12, thresh=1e-14)).fit(X, y)
+    r = y - 1 / (1 + np.exp(-eta))
+    dense = X1.T @ (X1 * r[:, None]**2) / N**2
+    op = XTVXOperator(X1, aslinearoperator(scipy.sparse.diags(r**2 / N**2)))
+    info_dense = glmstar_inference_problem(fit, X, y, scalar_noise=1 / 9, Sigma=dense)
+    info_op = glmstar_inference_problem(fit, X, y, scalar_noise=1 / 9, Sigma=op)
+    assert isinstance(info_op.Sigma, LinearOperator) and np.isnan(info_op.dispersion)
+    np.testing.assert_allclose(info_op.Z_full, info_dense.Z_full)
+    summaries = [lassoinf.LassoInference(**info.lasso_args(), level=0.9).summary_
+                 for info in (info_dense, info_op)]
+    assert len(summaries[0]) > 0
+    # the same up to the tolerance (1e-6) of the root-finding that inverts the intervals
+    pd.testing.assert_frame_equal(summaries[0], summaries[1], rtol=1e-6)
