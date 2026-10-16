@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import pandas as pd
 import pytest
@@ -108,12 +109,23 @@ def test_big_glm_matches_R(Rinfo, family, use_wts, use_off):
     assert est.lambda_values is None
 
 
-@pytest.mark.parametrize('family', ['gaussian', 'binomial', 'poisson', 'cox'])
+COX_BINDING_LIMIT = pytest.param('cox', marks=pytest.mark.xfail(
+    strict=True, raises=UserWarning,
+    reason="glmnet's Cox fit at lambda = 0 does not converge when a limit binds "
+           "(here x1's unconstrained coefficient is 0.58 > 0.1): it returns an empty "
+           "model, as R's bigGlm does (jerr = -1)"))
+
+
+@pytest.mark.parametrize('family', ['gaussian', 'binomial', 'poisson', COX_BINDING_LIMIT])
 def test_big_glm_exclude_limits_matches_R(Rinfo, family):
     X, df, args = _data(family, True, False)
     upper = np.array([0.1, np.inf, np.inf, np.inf])
     est = FAMILIES[family](control=_control(family), exclude=[3], upper_limits=upper, **args)
-    fit = big_glm(est, X, df)
+    with warnings.catch_warnings():
+        # a convergence warning means an empty model, which would match R's
+        # equally empty one
+        warnings.simplefilter('error', UserWarning)
+        fit = big_glm(est, X, df)
     # bigGlm appends a column to x, so R needs vectors of length nvars + 1;
     # it also replaces any `exclude` argument by that column, so exclude
     # variable 4 by an infinite penalty factor instead
