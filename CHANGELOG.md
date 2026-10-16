@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Renamed, for the lasso / elastic net:** the modules
+  `glmnet.inference.glm_problem` and `glm_inference` are now `glmnet_problem`
+  and `glmnet_inference`, and the function `glmnet_problem` is now
+  `problem_from_solution`. The old names still work, with a
+  `DeprecationWarning`, and will be removed in a later release.
 - **Requirements:** coxdev >= 0.3.0. `c_index` now uses coxdev's C-index,
   and glmstar's own concordance extension is removed.
 

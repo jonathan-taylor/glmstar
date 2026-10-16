@@ -22,7 +22,7 @@ weighted root mean square without an intercept); glmstar does not. See ``y_scale
 
 In the original coordinates :math:`(\\beta_0, \\beta)` this is a bounded LASSO with weights
 :math:`D_j = \\lambda \\alpha pf_j s_j` (0 for the intercept) and smooth part
-:math:`f` = negative log-likelihood plus the ridge and linear terms. :func:`glmnet_problem` returns the
+:math:`f` = negative log-likelihood plus the ridge and linear terms. :func:`problem_from_solution` returns the
 solution, the gradient and Hessian of :math:`f` at it, and ``D``, ``L``, ``U``: the inputs
 of ``lassoinf.LassoInference``. Standardization only enters through ``D`` and the
 ridge term, so coefficients and limits stay on the original scale.
@@ -38,6 +38,8 @@ Adapted from ``lassoinf/glm_problem.py`` (github.com/jonathan-taylor/lassoinf).
 
 from dataclasses import dataclass, asdict
 from typing import Optional
+import sys
+import types
 import warnings
 
 import numpy as np
@@ -342,26 +344,26 @@ def _relaxed_fisher_weight(X_active, y, w, eta, family):
     return W_relaxed
 
 
-def glmnet_problem(X,
-                   y,
-                   coef,
-                   intercept,
-                   lambda_val,
-                   family='gaussian',
-                   weights=None,
-                   offset=None,
-                   alpha=1.,
-                   penalty_factor=None,
-                   exclude=(),
-                   lower_limits=-np.inf,
-                   upper_limits=np.inf,
-                   standardize=True,
-                   fit_intercept=True,
-                   scaling=None,
-                   y_scale=None,
-                   hessian='dense',
-                   information='relaxed',
-                   linear_term=None):
+def problem_from_solution(X,
+                          y,
+                          coef,
+                          intercept,
+                          lambda_val,
+                          family='gaussian',
+                          weights=None,
+                          offset=None,
+                          alpha=1.,
+                          penalty_factor=None,
+                          exclude=(),
+                          lower_limits=-np.inf,
+                          upper_limits=np.inf,
+                          standardize=True,
+                          fit_intercept=True,
+                          scaling=None,
+                          y_scale=None,
+                          hessian='dense',
+                          information='relaxed',
+                          linear_term=None):
     """
     The bounded LASSO problem glmnet solved, at its solution (coef, intercept).
 
@@ -486,7 +488,7 @@ def _glmstar_family(glmnet_obj):
 def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', information='relaxed'):
     """
     GLMProblem for a fitted glmstar ``GLMNet`` at one of its lambda values.
-    ``information`` is as for :func:`glmnet_problem`.
+    ``information`` is as for :func:`problem_from_solution`.
 
     X, y : the data passed to ``fit`` (y may be a DataFrame with response,
         weight and offset columns, as for glmstar).
@@ -516,7 +518,7 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
     # the penalty factors used in this fit, if computed from the data
     # (get_penalty_factor), else the constructor's
     penalty_factor = getattr(G, 'penalty_factor_', G.penalty_factor)
-    problem = glmnet_problem(X_arr,
+    problem = problem_from_solution(X_arr,
                           response,
                           coef=G.coefs_[k],
                           intercept=G.intercepts_[k],
@@ -541,6 +543,27 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
 
 
 __all__ = ['GLMProblem', 'GLMFamily', 'resolve_family', 'glm_moments',
-           'glmnet_problem', 'glmstar_problem', 'glmnet_scaling',
+           'problem_from_solution', 'glmstar_problem', 'glmnet_scaling',
            'glmnet_response_scale', 'glmnet_penalty_factor', 'kkt_violation',
            'XTVXOperator']
+
+
+def _glmnet_problem(*args, **kwargs):
+    warnings.warn('glmnet.inference.glmnet_problem() is deprecated and will be removed: '
+                  'use glmnet.inference.problem_from_solution()',
+                  DeprecationWarning,
+                  stacklevel=3)
+    return problem_from_solution(*args, **kwargs)
+
+
+class _CallableModule(types.ModuleType):
+    """
+    Until its removal, the deprecated function ``glmnet_problem`` (now
+    `problem_from_solution`): the name ``glmnet.inference.glmnet_problem`` is
+    this module, so calling it calls the function, with a DeprecationWarning.
+    """
+    def __call__(self, *args, **kwargs):
+        return _glmnet_problem(*args, **kwargs)
+
+
+sys.modules[__name__].__class__ = _CallableModule
