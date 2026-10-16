@@ -164,7 +164,15 @@ class GLMFamilySpec(object):
                             standardize=False,
                             intercept=False)
             
-            state = GLMState(np.zeros(1),
+            # start at the mean of the response (less the mean offset), on
+            # the link scale, as R's glm starts at mustart = y: the intercept
+            # 0 need not be a valid linear predictor (e.g. the inverse link)
+            w = sample_weight / sample_weight.sum()
+            ybar = w @ y
+            if self.is_binomial:
+                ybar = np.clip(ybar, 1e-9, 1 - 1e-9)
+            start = float(self.base.link(ybar)) - w @ offset
+            state = GLMState(np.array([start]),
                              0)
             state.update(D,
                          self,
@@ -223,6 +231,32 @@ class GLMFamilySpec(object):
                           state0.mean_parameter,
                           sample_weight=sample_weight)
         return state0, D
+
+    def valid(self,
+              state):
+        """Is the mean of `state` in the family's domain?
+
+        The mean must be finite with a finite positive variance and, but for
+        the Gaussian, positive (`quasi_newton_step` halves steps leaving it,
+        e.g. for the inverse or identity links).
+
+        Parameters
+        ----------
+        state : GLMState
+            State of GLM.
+
+        Returns
+        -------
+        bool
+        """
+        mu = np.asarray(state.mu)
+        if not np.all(np.isfinite(mu)):
+            return False
+        if not isinstance(self.base, sm_family.Gaussian) and np.any(mu <= 0):
+            return False
+        with np.errstate(all='ignore'):
+            varmu = self.base.variance(mu)
+        return bool(np.all(np.isfinite(varmu)) and np.all(varmu > 0))
 
     def get_response_and_weights(self,
                                  state,
@@ -446,8 +480,9 @@ class GLMFamilySpec(object):
             Null state with correct dimensions.
         """
         coefold = np.zeros(nvars)   # initial coefs = 0
+        # null_fit's one coefficient is the intercept (0 without one)
         state = GLMState(coef=coefold,
-                         intercept=null_fit.intercept)
+                         intercept=null_fit.coef[0])
         state.mean_parameter = null_fit.mean_parameter
         state.link_parameter = null_fit.link_parameter
         return state
