@@ -370,7 +370,7 @@ def test_glm_moments_extreme_probit():
     # underflow to 0 and the score and Fisher weights stay finite; moderate eta is unchanged
     import statsmodels.api as sm
     from scipy.stats import norm
-    from glmnet.inference.glm_problem import glm_moments
+    from glmnet.inference.glmnet_problem import glm_moments
     probit = sm.families.Binomial(link=sm.families.links.Probit())
     eta = np.array([-40., -9., -1., 0., 2., 9., 40.])
     mu, a, W = glm_moments(probit, eta)

@@ -13,7 +13,7 @@ from glmnet.glmnet import GLMNetControl
 
 from glmnet.inference import glmnet_problem, glmstar_problem
 from glmnet.inference import glm_inference_problem, glmstar_inference_problem
-from glmnet.inference.glm_inference import _newton_step
+from glmnet.inference.glmnet_inference import _newton_step
 
 N, P = 300, 10
 SM_FAMILIES = {'gaussian': smf.Gaussian(), 'binomial': smf.Binomial(), 'poisson': smf.Poisson()}
@@ -83,7 +83,7 @@ def test_carving_newton_step(data):
 
 
 def test_weights_offset_ridge(data):
-    # glm_inference from a GLMProblem, with weights, offset and a ridge term
+    # glmnet_inference from a GLMProblem, with weights, offset and a ridge term
     X, df, rows = data
     y, w, o = df['poisson'].values, df['w'].values, df['o'].values
     lam, alpha = 0.05, 0.5

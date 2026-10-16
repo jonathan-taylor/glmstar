@@ -5,7 +5,7 @@ inference after it. The inference itself is done by ``lassoinf``.
 Adapted from github.com/jonathan-taylor/lassoinf.
 """
 
-from .glm_problem import (GLMProblem,
+from .glmnet_problem import (GLMProblem,
                           GLMFamily,
                           resolve_family,
                           glm_moments,
@@ -16,7 +16,7 @@ from .glm_problem import (GLMProblem,
                           glmnet_penalty_factor,
                           kkt_violation,
                           XTVXOperator)
-from .glm_inference import (GLMInferenceProblem,
+from .glmnet_inference import (GLMInferenceProblem,
                             glm_inference_problem,
                             glmstar_inference_problem,
                             score_perturbation)

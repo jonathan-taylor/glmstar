@@ -417,7 +417,7 @@ def test_inference_problem_with_score_covariance_operator():
     # misspecified model; lassoinf gives the same intervals as with the dense matrix
     from scipy.sparse.linalg import LinearOperator, aslinearoperator
     from glmnet.inference import glmstar_inference_problem, score_perturbation
-    from glmnet.inference.glm_problem import XTVXOperator
+    from glmnet.inference.glmnet_problem import XTVXOperator
     lassoinf = pytest.importorskip('lassoinf')
     X, Y = _data('binomial')
     y = np.asarray(Y['y'])

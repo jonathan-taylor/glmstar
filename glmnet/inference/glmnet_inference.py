@@ -2,7 +2,7 @@
 The inputs for selective inference after a glmnet / glmstar fit.
 
 With the LASSO problem (beta_hat, G, Q_hat) on the rows used for selection
-(:func:`glmnet.inference.glm_problem.glmnet_problem`; Q_hat the Fisher information at the
+(:func:`glmnet.inference.glmnet_problem.glmnet_problem`; Q_hat the Fisher information at the
 one-step relaxed fit by default), the selection score is Z_noisy = -G + Q_hat beta_hat, and
 Var(Z_full) = dispersion * Q_hat / sum(weights).
 
@@ -40,7 +40,7 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
 from ..elnet import LinearTerm
-from .glm_problem import (GLMProblem,
+from .glmnet_problem import (GLMProblem,
                           glm_moments,
                           resolve_family,
                           _variance,
@@ -159,7 +159,7 @@ def score_perturbation(X,
     ----------
     X : design (n x p), as passed to ``GLMNet``
     eta : pilot linear predictor (including any offset)
-    family : as for :func:`glmnet.inference.glm_problem.glmnet_problem`
+    family : as for :func:`glmnet.inference.glmnet_problem.glmnet_problem`
     scalar_noise : variance of omega relative to that of the score, e.g. (1 - pi) / pi to
         imitate selecting on a proportion pi of the data
     weights : prior weights, as passed to ``GLMNet``; default 1
@@ -225,7 +225,7 @@ def glm_inference_problem(problem,
     problem : GLMProblem for the selection rows (from glmnet_problem or glmstar_problem),
         including the fit's linear term
     X, y : the full data (arrays)
-    family : as for :func:`glmnet.inference.glm_problem.glmnet_problem`
+    family : as for :func:`glmnet.inference.glmnet_problem.glmnet_problem`
     weights, offset : full-data observation weights and offset (prior weights, as in a GLM)
     selection_rows : rows (indices or boolean mask) used for selection; None for all of
         them
@@ -325,7 +325,7 @@ def glmstar_inference_problem(glmnet_obj,
     all of ``X``, ``y`` (carving). ``y`` may be a DataFrame with response, weight and
     offset columns, as for glmstar. ``Sigma`` (an array or LinearOperator) overrides the
     covariance of the score, for dependent observations or a misspecified model. See :func:`glm_inference_problem`; ``hessian`` and
-    ``information`` are as for :func:`glmnet.inference.glm_problem.glmnet_problem`.
+    ``information`` are as for :func:`glmnet.inference.glmnet_problem.glmnet_problem`.
     """
     n = X.shape[0]
     rows = np.arange(n) if selection_rows is None else np.arange(n)[selection_rows]
