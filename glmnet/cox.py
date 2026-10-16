@@ -481,6 +481,38 @@ class CoxFamilySpec(object):
             raise ValueError
         return self._result.deviance
     
+    def loglike(self,
+                y,
+                mu,
+                sample_weight,
+                scale=1.):
+        """The partial log-likelihood at the linear predictor `mu`."""
+        result = self._coxdev_at(sample_weight)(mu, sample_weight)
+        return result.loglik_sat - result.deviance / 2
+
+    def residuals(self,
+                  y,
+                  mu,
+                  sample_weight,
+                  kind='martingale'):
+        """
+        Martingale or deviance residuals at the linear predictor `mu`, as R's
+        `residuals.coxph`.
+        """
+        w = np.asarray(sample_weight, float)
+        result = self._coxdev_at(w)(mu, w)
+        # the deviance's gradient in the linear predictor is -2 w M, with M
+        # the martingale residuals
+        M = np.where(w > 0, -result.gradient / 2 / np.where(w > 0, w, 1), 0)
+        if kind == 'martingale':
+            return M
+        if kind == 'deviance':
+            status = np.asarray(self._coxdev_args['status'], float)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                d = -2 * (M + np.where(status > 0, status * np.log(status - M), 0))
+            return np.sign(M) * np.sqrt(np.maximum(d, 0))
+        raise ValueError("Cox residuals are 'martingale' or 'deviance'")
+
     def null_fit(self,
                  y,
                  sample_weight,
@@ -643,39 +675,6 @@ class CoxLM(GLM):
                          weight_id=self.weight_id,
                          check=check,
                          multi_output=True)
-
-    def _summarize(self,
-                   exclude,
-                   dispersion,
-                   sample_weight,
-                   X_shape):
-
-        # the information is at the normalized weights: scale it back
-        unscaled_precision_ = self.weight_total_ * self.design_.quadratic_form(self._information,
-                                                                               transformed=False)
-
-        keep = np.ones(unscaled_precision_.shape[0]-1, bool)
-        if exclude is not []:
-            keep[exclude] = 0
-        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-        covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
-
-        SE = np.sqrt(np.diag(covariance_)) 
-        index = self.feature_names_in_
-        if self.fit_intercept:
-            coef = np.hstack([self.intercept_, self.coef_])
-            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
-            index = ['intercept'] + index
-        else:
-            coef = self.coef_
-            T = self.coef_ / SE
-
-        summary_ = pd.DataFrame({'coef':coef,
-                                 'std err': SE,
-                                 'z': T,
-                                 'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
-                                index=index)
-        return covariance_, summary_
 
 
 @dataclass

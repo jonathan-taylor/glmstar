@@ -53,6 +53,8 @@ doc = [
     "matplotlib",
     "rpy2",
     "jupytext",
+    # docs/islp_glm.md
+    "ISLP",
     # the scale-relative tolerance for the active set (lassoinf#29)
     "lassoinf>=0.2.1"
 ]

@@ -14,6 +14,7 @@ import scipy.sparse
 from scipy.sparse.linalg import LinearOperator
 from scipy.stats import norm as normal_dbn
 from scipy.stats import t as t_dbn
+from scipy.stats import chi2 as chi2_dbn
 
 from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
@@ -26,6 +27,7 @@ from ._utils import (_parent_dataclass_from_child,
                      _get_data)
 
 from .base import (Design,
+                   DiagonalOperator,
                    _get_design)
 
 from .irls import IRLS
@@ -128,100 +130,6 @@ def _state_on_design(state, design):
                            intercept=state.intercept + (coef * design.centers_).sum())
 
 
-@dataclass
-class GLMState(object):
-    """
-    State object for GLM fitting.
-    
-    Parameters
-    ----------
-    coef: np.ndarray
-        Coefficient vector.
-    intercept: np.ndarray
-        Intercept value.
-    obj_val: float
-        Current objective value.
-    pmin: float
-        Minimum probability for binomial family.
-    """
-    coef: np.ndarray
-    intercept: np.ndarray
-    obj_val: float = np.inf
-    pmin: float = 1e-9
-    
-    def __post_init__(self):
-        self._stack = np.hstack([self.intercept,
-                                 self.coef])
-
-    def update(self,
-               design,
-               family,
-               offset,
-               objective=None):
-        """
-        Update the state with new design matrix and family.
-        
-        Parameters
-        ----------
-        design: Design
-            Design matrix.
-        family: GLMFamilySpec
-            GLM family specification.
-        offset: np.ndarray, optional
-            Offset vector.
-        objective: callable, optional
-            Objective function to evaluate.
-        """
-        _family = family.base
-        self.linear_predictor = design @ self._stack
-        if offset is None:
-            self.link_parameter = self.linear_predictor
-        else:
-            self.link_parameter = self.linear_predictor + offset
-        self.mean_parameter = _family.link.inverse(self.link_parameter)
-
-        # shorthand
-        self.mu = self.mean_parameter 
-        self.eta = self.linear_predictor 
-
-        if family.is_binomial: # isinstance(family, sm_family.Binomial):
-            self.mu = np.clip(self.mu, self.pmin, 1-self.pmin)
-            self.link_parameter = _family.link(self.mu)
-
-        if objective is not None:
-            self.obj_val = objective(self)
-        
-    def logl_score(self,
-                   family,
-                   y,
-                   sample_weight):
-        """
-        Compute the score (gradient of log-likelihood).
-        
-        Parameters
-        ----------
-        family: GLMFamilySpec
-            GLM family specification.
-        y: np.ndarray
-            Response variable.
-        sample_weight: np.ndarray
-            Sample weights.
-            
-        Returns
-        -------
-        np.ndarray
-            Score vector.
-        """
-        family = family.base
-        varmu = family.variance(self.mu)
-        dmu_deta = family.link.inverse_deriv(self.link_parameter)
-        
-        # compute working residual
-        y = np.asarray(y).reshape(-1)
-        r = (y - self.mu) 
-        return sample_weight * r * dmu_deta / varmu 
-
-
 def compute_grad(glm_obj,
                  intercept,
                  coef,
@@ -317,6 +225,7 @@ class GLMRegularizer(object):
     standardize: bool = False
     warm_state: dict = field(default_factory=dict)
     ridge_coef: float = 0
+    exclude: list = field(default_factory=list)
 
     def half_step(self,
                   state,
@@ -393,7 +302,13 @@ class GLMRegularizer(object):
         z = pseudo_response
         w = sample_weight
 
-        D = np.ones(design.X.shape[1] + 1)
+        # excluded variables are left out of the fit: their coefficients stay 0
+        p = design.X.shape[1]
+        keep = np.ones(p, bool)
+        keep[np.asarray(self.exclude, int)] = False
+        kept = np.nonzero(keep)[0]
+
+        D = np.ones(kept.shape[0] + 1)
         D[0] = 0
 
         # this will produce coefficients on the raw scale
@@ -406,8 +321,9 @@ class GLMRegularizer(object):
             else:
                 lm = Ridge(fit_intercept=self.fit_intercept,
                            alpha=self.ridge_coef)
-            lm.fit(design.X, z, sample_weight=w)
-            coefnew = lm.coef_
+            lm.fit(design.X[:, kept], z, sample_weight=w)
+            coefnew = np.zeros(p)
+            coefnew[kept] = lm.coef_
             # the state is in the design's (centered) coordinates, as in
             # the dense case; design.X is the raw (uncentered) sparse matrix
             intnew = lm.intercept_ + coefnew @ design.centers_
@@ -420,7 +336,8 @@ class GLMRegularizer(object):
             else:
                 X = design @ (np.identity(design.shape[1])[:,1:])
                 XW = X * sqrt_w[:, None]
-                
+            XW = XW[:, kept]
+
             if self.fit_intercept:
                 D = np.diag(D)
                 Wz = sqrt_w * z
@@ -437,7 +354,8 @@ class GLMRegularizer(object):
                         XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
                         Wz = np.hstack([Wz, np.zeros(Q.shape[0])])
                     beta = np.linalg.pinv(XW) @ Wz
-                coefnew = beta[1:]
+                coefnew = np.zeros(p)
+                coefnew[kept] = beta[1:]
                 intnew = beta[0]
 
             else:
@@ -446,7 +364,8 @@ class GLMRegularizer(object):
                     XW = np.vstack([XW, np.sqrt(self.ridge_coef) * D])
                     z = np.hstack([z, np.zeros(D.shape[0])])
                     sqrt_w = np.hstack([sqrt_w, np.zeros(D.shape[0])])
-                coefnew = np.linalg.pinv(XW) @ (sqrt_w * z)
+                coefnew = np.zeros(p)
+                coefnew[kept] = np.linalg.pinv(XW) @ (sqrt_w * z)
                 intnew = 0
 
         klass = cur_state.__class__
@@ -633,6 +552,8 @@ class GLMBase(BaseEstimator,
         # information, linear in the weights, are scaled back by their total
         weight_total = sample_weight.sum()
         self.sample_weight_ = normed_sample_weight = sample_weight / weight_total
+        # for residuals and the log-likelihood
+        self._response, self._weight = response, weight
         
         response = np.asarray(response)
 
@@ -736,17 +657,26 @@ class GLMBase(BaseEstimator,
 
         self._set_coef_intercept(state)
 
-        if self._family.is_gaussian and dispersion is None:
-            # usual estimate of sigma^2
-            self.dispersion_ = self.deviance_ / (nobs - nvar - self.fit_intercept) 
-            self.df_resid_ = nobs - nvar - self.fit_intercept
-        else:
-            self.dispersion_ = dispersion
+        # the variables in the model, and the residual degrees of freedom
+        self._kept = np.ones(nvar, bool)
+        self._kept[np.asarray(self.exclude, int)] = False
+        self.df_resid_ = int(np.sum(weight > 0)) - self._kept.sum() - self.fit_intercept
+
+        if dispersion is None:
+            # usual estimate of sigma^2 for the Gaussian, 1 otherwise
+            dispersion = self.deviance_ / self.df_resid_ if self._family.is_gaussian else 1.
+        self.dispersion_ = dispersion
+
+        names = list(np.asarray(self.feature_names_in_)[self._kept])
+        values = np.asarray(self.coef_)[self._kept]
+        if self.fit_intercept:
+            names, values = ['intercept'] + names, np.hstack([self.intercept_, values])
+        self.params_ = pd.Series(values, index=names)
 
         self.state_ = state
         return self
     
-    def predict(self, X, prediction_type='response'):
+    def predict(self, X, prediction_type='response', offset=None):
         """
         Predict outcome of corresponding family.
 
@@ -760,14 +690,41 @@ class GLMBase(BaseEstimator,
         prediction_type: str
             One of "response" or "link". If "response" return a prediction on the mean scale,
             "link" on the link scale. Defaults to "response".
+        offset: np.ndarray, optional
+            Offset added to the linear predictor.
 
         Returns
         -------
         prediction: np.ndarray
             Predictions on the mean scale for family of a GLM.
         """
+        return self._family.predict(self._linear_predictor(X, offset),
+                                    prediction_type=prediction_type)
+
+    def _linear_predictor(self, X, offset=None):
+        X = self._drop_intercept_column(X)
         linpred = X @ self.coef_ + self.intercept_ # often called eta
-        return self._family.predict(linpred, prediction_type=prediction_type)
+        linpred = np.asarray(linpred, float).reshape(-1)
+        return linpred if offset is None else linpred + np.asarray(offset, float)
+
+    def _drop_intercept_column(self, X, fitting=False):
+        """
+        A DataFrame `X` from a design builder such as ISLP's `ModelSpec` may have a
+        constant column `intercept`, which duplicates the fitted intercept: it is
+        dropped, with a warning when fitting.
+        """
+        if fitting:
+            self._intercept_column = (self.fit_intercept and
+                                      isinstance(X, pd.DataFrame) and
+                                      'intercept' in X.columns and
+                                      np.all(np.asarray(X['intercept']) == 1))
+            if self._intercept_column:
+                warnings.warn("dropping the constant column 'intercept' of X: "
+                              "the model has an intercept (fit_intercept=True)")
+        if (getattr(self, '_intercept_column', False) and
+            isinstance(X, pd.DataFrame) and 'intercept' in X.columns):
+            X = X.drop(columns='intercept')
+        return X
 
     def score(self, X, y, sample_weight=None):
         """
@@ -859,7 +816,8 @@ class GLM(GLMBase):
             Regularizer instance.
         """
         return GLMRegularizer(fit_intercept=self.fit_intercept,
-                              ridge_coef=self.ridge_coef)
+                              ridge_coef=self.ridge_coef,
+                              exclude=self.exclude)
 
     def _finalize_family(self,
                          response):
@@ -879,13 +837,17 @@ class GLM(GLMBase):
         if not hasattr(self, "_family"):
             return GLMFamilySpec.from_family(self.family, response)
 
+    # the constant column 'intercept' of a ModelSpec design is dropped (see
+    # `_drop_intercept_column`); RegGLM, fitted by GLMNet, does not
+    _drops_intercept_column = True
+
     def fit(self,
             X,
             y,
             sample_weight=None,           # ignored
             regularizer=None,             # last 4 options non sklearn API
             warm_state=None,
-            dispersion=1,
+            dispersion=None,
             check=True):
         """
         Fit a GLM.
@@ -896,7 +858,8 @@ class GLM(GLMBase):
             Input matrix, of shape `(nobs, nvars)`; each row is an observation
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
-            standardized.
+            standardized. A DataFrame's constant column `intercept` (as made by
+            ISLP's `ModelSpec`) is dropped when `fit_intercept` is True.
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
@@ -906,9 +869,10 @@ class GLM(GLMBase):
         warm_state: GLMState, optional
             Warm start: coefficients and intercept on the original scale of
             the features, as `coef_` and `intercept_`.
-        dispersion: float
-            Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
-            minimized deviance divided by degrees of freedom.
+        dispersion: float, optional
+            Dispersion parameter of GLM. By default it is estimated as the
+            deviance divided by the residual degrees of freedom for the Gaussian,
+            and 1 for the other families.
         check: bool
             Run the `_check` method to validate `(X,y)`.
 
@@ -917,6 +881,8 @@ class GLM(GLMBase):
         self: object
             GLM class instance.
         """
+        if self._drops_intercept_column:
+            X = self._drop_intercept_column(X, fitting=True)
         super().fit(X,
                     y,
                     sample_weight=sample_weight,
@@ -925,37 +891,17 @@ class GLM(GLMBase):
                     dispersion=dispersion,
                     check=check)
 
-        weight = self.get_data_arrays(X, y, check=False)[-1]
-            
         if self.summarize:
-            self.covariance_, self.summary_ = self._summarize(self.exclude,
-                                                              self.dispersion_,
-                                                              weight,
-                                                              X.shape)
+            self.covariance_, self.summary_ = self._summarize()
         else:
             self.summary_ = self.covariance_ = None
             
         return self
 
-    def _summarize(self,
-                   exclude,
-                   dispersion,
-                   sample_weight,
-                   X_shape):
+    def _summarize(self):
         """
-        Compute summary statistics.
-        
-        Parameters
-        ----------
-        exclude: list
-            Indices of variables to exclude.
-        dispersion: float
-            Dispersion parameter.
-        sample_weight: np.ndarray
-            Sample weights.
-        X_shape: tuple
-            Shape of design matrix.
-            
+        The covariance of `params_` and the Wald summary table.
+
         Returns
         -------
         tuple
@@ -965,50 +911,238 @@ class GLM(GLMBase):
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
 
         # the information is at the normalized weights: scale it back
-        unscaled_precision_ = self.weight_total_ * self.design_.quadratic_form(self._information,
+        unscaled_precision_ = self.weight_total_ * self.design_.quadratic_form(self._get_information(),
                                                                                transformed=False)
         if self.ridge_coef != 0:
             D = np.ones(unscaled_precision_.shape[0])
             D[0] = 0
             unscaled_precision_ += self.ridge_coef * np.diag(D)
         
-        keep = np.ones(unscaled_precision_.shape[0]-1, bool)
-        if exclude is not []:
-            keep[exclude] = 0
-        keep = np.hstack([self.fit_intercept, keep]).astype(bool)
-        covariance_ = dispersion * np.linalg.inv(unscaled_precision_[keep][:,keep])
+        keep = np.hstack([self.fit_intercept, self._kept]).astype(bool)
+        covariance_ = self.dispersion_ * np.linalg.inv(unscaled_precision_[keep][:,keep])
 
         SE = np.sqrt(np.diag(covariance_)) 
-        index = self.feature_names_in_
-        if self.fit_intercept:
-            coef = np.hstack([self.intercept_, self.coef_])
-            T = np.hstack([self.intercept_ / SE[0], self.coef_ / SE[1:]])
-            index = ['intercept'] + index
-        else:
-            coef = self.coef_
-            T = self.coef_ / SE
+        coef = self.params_.values
+        T = coef / SE
 
         if self._family.is_gaussian:
-            n, p = X_shape
-            self.df_resid_ = n - p - self.fit_intercept
-            df_resid = self.df_resid_
-        else:
-            df_resid = np.inf
-
-        if (df_resid < np.inf):
             summary_ = pd.DataFrame({'coef':coef,
                                      'std err': SE,
                                      't': T,
                                      'P>|t|': 2 * t_dbn.sf(np.fabs(T),
-                                                           df=df_resid)},
-                                    index=index)
+                                                           df=self.df_resid_)},
+                                    index=self.params_.index)
         else:
             summary_ = pd.DataFrame({'coef':coef,
                                      'std err': SE,
                                      'z': T,
                                      'P>|z|': 2 * normal_dbn.sf(np.fabs(T))},
-                                    index=index)
+                                    index=self.params_.index)
         return covariance_, summary_
+
+    def _get_information(self):
+        """The information of the fit (at the normalized weights)."""
+        if not hasattr(self, '_information'):
+            self._information = self._family.information(self.state_,
+                                                         self.sample_weight_)
+        return self._information
+
+    def _get_covariance(self):
+        if getattr(self, 'covariance_', None) is None:
+            return self._summarize()[0]
+        return self.covariance_
+
+    def _quantile(self, alpha):
+        # t for the Gaussian, whose dispersion is estimated, as in summary_
+        if self._family.is_gaussian:
+            return t_dbn.ppf(1 - alpha / 2, df=self.df_resid_)
+        return normal_dbn.ppf(1 - alpha / 2)
+
+    def conf_int(self, alpha=0.05):
+        """
+        Wald confidence intervals for `params_`, of level `1 - alpha`.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns `lower` and `upper`, indexed as `params_`.
+        """
+        se = np.sqrt(np.diag(self._get_covariance()))
+        q = self._quantile(alpha)
+        return pd.DataFrame({'lower': self.params_ - q * se,
+                             'upper': self.params_ + q * se})
+
+    def summary(self, alpha=0.05):
+        """
+        A statsmodels `Summary`: `tables[0]` describes the fit, `tables[1]` is
+        `summary_` with the confidence intervals of `conf_int(alpha)`, as for
+        a statsmodels results instance (so that ISLP's `summarize` works).
+        """
+        from statsmodels.iolib.summary import Summary
+        from statsmodels.iolib.table import SimpleTable
+
+        coefs = self._summarize()[1] if self.summary_ is None else self.summary_
+        intervals = self.conf_int(alpha)
+        # statsmodels' formats
+        data = [[f'{row[0]:.4f}'] + [f'{v:.3f}' for v in row[1:]]
+                for row in coefs.values]
+        data = [row + [f'{lo:.3f}', f'{hi:.3f}']
+                for row, lo, hi in zip(data, intervals['lower'], intervals['upper'])]
+        headers = list(coefs.columns) + [f'[{alpha / 2:g}', f'{1 - alpha / 2:g}]']
+        fit = [['Family:', getattr(self._family, 'name', None) or type(self._family.base).__name__],
+               ['No. Observations:', f'{len(self._weight)}'],
+               ['Df Residuals:', f'{self.df_resid_}'],
+               ['Deviance:', f'{self.deviance_:.4f}'],
+               ['Dispersion:', f'{self.dispersion_:.4g}'],
+               ['Log-Likelihood:', f'{self.loglike_:.4f}'],
+               ['AIC:', f'{self.aic_:.4f}']]
+        smry = Summary()
+        smry.tables = [SimpleTable(fit, title=f'{type(self).__name__} results'),
+                       SimpleTable(data, headers=headers, stubs=list(coefs.index))]
+        return smry
+
+    @property
+    def loglike_(self):
+        """
+        The log-likelihood, with the weights as prior weights (as R's `glm`), or
+        the partial log-likelihood for Cox. The Gaussian's is at the maximum
+        likelihood estimate of its variance, deviance / (number of observations).
+        """
+        if self._family.is_gaussian:
+            scale = self.deviance_ / np.sum(self._weight > 0)
+        else:
+            scale = self.dispersion_
+        return self._family.loglike(self._response, self.state_.mu, self._weight, scale)
+
+    @property
+    def aic_(self):
+        """`-2 loglike_ + 2 k`, with `k` the number of coefficients (as statsmodels' GLM)."""
+        return -2 * self.loglike_ + 2 * len(self.params_)
+
+    @property
+    def bic_(self):
+        """`-2 loglike_ + log(n) k`, with `k` the number of coefficients."""
+        return -2 * self.loglike_ + np.log(np.sum(self._weight > 0)) * len(self.params_)
+
+    @property
+    def fittedvalues_(self):
+        """The fitted values, on the scale of `predict(prediction_type='response')`."""
+        return self._family.predict(self.state_.link_parameter)
+
+    @property
+    def resid_(self):
+        """The default residuals of the family: see `residuals`."""
+        return self.residuals()
+
+    def residuals(self, kind=None):
+        """
+        Residuals of the fit.
+
+        Parameters
+        ----------
+        kind: str, optional
+            For a GLM, 'response' (the default, y - mu), 'pearson' or 'deviance',
+            with the weights as prior weights. For Cox, 'martingale' (the default)
+            or 'deviance'.
+        """
+        kwargs = {} if kind is None else {'kind': kind}
+        return self._family.residuals(self._response, self.state_.mu, self._weight, **kwargs)
+
+    def _rows(self, X):
+        """[1, X] on the variables in the model, as `params_`, keeping a sparse X sparse."""
+        X = self._drop_intercept_column(X)
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        if not scipy.sparse.issparse(X):
+            X = np.asarray(X, float)
+        else:
+            X = scipy.sparse.csc_array(X)
+        return X[:, np.nonzero(self._kept)[0]]
+
+    def _quadratic_rows(self, X, C):
+        """The diagonal of [1, X] C [1, X]^T, with the intercept's row only if fitted."""
+        X = self._rows(X)
+        if self.fit_intercept:
+            C00, c, C = C[0, 0], C[0, 1:], C[1:, 1:]
+        XC = np.asarray(X @ C)
+        if scipy.sparse.issparse(X):
+            q = np.asarray(X.multiply(XC).sum(1)).reshape(-1)
+        else:
+            q = (X * XC).sum(1)
+        if self.fit_intercept:
+            q = q + 2 * np.asarray(X @ c).reshape(-1) + C00
+        return q
+
+    def predict_se(self, X):
+        """
+        Standard errors of the linear predictor at the rows of `X`: the square root
+        of the diagonal of X Cov X^T, with Cov the covariance of `params_`.
+        """
+        return np.sqrt(self._quadratic_rows(X, self._get_covariance()))
+
+    def predict_conf_int(self, X, alpha=0.05, prediction_type='response', offset=None):
+        """
+        Confidence intervals of level `1 - alpha` for the linear predictor at the
+        rows of `X`, from `predict_se`, mapped to the scale of `prediction_type`.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns `fit`, `lower` and `upper`.
+        """
+        eta = self._linear_predictor(X, offset)
+        half = self._quantile(alpha) * self.predict_se(X)
+        fit, a, b = (self._family.predict(v, prediction_type=prediction_type)
+                     for v in (eta, eta - half, eta + half))
+        return pd.DataFrame({'fit': fit,
+                             'lower': np.minimum(a, b),
+                             'upper': np.maximum(a, b)})
+
+    def leverage(self, X):
+        """
+        The leverage of each observation of the fit, the diagonal of
+        X (X^T W X)^{-1} X^T W, with `X` the design the model was fitted to and W
+        the information in the linear predictor. For a GLM, W is diagonal and this
+        is the diagonal of the hat matrix. For Cox, W is not diagonal: this is the
+        generalized leverage, which R does not report.
+        """
+        C = self._get_covariance() / self.dispersion_
+        W = self._get_information()
+        if isinstance(W, DiagonalOperator):
+            return self.weight_total_ * W.weights * self._quadratic_rows(X, C)
+        X = self._rows(X)
+        X = X.toarray() if scipy.sparse.issparse(X) else X
+        if self.fit_intercept:
+            X = np.column_stack([np.ones(X.shape[0]), X])
+        return self.weight_total_ * ((X @ C) * (W @ X)).sum(1)
+
+
+def anova(*fits):
+    """
+    Analysis of deviance for nested fits to the same data, from the smallest model
+    to the largest: R's `anova(..., test="Chisq")`, for every family. The
+    statistic is the drop in deviance divided by the dispersion of the largest
+    model, compared with chi-squared on the drop in residual degrees of freedom.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns `df_resid`, `deviance`, `df_diff`, `dev_diff`, `chi2` and `P(>chi2)`.
+    """
+    if len({len(fit._weight) for fit in fits}) > 1:
+        raise ValueError('the fits are to different numbers of observations')
+    scale = min(fits, key=lambda fit: fit.df_resid_).dispersion_
+    df = np.array([fit.df_resid_ for fit in fits], float)
+    dev = np.array([fit.deviance_ for fit in fits], float)
+    df_diff = np.hstack([np.nan, -np.diff(df)])
+    dev_diff = np.hstack([np.nan, -np.diff(dev)])
+    chi2 = np.abs(dev_diff) / scale
+    return pd.DataFrame({'df_resid': df,
+                         'deviance': dev,
+                         'df_diff': df_diff,
+                         'dev_diff': dev_diff,
+                         'chi2': chi2,
+                         'P(>chi2)': chi2_dbn.sf(chi2, np.abs(df_diff))})
 
 
 @dataclass
@@ -1198,7 +1332,7 @@ class BinomialGLM(ClassifierMixin, GLM):
                            dispersion=dispersion,
                            check=check)
 
-    def predict(self, X, prediction_type='class'):
+    def predict(self, X, prediction_type='class', offset=None):
         """
         Predict outcome of corresponding family.
 
@@ -1218,12 +1352,12 @@ class BinomialGLM(ClassifierMixin, GLM):
         prediction: np.ndarray
             Predictions on the mean scale for family of a GLM.
         """
-        linpred = X @ self.coef_ + self.intercept_ # often called eta
-        pred = self._family.predict(linpred,
-                                    prediction_type=prediction_type)
+        eta = self._linear_predictor(X, offset)
         if prediction_type == 'class':
-            pred = self._classes[pred]
-        return pred
+            # the family may be a plain GLMFamilySpec, without classes
+            prob = self._family.predict(eta, prediction_type='response')
+            return self.classes_[(prob > 0.5).astype(int)]
+        return self._family.predict(eta, prediction_type=prediction_type)
 
     def predict_proba(self, X):
         """
