@@ -238,11 +238,9 @@ def glm_inference_problem(problem,
         :func:`score_perturbation`): with held-out rows as well, it is the total.
     Sigma : Var(Z_full), the covariance of the score of the full data on the scale of G_hat
         (an array or LinearOperator); default dispersion * Q_hat / sum(weights), for
-        independent observations from the model. Give it when they are dependent, e.g.
+        independent observations. Give it when they are dependent, e.g.
         X1^T Sigma_eps X1 / n^2 for gaussian errors with covariance Sigma_eps (unit weights,
-        X1 = [1, X] with an intercept), or when the model is misspecified, e.g. the
-        sandwich X1^T diag(w^2 a^2 (y - mu)^2) X1 / sum(w)^2, which as a LinearOperator
-        (``XTVXOperator``) costs O(n p) per product. ``dispersion`` is then not used.
+        X1 = [1, X] with an intercept). ``dispersion`` is then not used.
 
     Returns
     -------
@@ -326,8 +324,8 @@ def glmstar_inference_problem(glmnet_obj,
     ``linear_term`` (give its ``scalar_noise``). With ``selection_rows``, ``glmnet_obj``
     must have been fitted on ``X[selection_rows]``, ``y[selection_rows]`` and Z_full uses
     all of ``X``, ``y`` (carving). ``y`` may be a DataFrame with response, weight and
-    offset columns, as for glmstar. ``Sigma`` (an array or LinearOperator) overrides the
-    covariance of the score, for dependent observations or a misspecified model. See :func:`glm_inference_problem`; ``hessian`` and
+    offset columns, as for glmstar. ``Sigma`` overrides the covariance of the score, for
+    dependent observations. See :func:`glm_inference_problem`; ``hessian`` and
     ``information`` are as for :func:`glmnet.inference.glm_problem.glmnet_problem`.
     """
     n = X.shape[0]

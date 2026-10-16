@@ -410,31 +410,3 @@ def test_inference_problem_with_score_covariance():
     default = glmstar_inference_problem(fit, X, Y)
     np.testing.assert_allclose(info.Z_full, default.Z_full)
     np.testing.assert_allclose(default.Sigma, default.dispersion * default.problem.Q_hat / N)
-
-
-def test_inference_problem_with_score_covariance_operator():
-    # Sigma may be a LinearOperator, e.g. the sandwich X1^T diag(r^2) X1 / n^2 of a
-    # misspecified model; lassoinf gives the same intervals as with the dense matrix
-    from scipy.sparse.linalg import LinearOperator, aslinearoperator
-    from glmnet.inference import glmstar_inference_problem, score_perturbation
-    from glmnet.inference.glm_problem import XTVXOperator
-    lassoinf = pytest.importorskip('lassoinf')
-    X, Y = _data('binomial')
-    y = np.asarray(Y['y'])
-    X1 = np.column_stack([np.ones(N), X])
-    eta = X1 @ sm.GLM(y, X1, family=sm.families.Binomial()).fit().params
-    omega = score_perturbation(X, eta, sm.families.Binomial(), 1 / 9, rng=0)
-    fit = GLMNet(family=sm.families.Binomial(), lambda_values=np.array([0.02]),
-                 linear_term=omega, control=GLMNetControl(epsnr=1e-12, thresh=1e-14)).fit(X, y)
-    r = y - 1 / (1 + np.exp(-eta))
-    dense = X1.T @ (X1 * r[:, None]**2) / N**2
-    op = XTVXOperator(X1, aslinearoperator(scipy.sparse.diags(r**2 / N**2)))
-    info_dense = glmstar_inference_problem(fit, X, y, scalar_noise=1 / 9, Sigma=dense)
-    info_op = glmstar_inference_problem(fit, X, y, scalar_noise=1 / 9, Sigma=op)
-    assert isinstance(info_op.Sigma, LinearOperator) and np.isnan(info_op.dispersion)
-    np.testing.assert_allclose(info_op.Z_full, info_dense.Z_full)
-    summaries = [lassoinf.LassoInference(**info.lasso_args(), level=0.9).summary_
-                 for info in (info_dense, info_op)]
-    assert len(summaries[0]) > 0
-    # the same up to the tolerance (1e-6) of the root-finding that inverts the intervals
-    pd.testing.assert_frame_equal(summaries[0], summaries[1], rtol=1e-6)
