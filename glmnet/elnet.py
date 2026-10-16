@@ -161,13 +161,12 @@ class ElNet(BaseEstimator,
         self : object
             Returns self.
         """
-        if not hasattr(self, "design_"):
-            self.design_ = design = _get_design(X,
-                                                sample_weight,
-                                                standardize=self.standardize,
-                                                intercept=self.fit_intercept)
-        else:
-            design = self.design_
+        # a fit starts afresh, from the design of these data (as RegGLM passes it, a
+        # Design is used as it is)
+        self.design_ = design = _get_design(X,
+                                            sample_weight,
+                                            standardize=self.standardize,
+                                            intercept=self.fit_intercept)
 
         linear_term_ = _check_linear_term(self.linear_term, design.X.shape[1],
                                           fit_intercept=self.fit_intercept)

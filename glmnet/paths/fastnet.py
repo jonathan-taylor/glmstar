@@ -219,6 +219,9 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
             Fitted estimator.
         """
     
+        # a fit starts afresh: the design is of these data, not of an earlier fit
+        self.__dict__.pop('design_', None)
+
         if self.linear_term is not None:
             raise NotImplementedError('linear_term is not supported by the C++ path solvers; '
                                       'use GLMNet with the corresponding family')

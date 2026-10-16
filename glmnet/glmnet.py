@@ -374,8 +374,10 @@ class GLMNet(BaseEstimator,
         self: object
             GLMNet class instance.
         """
-        if not hasattr(self, "_family"):
-            self._family = self._finalize_family(response=y)
+        # a fit starts afresh: the family (Cox's holds the event data) is of
+        # these data, not of an earlier fit
+        self.__dict__.pop('_family', None)
+        self._family = self._finalize_family(response=y)
 
         X_fit, y_fit = X, y # as passed, for the relaxed refits
 
@@ -417,6 +419,8 @@ class GLMNet(BaseEstimator,
                               y,
                               None,
                               fit_null=False)
+        # the fits along the path are to the same data: keep its design and family
+        self.reg_glm_est_._path_refit = True
         regularizer_ = self.reg_glm_est_.regularizer_
 
         state, keep_ = self._get_initial_state(X,
