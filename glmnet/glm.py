@@ -615,6 +615,14 @@ class GLMBase(BaseEstimator,
         self: object
             GLM class instance.
         """
+        if not getattr(self, '_path_refit', False):
+            # a fit starts afresh: the design, the family (Cox's holds the
+            # event data) and the information are of these data, not of an
+            # earlier fit; GLMNet refits its RegGLM to the same data along
+            # the path, keeping them (_path_refit)
+            for attr in ['design_', '_family', '_information']:
+                self.__dict__.pop(attr, None)
+
         nobs, nvar = X.shape
         
         if isinstance(X, pd.DataFrame):
