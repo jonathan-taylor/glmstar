@@ -612,6 +612,7 @@ class GLMState(object):
         dmu_deta = family.link.inverse_deriv(self.link_parameter)
         
         # compute working residual
+        y = np.asarray(y).reshape(-1)
         r = (y - self.mu) 
         return sample_weight * r * dmu_deta / varmu
 

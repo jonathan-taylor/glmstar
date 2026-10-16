@@ -299,6 +299,8 @@ class RegGLM(GLM,
     """
     control: RegGLMControl = field(default_factory=RegGLMControl)
 
+    _unpenalized = False
+
     def get_LM(self):
         """
         Get the corresponding linear model (GLM without regularization).
