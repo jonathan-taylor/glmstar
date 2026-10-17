@@ -7,11 +7,32 @@
 - **`glmnet.glm.prediction_interval(fit, X_new, alpha, weights)`:** prediction
   intervals for an unpenalized Gaussian `GLM`, as R's
   `predict.lm(interval="prediction")` (#119).
+- **`feature_names_`** of `GLM` / `CoxLM`: the names of the entries of `params_`
+  and of the rows and columns of `covariance_`, `np.asarray(params_.index)`
+  (with `'intercept'` if fitted, without the excluded variables), unlike
+  sklearn's `feature_names_in_` (the columns of the `X` of `fit`) (#126).
 
 ### Changed
 
 - **`anova` is no longer imported into `glmnet`:** use
   `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
+- **Labelled outputs of the unpenalized `GLM` / `CoxLM` analysis** (the values
+  are unchanged):
+  - indexed by the coefficients: `params_` (Series) and `summary_` (DataFrame)
+    as before; `covariance_` stays an array, labelled by the new
+    `feature_names_` (above);
+  - at the rows of `X_new`: `predict_se` is a Series on its index if it is a
+    DataFrame, else an array; `conf_int` / `prediction_interval` are always
+    DataFrames (columns `estimate`, `lower`, `upper`), now on the index of a
+    DataFrame `X_new` (a `RangeIndex` otherwise, as before);
+  - at the observations of the fit: `residuals` and `leverage` are Series on
+    the index of `X` if it was a DataFrame, else arrays (#126).
+- **The feature names are checked at predict, as sklearn does:** if `fit` saw
+  a DataFrame, `predict`, `predict_se`, `conf_int`, `prediction_interval` and
+  `leverage` raise a `ValueError` for a DataFrame whose columns are missing,
+  extra or reordered, and warn for an array (or for a DataFrame when `fit`
+  saw an array). A ModelSpec `intercept` column, dropped at `fit`, is dropped
+  before the check (#126).
 
 ### Fixes
 
