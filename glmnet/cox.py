@@ -22,7 +22,7 @@ from .glm import (GLMFamilySpec,
 from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
-from ._utils import _get_data, _check_offset
+from ._utils import _get_data, _check_offset, _check_predict_X
 
 def c_index(pred,
             time,
@@ -608,6 +608,20 @@ class CoxFamilySpec(object):
 
         return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]
 
+def _cox_score(estimator, X, y, sample_weight=None):
+    """
+    The partial log-likelihood (minus half the deviance) of a fitted Cox
+    `estimator` on `(X, y)`: its family holds the event data of the fit, so
+    the family of `y` is built for scoring new data (as `GridSearchCV` does).
+    """
+    family = estimator._finalize_family(response=y)
+    _, _, _, offset, weight = estimator.get_data_arrays(X, y, check=False)
+    if sample_weight is None:
+        sample_weight = weight
+    eta = estimator._linear_predictor(X, offset)
+    return -family.deviance(None, eta, np.asarray(sample_weight, float)) / 2
+
+
 @dataclass
 class CoxLM(GLM):
     """
@@ -623,6 +637,8 @@ class CoxLM(GLM):
     """
     fit_intercept: Literal[False] = False
 
+    _shift_invariant = True
+
     def _finalize_family(self,
                          response):
         return CoxFamilySpec(event_data=response,
@@ -631,6 +647,77 @@ class CoxLM(GLM):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id,
                              strata_id=self.family.strata_id)
+
+    def _get_regularizer(self,
+                         nvars=None):
+        # the unpenalized GLM's regularizer, taking Newton steps with the
+        # full information (see _newton_step)
+        regularizer = super()._get_regularizer(nvars=nvars)
+        regularizer.newton_step = self._newton_step
+        return regularizer
+
+    def _newton_step(self,
+                     design,
+                     pseudo_response,              # ignored
+                     sample_weight,                # ignored: the diagonal of the Hessian
+                     cur_state):
+        """
+        A Newton step from `cur_state` with the full information.
+
+        The IRLS step of `GLMRegularizer` weights the observations by the
+        diagonal of the Hessian of the partial likelihood in the linear
+        predictor. For a GLM that is the Hessian, but for Cox the Hessian is
+        not diagonal, and IRLS converges only linearly (slowly: it may stop at
+        `mxitnr` far from the maximum). This step uses the full information
+        `X^T H X` (from `coxdev`), as R's `coxph`; `quasi_newton_step` halves
+        it if the objective does not decrease. `GLM.fit` has set the family
+        and the weights by the time it is called.
+
+        Parameters
+        ----------
+        design: Design
+            Design matrix.
+        pseudo_response: np.ndarray
+            Ignored.
+        sample_weight: np.ndarray
+            Ignored (IRLS's working weights).
+        cur_state: CoxState
+            Current state.
+
+        Returns
+        -------
+        CoxState
+            Updated state.
+        """
+        w = self.sample_weight_
+        # the score and information in the linear predictor, at the weights of the fit
+        score = cur_state.logl_score(self._family, None, w)
+        info = self._family.information(cur_state, w)
+
+        # in the coordinates of the state (the design's), without the
+        # intercept (Cox has none) and the excluded variables
+        p = design.X.shape[1]
+        keep = np.ones(p, bool)
+        keep[np.asarray(self._excluded(), int)] = False
+        kept = np.nonzero(keep)[0]
+
+        coefnew = np.zeros(p)
+        if kept.shape[0] > 0:
+            coef = np.asarray(cur_state.coef)[kept]
+            H = design.quadratic_form(info, transformed=True)[1:, 1:][kept][:, kept]
+            g = (design.T @ score)[1:][kept]
+            if self.ridge_coef != 0:
+                H = H + self.ridge_coef * np.identity(H.shape[0])
+                g = g - self.ridge_coef * coef
+            try:
+                delta = np.linalg.solve(H, g)
+            except np.linalg.LinAlgError:
+                delta = np.linalg.pinv(H) @ g
+            coefnew[kept] = coef + delta
+
+        # as GLMRegularizer.newton_step, the step is the regularizer's warm state
+        self.regularizer_.warm_state = cur_state.__class__(coefnew, 0)
+        return self.regularizer_.warm_state
 
     def get_data_arrays(self,
                         X,
@@ -665,6 +752,13 @@ class CoxLM(GLM):
         # they are linear in the weights, which are normalized
         U = self.weight_total_ * U
         return U.T @ U
+
+    def score(self, X, y, sample_weight=None):
+        """
+        Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
+        with the weights of `y` (`weight_id`) unless `sample_weight` is given.
+        """
+        return _cox_score(self, X, y, sample_weight)
 
     def residuals(self, kind='martingale'):
         """
@@ -722,6 +816,13 @@ class RegCoxLM(RegGLM):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id,
                              strata_id=self.family.strata_id)
+
+    def score(self, X, y, sample_weight=None):
+        """
+        Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
+        with the weights of `y` (`weight_id`) unless `sample_weight` is given.
+        """
+        return _cox_score(self, X, y, sample_weight)
 
 @dataclass
 class CoxNetIRLS(GLMNet):
@@ -836,6 +937,7 @@ class CoxNetIRLS(GLMNet):
         """
         if prediction_type not in ['link', 'response']:
             raise ValueError("prediction_type should be one of 'link' or 'response' for Cox models")
+        X = _check_predict_X(X)
 
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
