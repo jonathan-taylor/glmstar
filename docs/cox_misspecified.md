@@ -38,7 +38,8 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxLM, CoxNetIRLS, CoxState
+from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glmnet_inference import GLMInferenceProblem
@@ -94,10 +95,10 @@ print(f'{int(status.sum())} events at {len(event_times)} times, '
 
 As in [Resampling the Cox score](cox_regression.md), the loss is the
 Efron negative log partial likelihood divided by $n$, with gradient and
-Hessian from `coxdev`, and `CoxNetIRLS` with `lambda_values=[0]` fits
-the unpenalized Cox regression. The score residual $\hat U_i$ of subject $i$ is
-its contribution to the score, centered within each risk set with
-Efron's weights. The model-based covariance of the score is $Q/n$, with
+Hessian from `coxdev`, and `CoxLM` fits the unpenalized Cox regression,
+with model-based or (`sandwich=True`) sandwich standard errors. The score
+residual $\hat U_i$ of subject $i$, from `coxdev`, is its contribution to
+the score, centered within each risk set with Efron's weights. The model-based covariance of the score is $Q/n$, with
 $Q$ the Hessian; the sandwich is $\sum_i \hat U_i\hat U_i^T/n^2$.
 
 ```{code-cell} ipython3
@@ -118,45 +119,42 @@ def loss_gradient_hessian(X, time, status, b):
     return gradient, hessian
 
 def score_residuals(X, time, status, b):
-    """Efron score residuals: sum_k sum_r (dN_ik / d_k - p_ikr) (x_i - xbar_kr)."""
-    eta = X @ b
-    w = np.exp(eta - eta.max())
-    U = np.zeros_like(X)
-    times, d = np.unique(time[status == 1], return_counts=True)
-    for t_k, d_k in zip(times, d):
-        idx = np.flatnonzero(time >= t_k)
-        tied = (time[idx] == t_k) & (status[idx] == 1)
-        X_k = X[idx]
-        for r in range(d_k):
-            w_r = w[idx] * (1 - (r / d_k) * tied)
-            p_r = w_r / w_r.sum()
-            U[idx] += (tied / d_k - p_r)[:, None] * (X_k - p_r @ X_k)
-    return U
+    """The Efron score residuals of the subjects (rows) at coefficients b, from coxdev."""
+    n = X.shape[0]
+    cox = CoxDeviance(event=time, status=status, sample_weight=np.ones(n), tie_breaking='efron')
+    return cox.score_residuals(X @ b, X, sample_weight=np.ones(n)).reshape(n, -1)
 
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
-def cox_coef(X, time, status, warm=None):
+def cox_lm(X, time, status, exclude=(), warm=None, sandwich=False):
     """
-    The unpenalized Cox regression with Efron ties: CoxNetIRLS at lambda = 0,
+    The unpenalized Cox regression with Efron ties, leaving out the features exclude,
     warm started at the coefficients warm, if given.
     """
     warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
-    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
-                      lambda_values=np.array([0.]),
-                      control=tight).fit(
-                          X, pd.DataFrame({'event': time, 'status': status}),
-                          warm_state=warm_state).coefs_[0]
+    return CoxLM(family=CoxFamily(tie_breaking='efron'), exclude=list(exclude),
+                 summarize=True, sandwich=sandwich, control=GLMControl(epsnr=1e-12)).fit(
+                     X, pd.DataFrame({'event': time, 'status': status}),
+                     warm_state=warm_state)
+
+def cox_coef(X, time, status, warm=None):
+    """The coefficients of the unpenalized Cox regression."""
+    return np.asarray(cox_lm(X, time, status, warm=warm).coef_)
+
+def cox_coef_on(X, time, status, E):
+    """The unpenalized Cox regression on the features E, as coefficients of all p."""
+    return cox_coef(X, time, status) if len(E) == X.shape[1] else np.asarray(
+        cox_lm(X, time, status, exclude=sorted(set(range(X.shape[1])) - set(E))).coef_)
 
 def cox_fit(X, time, status):
     """
     The unpenalized Cox regression with Efron ties: coefficients, and model-based and
     sandwich standard errors.
     """
-    n = X.shape[0]
-    b = cox_coef(X, time, status)
-    H_inv = np.linalg.inv(loss_gradient_hessian(X, time, status, b)[1])
-    U = score_residuals(X, time, status, b)
-    return b, np.sqrt(np.diag(H_inv) / n), np.sqrt(np.diag(H_inv @ (U.T @ U / n**2) @ H_inv))
+    model = cox_lm(X, time, status)
+    robust = cox_lm(X, time, status, warm=model.coef_, sandwich=True)
+    return (model.params_.values, model.summary_['std err'].values,
+            robust.summary_['std err'].values)
 ```
 
 On this data set the sandwich standard errors of the two strong
@@ -224,7 +222,8 @@ the combination:
   standard errors;
 - **robust**: wild draws, `Sigma` the sandwich
   $\sum_i \hat U_i\hat U_i^T/n^2$ with the residuals at the full-data
-  one-step fit $\tilde\beta$, and sandwich standard errors.
+  unpenalized fit on the selected coordinates, $\tilde\beta$, and sandwich
+  standard errors.
 
 In each, the randomization has `scalar_noise` $= (1-\pi)/\pi$ relative to
 `Sigma`, which holds when the draws and `Sigma` agree: the information
@@ -243,15 +242,6 @@ def cox_lasso(X, time, status, linear_term=None, relax=False, control=None):
                       control=control or GLMNetControl()).fit(
                           X, pd.DataFrame({'event': time, 'status': status}))
 
-def newton_step(X, time, status, b, linear_term=0.):
-    """One Newton step for the loss (plus a linear term) on the nonzero coordinates of b."""
-    active = np.nonzero(b)[0]
-    gradient, hessian = loss_gradient_hessian(X, time, status, b)
-    b = b.copy()
-    b[active] -= np.linalg.solve(hessian[np.ix_(active, active)],
-                                 (gradient + linear_term)[active])
-    return b
-
 def randomized_inference(X, time, status, robust):
     n = X.shape[0]
     pilot = cox_coef(X, time, status)
@@ -265,12 +255,13 @@ def randomized_inference(X, time, status, robust):
 
     # carving
     gradient = loss_gradient_hessian(X, time, status, b)[0]
-    Q = loss_gradient_hessian(X, time, status, newton_step(X, time, status, b, -omega))[1]
+    Q = loss_gradient_hessian(X, time, status, fit.relaxed_coefs_[0])[1]
     problem = GLMProblem(beta_hat=b, G_hat=gradient - omega, Q_hat=Q,
                          D=lam * np.asarray(fit.design_.scaling_),
                          L=np.full(p, -np.inf), U=np.full(p, np.inf),
                          fit_intercept=False, linear_term=-omega)
-    b_tilde = newton_step(X, time, status, b)
+    # the unpenalized fit on the selected coordinates
+    b_tilde = cox_coef_on(X, time, status, np.nonzero(b)[0])
     Z_full = -loss_gradient_hessian(X, time, status, b_tilde)[0] + Q @ b_tilde
     if robust:
         U = score_residuals(X, time, status, b_tilde)
