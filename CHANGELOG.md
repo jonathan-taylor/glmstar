@@ -27,6 +27,17 @@
 - **`anova` is no longer imported into `glmnet`:** use
   `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
 
+### Fixes
+
+- **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
+  looked up the distribution `glmnet`, not `glmstar` (#116).
+
+### Documentation and maintenance
+
+- **Smaller wheels:** `glmnet/test_data`, 144 unused pickles (5.6 MB) from
+  the first packaging commit, is removed. Nothing read them, but they were
+  installed with every wheel and sdist (#115).
+
 ## 0.3.0 (2026-10-16)
 
 ### Deprecated
