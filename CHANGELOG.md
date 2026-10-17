@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixes
+
+- **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
+  looked up the distribution `glmnet`, not `glmstar` (#116).
+
 ### Documentation and maintenance
 
 - **Smaller wheels:** `glmnet/test_data`, 144 unused pickles (5.6 MB) from
