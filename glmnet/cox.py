@@ -18,7 +18,6 @@ from coxdev import CoxDeviance
     
 from .glm import (GLMFamilySpec,
                   GLMState,
-                  GLMRegularizer,
                   GLM)
 from .scoring import Scorer
 from .regularized_glm import RegGLM
@@ -624,84 +623,6 @@ def _cox_score(estimator, X, y, sample_weight=None):
 
 
 @dataclass
-class CoxNewtonRegularizer(GLMRegularizer):
-    """
-    Newton steps for the unpenalized Cox model, with the full information.
-
-    The IRLS step of `GLMRegularizer` weights the observations by the
-    diagonal of the Hessian of the partial likelihood in the linear
-    predictor. For a GLM that is the Hessian, but for Cox the Hessian is
-    not diagonal, and IRLS converges only linearly (slowly: it may stop at
-    `mxitnr` far from the maximum). This step uses the full information
-    `X^T H X` (from `coxdev`), as R's `coxph`; `quasi_newton_step` halves
-    it if the objective does not decrease.
-
-    Parameters
-    ----------
-    family: CoxFamilySpec
-        The family of the fit.
-    sample_weight: np.ndarray
-        The (normalized) weights of the fit.
-    """
-    family: Optional[object] = None
-    sample_weight: Optional[np.ndarray] = None
-
-    def newton_step(self,
-                    design,
-                    pseudo_response,              # ignored
-                    sample_weight,                # ignored: the diagonal of the Hessian
-                    cur_state):
-        """
-        Perform a Newton step from `cur_state`.
-
-        Parameters
-        ----------
-        design: Design
-            Design matrix.
-        pseudo_response: np.ndarray
-            Ignored.
-        sample_weight: np.ndarray
-            Ignored (IRLS's working weights).
-        cur_state: CoxState
-            Current state.
-
-        Returns
-        -------
-        CoxState
-            Updated state.
-        """
-        w = self.sample_weight
-        # the score and information in the linear predictor, at the weights of the fit
-        score = cur_state.logl_score(self.family, None, w)
-        info = self.family.information(cur_state, w)
-
-        # in the coordinates of the state (the design's), without the
-        # intercept (Cox has none) and the excluded variables
-        p = design.X.shape[1]
-        keep = np.ones(p, bool)
-        keep[np.asarray(self.exclude, int)] = False
-        kept = np.nonzero(keep)[0]
-
-        coefnew = np.zeros(p)
-        if kept.shape[0] > 0:
-            coef = np.asarray(cur_state.coef)[kept]
-            H = design.quadratic_form(info, transformed=True)[1:, 1:][kept][:, kept]
-            g = (design.T @ score)[1:][kept]
-            if self.ridge_coef != 0:
-                H = H + self.ridge_coef * np.identity(H.shape[0])
-                g = g - self.ridge_coef * coef
-            try:
-                delta = np.linalg.solve(H, g)
-            except np.linalg.LinAlgError:
-                delta = np.linalg.pinv(H) @ g
-            coefnew[kept] = coef + delta
-
-        klass = cur_state.__class__
-        self.warm_state = klass(coefnew, 0)
-        return self.warm_state
-
-
-@dataclass
 class CoxLM(GLM):
     """
     Cox Linear Model for survival analysis.
@@ -729,13 +650,74 @@ class CoxLM(GLM):
 
     def _get_regularizer(self,
                          nvars=None):
-        # Newton steps with the full information (see CoxNewtonRegularizer);
-        # GLM.fit has set the family and the weights by now
-        return CoxNewtonRegularizer(fit_intercept=self.fit_intercept,
-                                    ridge_coef=self.ridge_coef,
-                                    exclude=self._excluded(),
-                                    family=self._family,
-                                    sample_weight=self.sample_weight_)
+        # the unpenalized GLM's regularizer, taking Newton steps with the
+        # full information (see _newton_step)
+        regularizer = super()._get_regularizer(nvars=nvars)
+        regularizer.newton_step = self._newton_step
+        return regularizer
+
+    def _newton_step(self,
+                     design,
+                     pseudo_response,              # ignored
+                     sample_weight,                # ignored: the diagonal of the Hessian
+                     cur_state):
+        """
+        A Newton step from `cur_state` with the full information.
+
+        The IRLS step of `GLMRegularizer` weights the observations by the
+        diagonal of the Hessian of the partial likelihood in the linear
+        predictor. For a GLM that is the Hessian, but for Cox the Hessian is
+        not diagonal, and IRLS converges only linearly (slowly: it may stop at
+        `mxitnr` far from the maximum). This step uses the full information
+        `X^T H X` (from `coxdev`), as R's `coxph`; `quasi_newton_step` halves
+        it if the objective does not decrease. `GLM.fit` has set the family
+        and the weights by the time it is called.
+
+        Parameters
+        ----------
+        design: Design
+            Design matrix.
+        pseudo_response: np.ndarray
+            Ignored.
+        sample_weight: np.ndarray
+            Ignored (IRLS's working weights).
+        cur_state: CoxState
+            Current state.
+
+        Returns
+        -------
+        CoxState
+            Updated state.
+        """
+        w = self.sample_weight_
+        # the score and information in the linear predictor, at the weights of the fit
+        score = cur_state.logl_score(self._family, None, w)
+        info = self._family.information(cur_state, w)
+
+        # in the coordinates of the state (the design's), without the
+        # intercept (Cox has none) and the excluded variables
+        p = design.X.shape[1]
+        keep = np.ones(p, bool)
+        keep[np.asarray(self._excluded(), int)] = False
+        kept = np.nonzero(keep)[0]
+
+        coefnew = np.zeros(p)
+        if kept.shape[0] > 0:
+            coef = np.asarray(cur_state.coef)[kept]
+            H = design.quadratic_form(info, transformed=True)[1:, 1:][kept][:, kept]
+            g = (design.T @ score)[1:][kept]
+            if self.ridge_coef != 0:
+                H = H + self.ridge_coef * np.identity(H.shape[0])
+                g = g - self.ridge_coef * coef
+            try:
+                delta = np.linalg.solve(H, g)
+            except np.linalg.LinAlgError:
+                delta = np.linalg.pinv(H) @ g
+            coefnew[kept] = coef + delta
+
+        # as GLMRegularizer.newton_step, the step is the regularizer's warm state
+        self.regularizer_.warm_state = cur_state.__class__(coefnew, 0)
+        return self.regularizer_.warm_state
 
     def get_data_arrays(self,
                         X,
