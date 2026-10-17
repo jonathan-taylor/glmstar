@@ -2,11 +2,16 @@
 
 ## Unreleased
 
-### Removed
+### Fixes
 
-- **`Design.add_constant(X)`**, added in 0.3.0: use statsmodels'
-  `sm.add_constant(X)` instead, or fit the intercept with
-  `fit_intercept=True` (#118).
+- **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
+  looked up the distribution `glmnet`, not `glmstar` (#116).
+
+### Documentation and maintenance
+
+- **Smaller wheels:** `glmnet/test_data`, 144 unused pickles (5.6 MB) from
+  the first packaging commit, is removed. Nothing read them, but they were
+  installed with every wheel and sdist (#115).
 
 ## 0.3.0 (2026-10-16)
 
