@@ -6,6 +6,41 @@
 
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`predict` takes a DataFrame `X`** for `GLMNet`, the C++ paths
+  (`GaussNet`, `LogNet`, `FishNet`, `CoxNet`, ...), `CoxNetIRLS` and the
+  multi-response paths, as `fit` does, so `cross_validation_path`,
+  `cv_predict` and `score_path` work with a DataFrame. The multi-response
+  `predict` takes a sparse `X` again (#120).
+- **`RegGLM` is an sklearn estimator:** `lambda_val` defaults to 0, so
+  `RegGLM`, `GaussianRegGLM`, `BinomialRegGLM` and `RegCoxLM` construct
+  without arguments, clone and tune in `GridSearchCV` / `Pipeline`.
+  `GaussianRegGLM` no longer fails at construction (its family is checked
+  at `fit`), and `BinomialRegGLM.predict` works (and takes a DataFrame) (#121).
+- **`CoxLM` converges at the default control:** its Newton steps use the
+  full information of the partial likelihood instead of its diagonal, which
+  converged slowly and stopped far from the maximum (BrainCancer:
+  coefficients off by 0.56 from `coxph`). `GLM` and `CoxLM` warn when
+  they stop at `mxitnr` without converging (#122).
+- **`GaussNet.get_fixed_lambda` for `alpha < 1`:** `GaussNet`, as R's
+  `glmnet(family="gaussian")`, fits `y / s_y` at `lambda / s_y`, dividing
+  the ridge part of the penalty by `s_y` (the weighted sd of `y`, now
+  `response_scale_`); `RegGLM` and the IRLS `GLMNet`, as R's
+  `family=gaussian()`, do not. Both match R and are unchanged, but
+  `get_fixed_lambda` now returns the `RegGLM` solving the path's problem
+  (before, it differed for `alpha < 1`). The other families agree (#123).
+- **Unpenalized `GLM` fits:** `GLMControl.epsnr` defaults to `1e-10` (it
+  stopped early, e.g. near separation); the fit starts at the mean of the
+  response and halves steps leaving the family's domain, so the Gamma
+  (inverse link), identity and sqrt links fit; constant columns of `X`
+  other than `intercept` are excluded with a warning instead of giving a
+  singular fit (any constant column, for Cox); `CoxLM` and `RegCoxLM` have a
+  `score` on new data. The penalized path fits are unchanged (#124).
+
+### Tests
+
+- **An estimator sweep** (`tests/test_estimator_sweep.py`): every estimator
+  is checked for `clone`, DataFrame and sparse `X`, `GridSearchCV`, the
+  lambda scale and convergence (#117).
 
 ### Documentation and maintenance
 
