@@ -6,6 +6,11 @@
 
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`RegGLM` is an sklearn estimator:** `lambda_val` defaults to 0, so
+  `RegGLM`, `GaussianRegGLM`, `BinomialRegGLM` and `RegCoxLM` construct
+  without arguments, clone and tune in `GridSearchCV` / `Pipeline`.
+  `GaussianRegGLM` no longer fails at construction (its family is checked
+  at `fit`), and `BinomialRegGLM.predict` works (and takes a DataFrame) (#121).
 
 ### Documentation and maintenance
 
