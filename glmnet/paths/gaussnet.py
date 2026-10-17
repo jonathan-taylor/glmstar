@@ -46,6 +46,14 @@ class GaussNet(FastNetMixin):
         Fitted intercepts across the path.
     lambda_values_ : ndarray of shape (n_lambda,)
         The sequence of lambda values used.
+    response_scale_ : float
+        The scale of the response, its weighted standard deviation (root
+        mean square without an intercept, after any offset). As R's
+        ``glmnet(family="gaussian")``, the path fits the response divided
+        by it, so that for `alpha < 1` the ridge part of the penalty is
+        `lambda * (1 - alpha) / response_scale_`. The IRLS `GLMNet` and
+        `RegGLM` with a Gaussian family (R's ``family=gaussian()``) do not
+        rescale: see `get_fixed_lambda`.
     """
 
     covariance : Optional[bool] = None
@@ -76,6 +84,37 @@ class GaussNet(FastNetMixin):
         return super()._extract_fits(X_shape,
                                      response_shape)
         
+    def get_fixed_lambda(self,
+                         lambda_val):
+        """
+        Get a regularized estimator for a fixed lambda value.
+
+        GaussNet, as R's ``glmnet(family="gaussian")``, fits the response
+        scaled by `response_scale_`, which divides the ridge part of the
+        penalty by it; `RegGLM` (as R's ``family=gaussian()``) does not. The
+        estimator's `lambda_val` and `alpha` are those for which `RegGLM`
+        solves the same problem as this path at `lambda_val`:
+        `lambda_val * alpha` for the lasso part and
+        `lambda_val * (1 - alpha) / response_scale_` for the ridge part.
+
+        Parameters
+        ----------
+        lambda_val: float
+            Lambda value.
+
+        Returns
+        -------
+        tuple
+            (estimator, state) where estimator is the regularized estimator
+            and state is the fitted state.
+        """
+        estimator, state = super().get_fixed_lambda(lambda_val)
+        lasso = lambda_val * self.alpha
+        ridge = lambda_val * (1 - self.alpha) / self.response_scale_
+        estimator.lambda_val = lasso + ridge
+        estimator.alpha = lasso / (lasso + ridge) if lasso + ridge > 0 else self.alpha
+        return estimator, state
+
     def _wrapper_args(self,
                       design,
                       response,
@@ -118,6 +157,13 @@ class GaussNet(FastNetMixin):
 
         if nulldev == 0:
             raise ValueError("response is constant; GaussNet fails at standardization step")
+
+        # as R's glmnet, the C++ path fits y / response_scale_ (its weighted
+        # standard deviation, root mean square without an intercept) at
+        # lambda / response_scale_: the ridge term is divided by it
+        w = sample_weight / sample_weight.sum()
+        m2 = (w * y**2).sum()
+        self.response_scale_ = np.sqrt(m2 - (w * y).sum()**2 if self.fit_intercept else m2)
 
         _args = super()._wrapper_args(design,
                                       y.copy(), # it will otherwise be scaled
