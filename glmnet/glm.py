@@ -553,7 +553,7 @@ class GLMBase(BaseEstimator,
                 self.__dict__.pop(attr, None)
 
         nobs, nvar = X.shape
-
+        
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
         else:
@@ -966,7 +966,7 @@ class GLM(GLMBase):
         else:
             covariance_ = self.dispersion_ * bread
 
-        SE = np.sqrt(np.diag(covariance_))
+        SE = np.sqrt(np.diag(covariance_)) 
         coef = self.params_.values
         T = coef / SE
 
@@ -1135,14 +1135,8 @@ class GLM(GLMBase):
         """
         Standard errors of the linear predictor at the rows of `X`: the square root
         of the diagonal of X Cov X^T, with Cov the covariance of `params_`.
-
-        Returns
-        -------
-        pd.Series
-            Indexed as the rows of `X` (its index, if a DataFrame).
         """
-        return pd.Series(np.sqrt(self._quadratic_rows(X, self._get_covariance())),
-                         index=_index_of(X), name='std err')
+        return np.sqrt(self._quadratic_rows(X, self._get_covariance()))
 
     def conf_int(self, X_new, alpha=0.05):
         """
@@ -1159,7 +1153,7 @@ class GLM(GLMBase):
             `X_new` (its index, if a DataFrame).
         """
         estimate = self._linear_predictor(X_new)
-        half = self._quantile(alpha) * self.predict_se(X_new).values
+        half = self._quantile(alpha) * self.predict_se(X_new)
         return pd.DataFrame({'estimate': estimate,
                              'lower': estimate - half,
                              'upper': estimate + half},
@@ -1244,7 +1238,7 @@ def prediction_interval(fit, X_new, alpha=0.05, weights=None):
                          'identity link, an estimated dispersion and sandwich=False')
     estimate = fit._linear_predictor(X_new)
     w = np.ones(estimate.shape[0]) if weights is None else np.asarray(weights, float)
-    half = fit._quantile(alpha) * np.sqrt(fit.predict_se(X_new).values**2 + fit.dispersion_ / w)
+    half = fit._quantile(alpha) * np.sqrt(fit.predict_se(X_new)**2 + fit.dispersion_ / w)
     return pd.DataFrame({'estimate': estimate,
                          'lower': estimate - half,
                          'upper': estimate + half},

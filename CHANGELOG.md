@@ -12,10 +12,9 @@
 
 - **`anova` is no longer imported into `glmnet`:** use
   `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
-- **Labelled outputs at new rows:** `predict_se(X)` is a Series, and
-  `conf_int(X_new)` and `prediction_interval` are DataFrames, indexed by the
-  index of a DataFrame `X` / `X_new` (a `RangeIndex` otherwise). The values
-  are unchanged; `residuals`, `leverage` and `covariance_` stay arrays (#126).
+- **`conf_int(X_new)` and `prediction_interval` keep the index of a
+  DataFrame `X_new`** (a `RangeIndex` otherwise); the values are unchanged
+  (#126).
 
 ### Fixes
 

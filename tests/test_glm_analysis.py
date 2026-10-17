@@ -236,18 +236,15 @@ def test_pandas_outputs(sandwich):
     y = 3 + X[:, 0] + rng.standard_normal(n)
     g = GLM(summarize=True, sandwich=sandwich).fit(D, y)
     new = D.iloc[[3, 1, 4]]
-    se = g.predict_se(new)
-    assert isinstance(se, pd.Series) and list(se.index) == list(new.index)
     for out in [g.conf_int(new)] + ([] if sandwich else [prediction_interval(g, new)]):
         assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
     # an ndarray X: a RangeIndex, and the same values
     h = GLM(summarize=True, sandwich=sandwich).fit(X, y)
-    assert h.predict_se(X[:3]).index.equals(pd.RangeIndex(3))
     assert h.conf_int(X[:3]).index.equals(pd.RangeIndex(3))
-    np.testing.assert_allclose(h.predict_se(X[:3]), g.predict_se(D[:3]))
-    # residuals, leverage and covariance_ stay ndarrays
+    np.testing.assert_allclose(h.conf_int(X[:3]).values, g.conf_int(D[:3]).values)
+    # the other outputs stay ndarrays
     assert all(isinstance(out, np.ndarray)
-               for out in [g.residuals(), g.leverage(D), g.covariance_])
+               for out in [g.predict_se(new), g.residuals(), g.leverage(D), g.covariance_])
 
 
 @pytest.mark.parametrize('family', [None, sm.families.Binomial()])
