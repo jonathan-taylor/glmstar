@@ -101,8 +101,9 @@ def test_against_statsmodels(name, case):
     if name != 'gaussian':
         ci = g.conf_int(X_new)
         linear = s.get_prediction(D[rows], which='linear')
-        np.testing.assert_allclose(ci['estimate'], linear.predicted, **tol)
-        np.testing.assert_allclose(ci[['lower', 'upper']].values, linear.conf_int(), **tol)
+        # an array X_new gives an array: estimate, lower, upper
+        np.testing.assert_allclose(ci[:, 0], linear.predicted, **tol)
+        np.testing.assert_allclose(ci[:, 1:], linear.conf_int(), **tol)
 
     # the expected information, as R's hatvalues (statsmodels defaults to the observed)
     np.testing.assert_allclose(g.leverage(X_fit), s.get_hat_matrix_diag(observed=False), **tol)
@@ -177,11 +178,12 @@ def test_prediction_interval(weighted):
     X_new, w_new = X[:6], W[:6] if weighted else None
     frame = s.get_prediction(sm.add_constant(X_new), weights=w_new).summary_frame(alpha=0.1)
     pi = prediction_interval(g, X_new, alpha=0.1, weights=w_new)
-    np.testing.assert_allclose(pi['estimate'], frame['mean'])
-    np.testing.assert_allclose(pi[['lower', 'upper']].values, frame[['obs_ci_lower', 'obs_ci_upper']].values)
+    # an array X_new gives an array: estimate, lower, upper
+    np.testing.assert_allclose(pi[:, 0], frame['mean'])
+    np.testing.assert_allclose(pi[:, 1:], frame[['obs_ci_lower', 'obs_ci_upper']].values)
     # the confidence intervals are those of the mean
     ci = g.conf_int(X_new, alpha=0.1)
-    np.testing.assert_allclose(ci[['lower', 'upper']].values, frame[['mean_ci_lower', 'mean_ci_upper']].values)
+    np.testing.assert_allclose(ci[:, 1:], frame[['mean_ci_lower', 'mean_ci_upper']].values)
 
 
 def test_prediction_interval_only_gaussian():
@@ -230,21 +232,69 @@ def test_islp_design_and_summarize():
 
 @pytest.mark.parametrize('sandwich', [False, True])
 def test_pandas_outputs(sandwich):
-    # the outputs at the rows of a new X keep the labels of a DataFrame X
+    # outputs indexed by the features are labelled by their names; outputs at the
+    # rows of a DataFrame X are labelled by its index, at the rows of an array are arrays
     index = pd.Index([f'obs{i}' for i in range(n)])
     D = pd.DataFrame(X, columns=list('abcd'), index=index)
     y = 3 + X[:, 0] + rng.standard_normal(n)
     g = GLM(summarize=True, sandwich=sandwich).fit(D, y)
-    new = D.iloc[[3, 1, 4]]
-    for out in [g.conf_int(new)] + ([] if sandwich else [prediction_interval(g, new)]):
-        assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
-    # an ndarray X: a RangeIndex, and the same values
     h = GLM(summarize=True, sandwich=sandwich).fit(X, y)
-    assert h.conf_int(X[:3]).index.equals(pd.RangeIndex(3))
-    np.testing.assert_allclose(h.conf_int(X[:3]).values, g.conf_int(D[:3]).values)
-    # the other outputs stay ndarrays
-    assert all(isinstance(out, np.ndarray)
-               for out in [g.predict_se(new), g.residuals(), g.leverage(D), g.covariance_])
+    names = ['intercept', 'a', 'b', 'c', 'd']
+
+    for fit in [g, h]:
+        C = fit.covariance_
+        assert isinstance(C, pd.DataFrame) and list(C.columns) == list(C.index)
+        assert list(C.index) == list(fit.params_.index) == list(fit.summary_.index)
+        np.testing.assert_allclose(np.sqrt(np.diag(C)), fit.summary_['std err'])
+    assert list(g.covariance_.index) == names
+    assert list(GLM(summarize=True, fit_intercept=False).fit(D, y).covariance_.index) == list('abcd')
+
+    new = D.iloc[[3, 1, 4]]
+    se = g.predict_se(new)
+    assert isinstance(se, pd.Series) and list(se.index) == list(new.index)
+    frames = [g.conf_int(new)] + ([] if sandwich else [prediction_interval(g, new)])
+    for out in frames:
+        assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
+        assert list(out.columns) == ['estimate', 'lower', 'upper']
+    # an array X_new: arrays, with the same values
+    assert isinstance(g.predict_se(X[[3, 1, 4]]), np.ndarray)
+    np.testing.assert_allclose(g.predict_se(X[[3, 1, 4]]), se)
+    arrays = [g.conf_int(X[[3, 1, 4]])] + ([] if sandwich else [prediction_interval(g, X[[3, 1, 4]])])
+    for out, frame in zip(arrays, frames):
+        assert isinstance(out, np.ndarray) and out.shape == (3, 3)
+        np.testing.assert_allclose(out, frame.values)
+
+    # residuals and leverage: on the index of a DataFrame X of the fit, else arrays
+    for kind in ['response', 'pearson', 'deviance']:
+        r = g.residuals(kind)
+        assert isinstance(r, pd.Series) and r.index.equals(index) and r.name == kind
+        assert isinstance(h.residuals(kind), np.ndarray)
+        np.testing.assert_allclose(r, h.residuals(kind))
+    lev = g.leverage(D)
+    assert isinstance(lev, pd.Series) and lev.index.equals(index)
+    assert isinstance(h.leverage(X), np.ndarray)
+    np.testing.assert_allclose(lev, h.leverage(X))
+
+
+def test_cox_pandas_outputs():
+    from glmnet.cox import CoxLM, CoxFamilySpec
+    index = pd.Index([f'obs{i}' for i in range(n)])
+    D = pd.DataFrame(X, columns=list('abcd'), index=index)
+    Y = pd.DataFrame({'time': rng.exponential(np.exp(-0.5 * X[:, 0])),
+                      'status': rng.binomial(1, 0.7, n)}, index=index)
+    fam = lambda: CoxFamilySpec(event_data=Y, event_id='time', status_id='status')
+    g = CoxLM(family=fam(), summarize=True).fit(D, Y)
+    h = CoxLM(family=fam(), summarize=True).fit(X, Y)
+    for fit in [g, h]:
+        assert list(fit.covariance_.index) == list(fit.params_.index) == list(fit.covariance_.columns)
+    for kind in ['martingale', 'deviance']:
+        r = g.residuals(kind)
+        assert isinstance(r, pd.Series) and r.index.equals(index)
+        assert isinstance(h.residuals(kind), np.ndarray)
+        np.testing.assert_allclose(r, h.residuals(kind))
+    assert g.leverage(D).index.equals(index) and isinstance(h.leverage(X), np.ndarray)
+    assert list(g.conf_int(D[:4]).index) == list(index[:4])
+    assert isinstance(g.predict_se(D[:4]), pd.Series) and isinstance(g.predict_se(X[:4]), np.ndarray)
 
 
 @pytest.mark.parametrize('family', [None, sm.families.Binomial()])

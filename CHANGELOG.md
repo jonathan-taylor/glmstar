@@ -12,9 +12,17 @@
 
 - **`anova` is no longer imported into `glmnet`:** use
   `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
-- **`conf_int(X_new)` and `prediction_interval` keep the index of a
-  DataFrame `X_new`** (a `RangeIndex` otherwise); the values are unchanged
-  (#126).
+- **Labelled outputs of the unpenalized `GLM` / `CoxLM` analysis** (the values
+  are unchanged):
+  - indexed by the coefficients: `params_` and `summary_` as before, and now
+    `covariance_`, a DataFrame with index and columns `params_.index` (so with
+    the intercept's row and column only if it is fitted);
+  - at the rows of `X_new`: if it is a DataFrame, `predict_se` is a Series and
+    `conf_int` / `prediction_interval` are DataFrames (columns `estimate`,
+    `lower`, `upper`) on its index; if it is an array, they are arrays
+    (`conf_int` / `prediction_interval` were DataFrames on a `RangeIndex`);
+  - at the observations of the fit: `residuals` and `leverage` are Series on
+    the index of `X` if it was a DataFrame, else arrays (#126).
 
 ### Fixes
 
