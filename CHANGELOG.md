@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### New
+
+- **`CVNet(estimator, cv=, which=)`:** a path estimator tuned by
+  cross-validation, as sklearn's `ElasticNetCV` / R's `cv.glmnet`: `fit`
+  runs `cross_validation_path` and `predict` uses the chosen lambda, so
+  `cross_validate` does nested cross-validation in one call (#125).
+
 ### Fixes
 
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
