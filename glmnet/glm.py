@@ -46,14 +46,20 @@ class GLMControl(object):
     mxitnr: int
         Maximum number of quasi Newton iterations.
     epsnr: float
-        Tolerance for quasi Newton iterations.
+        Tolerance for quasi Newton iterations: they stop when the change in
+        the objective (the deviance over twice the sum of the weights)
+        relative to `0.1 + |objective|` is below it. Default `1e-10`: as the
+        objective is per observation this is about R's `glm.control(epsilon=1e-8)`;
+        `1e-6` stopped early, e.g. near separation or for non-canonical
+        links. (The penalized fits along a path, with `RegGLMControl`, keep
+        glmnet's `1e-6`.)
     big: float
         A large float, effectively `np.inf`.
     logging: bool
         Write info and debug messages to log?
     """
     mxitnr: int = 25
-    epsnr: float = 1e-6
+    epsnr: float = 1e-10
     big: float = 9.9e35
     logging: bool = False
 
@@ -722,8 +728,35 @@ class GLMBase(BaseEstimator,
         return linpred if offset is None else linpred + np.asarray(offset, float)
 
     def _excluded(self):
-        """`exclude`, and a constant `intercept` column kept as the only column of X."""
-        return list(self.exclude) + getattr(self, '_excluded_intercept', [])
+        """`exclude`, and the constant columns of X excluded by `_drop_intercept_column`."""
+        excluded = list(self.exclude) + getattr(self, '_excluded_intercept', [])
+        return sorted(set(excluded) | set(getattr(self, '_excluded_constant', [])))
+
+    # a constant column of X is not identifiable with an intercept; for Cox
+    # (whose partial likelihood is unchanged by a shift of the linear
+    # predictor) it is not identifiable at all
+    _shift_invariant = False
+
+    def _constant_columns(self, X):
+        """Indices of the constant columns of `X` (dense, sparse or DataFrame)."""
+        if scipy.sparse.issparse(X):
+            X = scipy.sparse.csc_array(X)
+            n = X.shape[0]
+            nnz = np.diff(X.indptr)
+            const = []
+            for j in range(X.shape[1]):
+                values = X.data[X.indptr[j]:X.indptr[j+1]]
+                if nnz[j] == 0:
+                    const.append(j)
+                elif nnz[j] == n and np.all(values == values[0]):
+                    const.append(j)
+                elif nnz[j] < n and np.all(values == 0):
+                    const.append(j)
+            return const
+        X = np.asarray(X)
+        if X.dtype == object or X.shape[0] == 0:
+            return []
+        return [int(j) for j in np.nonzero(np.all(X == X[:1], axis=0))[0]]
 
     def _drop_intercept_column(self, X, fitting=False):
         """
@@ -747,6 +780,21 @@ class GLMBase(BaseEstimator,
         if (getattr(self, '_intercept_column', False) and
             isinstance(X, pd.DataFrame) and 'intercept' in X.columns):
             X = X.drop(columns='intercept')
+        if fitting:
+            # other constant columns (e.g. the column of ones of
+            # np.power.outer(x, np.arange(d+1))) would make the fit singular:
+            # they are excluded (their coefficients are 0), with a warning
+            self._excluded_constant = []
+            if ((self.fit_intercept or self._shift_invariant) and
+                not self._excluded_intercept):
+                const = self._constant_columns(X)
+                if const:
+                    names = (list(np.asarray(X.columns)[const]) if isinstance(X, pd.DataFrame)
+                             else const)
+                    reason = ('the model has an intercept (fit_intercept=True)' if self.fit_intercept
+                              else 'they are not identifiable')
+                    warnings.warn(f'excluding the constant column(s) {names} of X: {reason}')
+                    self._excluded_constant = const
         return X
 
     def score(self, X, y, sample_weight=None):

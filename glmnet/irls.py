@@ -80,8 +80,8 @@ def quasi_newton_step(regularizer,
 
     # three checks we'll apply
 
-    # FIX THESE 
-    _valid = lambda state: True
+    # a mean in the family's domain (CoxFamilySpec has no constraint)
+    _valid = getattr(family, 'valid', lambda state: True)
 
     # not sure boundary / halved handled correctly
 
