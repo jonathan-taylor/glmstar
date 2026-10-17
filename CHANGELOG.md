@@ -18,7 +18,7 @@
   Series; `conf_int(X_new)` and `prediction_interval` keep the index of a
   DataFrame `X_new`. The rows are labelled by the index of a DataFrame `X` (or
   of `y`, for the residuals), and by a `RangeIndex` otherwise. The values are
-  unchanged (#PR).
+  unchanged (#126).
 
 ### Fixes
 
