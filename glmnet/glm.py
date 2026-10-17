@@ -24,6 +24,7 @@ from sklearn.base import (BaseEstimator,
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import (LinearRegression, Ridge)
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.validation import _get_feature_names
 
 from ._utils import (_parent_dataclass_from_child,
                      _get_data)
@@ -554,8 +555,10 @@ class GLMBase(BaseEstimator,
 
         nobs, nvar = X.shape
 
-        # the labels of the observations of a DataFrame X, for residuals and leverage
+        # the labels of the observations of a DataFrame X, for residuals and
+        # leverage, and its column names, checked at predict as sklearn does
         self._train_index = X.index if isinstance(X, pd.DataFrame) else None
+        self._fit_feature_names = _get_feature_names(X)
 
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
@@ -701,6 +704,7 @@ class GLMBase(BaseEstimator,
         if self.fit_intercept:
             names, values = ['intercept'] + names, np.hstack([self.intercept_, values])
         self.params_ = pd.Series(values, index=names)
+        self.feature_names_ = np.asarray(self.params_.index)
 
         self.state_ = state
         return self
@@ -762,7 +766,44 @@ class GLMBase(BaseEstimator,
         if (getattr(self, '_intercept_column', False) and
             isinstance(X, pd.DataFrame) and 'intercept' in X.columns):
             X = X.drop(columns='intercept')
+        if not fitting and self._unpenalized:
+            self._check_feature_names_at_predict(X)
         return X
+
+    _unpenalized = False
+
+    def _check_feature_names_at_predict(self, X):
+        """
+        As sklearn's `_check_feature_names(X, reset=False)`: the column names of a
+        DataFrame `X` must be those of the `X` of the fit (after dropping a
+        ModelSpec `intercept` column), in the same order, or a ValueError is
+        raised; a warning if only one of them had names.
+        """
+        fitted = getattr(self, '_fit_feature_names', None)
+        names = _get_feature_names(X)
+        klass = type(self).__name__
+        if fitted is None and names is None:
+            return
+        if names is None:
+            warnings.warn(f'X does not have valid feature names, but {klass} was fitted '
+                          'with feature names')
+            return
+        if fitted is None:
+            warnings.warn(f'X has feature names, but {klass} was fitted without feature names')
+            return
+        if len(fitted) == len(names) and np.all(fitted == names):
+            return
+        message = 'The feature names should match those that were passed during fit.\n'
+        unseen = sorted(set(names) - set(fitted))
+        missing = sorted(set(fitted) - set(names))
+        if unseen:
+            message += 'Feature names unseen at fit time:\n' + ''.join(f'- {n}\n' for n in unseen)
+        if missing:
+            message += ('Feature names seen at fit time, yet now missing:\n' +
+                        ''.join(f'- {n}\n' for n in missing))
+        if not unseen and not missing:
+            message += 'Feature names must be in the same order as they were in fit.\n'
+        raise ValueError(message)
 
     def score(self, X, y, sample_weight=None):
         """
@@ -838,6 +879,20 @@ class GLM(GLMBase):
         `predict_se`, in place of the model-based one. Default is False.
     ridge_coef: float
         Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
+
+    Attributes
+    ----------
+    params_: pd.Series
+        The coefficients, with the intercept (if fitted) first.
+    feature_names_: np.ndarray
+        The names labelling the entries of `params_` and the rows and columns
+        of `covariance_`: `'intercept'` if it is fitted, then the variables in
+        the model (leaving out `exclude` and a dropped `intercept` column), i.e.
+        `np.asarray(params_.index)`. Unlike sklearn's `feature_names_in_` (the
+        columns of the `X` passed to `fit`), it includes the intercept and
+        leaves out the excluded variables.
+    covariance_: np.ndarray
+        The covariance of `params_` (if `summarize`), labelled by `feature_names_`.
     """
     summarize: bool = False
     sandwich: bool = False
@@ -985,11 +1040,6 @@ class GLM(GLMBase):
                                  '[0.025': coef - q * SE,
                                  '0.975]': coef + q * SE},
                                 index=self.params_.index)
-        # labelled: its rows and columns are those of params_, with the
-        # intercept's only if fitted
-        covariance_ = pd.DataFrame(covariance_,
-                                   index=self.params_.index,
-                                   columns=self.params_.index)
         return covariance_, summary_
 
     def _keep(self):
@@ -1138,7 +1188,6 @@ class GLM(GLMBase):
 
     def _quadratic_rows(self, X, C):
         """The diagonal of [1, X] C [1, X]^T, with the intercept's row only if fitted."""
-        C = np.asarray(C)
         X = self._rows(X)
         if self.fit_intercept:
             C00, c, C = C[0, 0], C[0, 1:], C[1:, 1:]

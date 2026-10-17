@@ -241,13 +241,18 @@ def test_pandas_outputs(sandwich):
     h = GLM(summarize=True, sandwich=sandwich).fit(X, y)
     names = ['intercept', 'a', 'b', 'c', 'd']
 
+    # covariance_ is an array, labelled by feature_names_ (the names of params_)
     for fit in [g, h]:
         C = fit.covariance_
-        assert isinstance(C, pd.DataFrame) and list(C.columns) == list(C.index)
-        assert list(C.index) == list(fit.params_.index) == list(fit.summary_.index)
+        assert isinstance(C, np.ndarray) and C.shape == (5, 5)
+        assert isinstance(fit.feature_names_, np.ndarray)
+        assert list(fit.feature_names_) == list(fit.params_.index) == list(fit.summary_.index)
         np.testing.assert_allclose(np.sqrt(np.diag(C)), fit.summary_['std err'])
-    assert list(g.covariance_.index) == names
-    assert list(GLM(summarize=True, fit_intercept=False).fit(D, y).covariance_.index) == list('abcd')
+    assert list(g.feature_names_) == names
+    assert list(h.feature_names_) == ['intercept', 'X0', 'X1', 'X2', 'X3']
+    nointercept = GLM(summarize=True, fit_intercept=False, exclude=[2]).fit(D, y)
+    assert list(nointercept.feature_names_) == ['a', 'b', 'd']
+    assert nointercept.covariance_.shape == (3, 3)
 
     new = D.iloc[[3, 1, 4]]
     se = g.predict_se(new)
@@ -256,10 +261,10 @@ def test_pandas_outputs(sandwich):
     for out in frames:
         assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
         assert list(out.columns) == ['estimate', 'lower', 'upper']
-    # an array X_new: arrays, with the same values
-    assert isinstance(g.predict_se(X[[3, 1, 4]]), np.ndarray)
-    np.testing.assert_allclose(g.predict_se(X[[3, 1, 4]]), se)
-    arrays = [g.conf_int(X[[3, 1, 4]])] + ([] if sandwich else [prediction_interval(g, X[[3, 1, 4]])])
+    # an array X_new (to the fit to an array): arrays, with the same values
+    assert isinstance(h.predict_se(X[[3, 1, 4]]), np.ndarray)
+    np.testing.assert_allclose(h.predict_se(X[[3, 1, 4]]), se)
+    arrays = [h.conf_int(X[[3, 1, 4]])] + ([] if sandwich else [prediction_interval(h, X[[3, 1, 4]])])
     for out, frame in zip(arrays, frames):
         assert isinstance(out, np.ndarray) and out.shape == (3, 3)
         np.testing.assert_allclose(out, frame.values)
@@ -286,7 +291,9 @@ def test_cox_pandas_outputs():
     g = CoxLM(family=fam(), summarize=True).fit(D, Y)
     h = CoxLM(family=fam(), summarize=True).fit(X, Y)
     for fit in [g, h]:
-        assert list(fit.covariance_.index) == list(fit.params_.index) == list(fit.covariance_.columns)
+        assert list(fit.feature_names_) == list(fit.params_.index)
+        assert isinstance(fit.covariance_, np.ndarray) and fit.covariance_.shape == (4, 4)
+    assert list(g.feature_names_) == list('abcd')
     for kind in ['martingale', 'deviance']:
         r = g.residuals(kind)
         assert isinstance(r, pd.Series) and r.index.equals(index)
@@ -294,7 +301,50 @@ def test_cox_pandas_outputs():
         np.testing.assert_allclose(r, h.residuals(kind))
     assert g.leverage(D).index.equals(index) and isinstance(h.leverage(X), np.ndarray)
     assert list(g.conf_int(D[:4]).index) == list(index[:4])
-    assert isinstance(g.predict_se(D[:4]), pd.Series) and isinstance(g.predict_se(X[:4]), np.ndarray)
+    assert isinstance(g.predict_se(D[:4]), pd.Series) and isinstance(h.predict_se(X[:4]), np.ndarray)
+
+
+def test_feature_names_checked_at_predict():
+    # as sklearn: the columns of a DataFrame X at predict must be those of fit
+    D = pd.DataFrame(X, columns=list('abcd'))
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    g = GLM(summarize=True).fit(D, y)
+    calls = [g.predict, g.predict_se, g.conf_int, lambda Z: prediction_interval(g, Z)]
+    bad = {'reordered': (D[['b', 'a', 'c', 'd']], 'same order'),
+           'renamed': (D.rename(columns={'a': 'z'}), 'unseen at fit time'),
+           'extra': (D.assign(e=1.), 'unseen at fit time'),
+           'missing': (D[['a', 'b', 'c']], 'yet now missing')}
+    for Z, match in bad.values():
+        for call in calls:
+            with pytest.raises(ValueError, match=match):
+                call(Z)
+    with pytest.raises(ValueError, match='feature names should match'):
+        g.leverage(D[['b', 'a', 'c', 'd']])
+    # an array where fit had names, and names where fit had none: warnings
+    with pytest.warns(UserWarning, match='does not have valid feature names'):
+        g.predict(X)
+    h = GLM(summarize=True).fit(X, y)
+    with pytest.warns(UserWarning, match='fitted without feature names'):
+        h.predict(D)
+    # the columns of fit, in order, are fine
+    np.testing.assert_allclose(g.predict(D), h.predict(X))
+
+
+def test_feature_names_modelspec():
+    # ISLP's ModelSpec: the 'intercept' column is dropped at fit and at predict
+    ModelSpec = pytest.importorskip('ISLP.models').ModelSpec
+    df = pd.DataFrame(X, columns=list('abcd'))
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    spec = ModelSpec(['a', 'b']).fit(df[:150])
+    with pytest.warns(UserWarning, match='intercept'):
+        g = GLM(summarize=True).fit(spec.transform(df[:150]), y[:150])
+    new = spec.transform(df[150:])
+    assert 'intercept' in new.columns
+    pred = g.predict(new)
+    assert pred.shape == (50,)
+    ci = g.conf_int(new)
+    assert list(ci.index) == list(new.index)
+    assert list(g.feature_names_) == ['intercept', 'a', 'b']
 
 
 @pytest.mark.parametrize('family', [None, sm.families.Binomial()])
