@@ -34,10 +34,10 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
+from glmnet.base import Design
 from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
@@ -94,27 +94,28 @@ print(f'{int(status.sum())} events at {len(event_times)} times, '
 
 As in [Resampling the Cox score](cox_regression.md), the loss is the
 Efron negative log partial likelihood divided by $n$, with gradient and
-Hessian from `coxdev`, and `CoxNetIRLS` with `lambda_values=[0]` fits
+Hessian from `CoxFamilySpec`, and `CoxNetIRLS` with `lambda_values=[0]` fits
 the unpenalized Cox regression. The score residual $\hat U_i$ of subject $i$ is
 its contribution to the score, centered within each risk set with
 Efron's weights. The model-based covariance of the score is $Q/n$, with
 $Q$ the Hessian; the sandwich is $\sum_i \hat U_i\hat U_i^T/n^2$.
 
 ```{code-cell} ipython3
-def efron_deviance(time, status):
-    """The Efron deviance of the data, with the weights 1/n of the loss."""
-    n = len(time)
-    return CoxDeviance(event=time, status=status, sample_weight=np.ones(n) / n,
-                       tie_breaking='efron')
+def cox_family(time, status):
+    """The Cox family of the data, with Efron's ties."""
+    return CoxFamilySpec(pd.DataFrame({'event': time, 'status': status}),
+                         event_id='event', status_id='status', tie_breaking='efron')
 
 def loss_gradient_hessian(X, time, status, b):
-    """Gradient and Hessian of the Efron loss at coefficients b."""
+    """Gradient and Hessian of the Efron loss at coefficients b, with the weights 1/n."""
     n = X.shape[0]
-    cox = efron_deviance(time, status)
-    eta = X @ b
-    gradient = X.T @ cox(eta, np.ones(n) / n).gradient / 2
-    info = cox.information(eta, np.ones(n) / n)
-    hessian = X.T @ np.column_stack([info @ X[:, j] for j in range(X.shape[1])])
+    family = cox_family(time, status)
+    D = Design.add_constant(X)                 # the intercept of a CoxState is 0
+    state = CoxState(coef=np.asarray(b, float))
+    state.update(D, family, None)
+    w = np.ones(n) / n
+    gradient = -(D.T @ state.logl_score(family, None, w))[1:]
+    hessian = D.quadratic_form(family.information(state, w))[1:, 1:]
     return gradient, hessian
 
 def score_residuals(X, time, status, b):
@@ -208,9 +209,7 @@ both from the samplers of `coxdev` through `CoxFamilySpec.sample_score`:
 ```{code-cell} ipython3
 def score_draw(X, time, status, b, scheme):
     """One draw U* of the resampled total score, from the pilot fit b."""
-    family = CoxFamilySpec(pd.DataFrame({'event': time, 'status': status}),
-                           event_id='event', status_id='status', tie_breaking='efron')
-    return X.T @ family.sample_score(X @ b, method=scheme, rng=rng)
+    return X.T @ cox_family(time, status).sample_score(X @ b, method=scheme, rng=rng)
 ```
 
 ## The inference
