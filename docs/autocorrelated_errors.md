@@ -48,7 +48,7 @@ from scipy.optimize import brentq
 from scipy.signal import lfilter
 from scipy.stats import norm
 
-from glmnet import GLMNet, LinearTerm
+from glmnet import GLM, GLMNet, LinearTerm
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem
 from lassoinf import LassoInference
@@ -131,12 +131,15 @@ $X_1^T\hat\Sigma_\epsilon X_1/n^2$.
 def with_intercept(X):
     return np.column_stack([np.ones(X.shape[0]), X])
 
+def least_squares_fit(X, y):
+    return GLM().fit(X, y)
+
 def ar1_fit(X, y):
     """Yule-Walker estimates (rho_hat, sigma2_hat) from the residuals, corrected for the fit."""
     X1 = with_intercept(X)
     n = len(y)
     B = np.linalg.inv(X1.T @ X1)
-    r = y - X1 @ (B @ (X1.T @ y))
+    r = least_squares_fit(X, y).residuals()
     zero = np.zeros((1, X1.shape[1]))
     LX1 = 0.5 * (np.vstack([X1[1:], zero]) + np.vstack([zero, X1[:-1]]))
     XLX = X1.T @ LX1
@@ -264,7 +267,8 @@ def sandwich(X_E, Sigma_eps):
     return B @ X1.T @ Sigma_eps @ X1 @ B
 
 def least_squares(X_E, y):
-    return np.linalg.lstsq(with_intercept(X_E), y, rcond=None)[0]
+    """The least squares coefficients (intercept first)."""
+    return least_squares_fit(X_E, y).params_.values
 
 def randomized_inference(X, y, rho_hat, sigma2_hat, dependent=True):
     n = X.shape[0]

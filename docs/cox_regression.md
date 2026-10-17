@@ -41,7 +41,8 @@ from coxdev import CoxDeviance
 from scipy.stats import norm
 
 from glmnet import LinearTerm
-from glmnet.cox import CoxFamily, CoxFamilySpec, CoxNetIRLS, CoxState
+from glmnet.cox import CoxFamily, CoxFamilySpec, CoxLM, CoxNetIRLS, CoxState
+from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
 from glmnet.inference.glmnet_inference import GLMInferenceProblem
@@ -96,9 +97,9 @@ print(f'{int(status.sum())} events at {len(event_times)} times, '
 `CoxNetIRLS` fits the lasso to the Efron partial likelihood. Its loss is
 the negative log partial likelihood divided by $n$. `coxdev`, which
 `CoxNetIRLS` uses, computes its gradient and Hessian with respect to the
-linear predictor $\eta = X\beta$, with the weights $1/n$. `CoxNetIRLS`
-with `lambda_values=[0]` fits the unpenalized Cox regression, and the
-inverse Hessian divided by $n$ estimates the covariance of the fit.
+linear predictor $\eta = X\beta$, with the weights $1/n$. `CoxLM` fits
+the unpenalized Cox regression, with standard errors from the inverse
+information.
 
 ```{code-cell} ipython3
 def efron_deviance(time, status):
@@ -119,23 +120,25 @@ def loss_gradient_hessian(X, time, status, b):
 
 tight = GLMNetControl(epsnr=1e-12, thresh=1e-14)
 
-def cox_coef(X, time, status, warm=None):
+def cox_lm(X, time, status, exclude=(), warm=None):
     """
-    The unpenalized Cox regression with Efron ties: CoxNetIRLS at lambda = 0,
+    The unpenalized Cox regression with Efron ties, leaving out the features exclude,
     warm started at the coefficients warm, if given.
     """
     warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
-    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
-                      lambda_values=np.array([0.]),
-                      control=tight).fit(
-                          X, pd.DataFrame({'event': time, 'status': status}),
-                          warm_state=warm_state).coefs_[0]
+    return CoxLM(family=CoxFamily(tie_breaking='efron'), exclude=list(exclude),
+                 summarize=True, control=GLMControl(epsnr=1e-12)).fit(
+                     X, pd.DataFrame({'event': time, 'status': status}),
+                     warm_state=warm_state)
+
+def cox_coef(X, time, status, warm=None):
+    """The coefficients of the unpenalized Cox regression."""
+    return np.asarray(cox_lm(X, time, status, warm=warm).coef_)
 
 def cox_fit(X, time, status):
     """The unpenalized Cox regression with Efron ties: coefficients and standard errors."""
-    b = cox_coef(X, time, status)
-    hessian = loss_gradient_hessian(X, time, status, b)[1]
-    return b, np.sqrt(np.diag(np.linalg.inv(hessian)) / X.shape[0])
+    fit = cox_lm(X, time, status)
+    return fit.params_.values, fit.summary_['std err'].values
 ```
 
 ## Resampling the score
@@ -274,11 +277,11 @@ Cox's model we build it from the gradient and Hessian above, and
 - **The selection problem** is the lasso problem for the data with the
   linear term $-\omega$. At the randomized fit $\hat\beta$, its gradient
   is the gradient of the loss minus $\omega$, and its Hessian $Q$ is at
-  the relaxed fit: one Newton step for the loss (and its linear term)
-  on the selected coordinates.
+  the relaxed fit, the unpenalized fit on the selected coordinates with
+  the linear term, which `CoxNetIRLS` returns with `relax=True`.
 - **The score of the full data** linearizes the unperturbed gradient at
-  one Newton step from $\hat\beta$ on the selected coordinates,
-  $\tilde\beta$: $Z = -\nabla(\tilde\beta) + Q\tilde\beta$, with
+  the unpenalized fit on the selected coordinates, $\tilde\beta$, from
+  `CoxLM`: $Z = -\nabla(\tilde\beta) + Q\tilde\beta$, with
   covariance $Q/n$. The randomization has `scalar_noise`
   $= (1-\pi)/\pi$.
 
@@ -302,14 +305,10 @@ def cox_lasso(X, time, status, pi, linear_term=None, relax=False, control=None):
                       control=control or GLMNetControl()).fit(
                           X, pd.DataFrame({'event': time, 'status': status}))
 
-def newton_step(X, time, status, b, linear_term=0.):
-    """One Newton step for the loss (plus a linear term) on the nonzero coordinates of b."""
-    active = np.nonzero(b)[0]
-    gradient, hessian = loss_gradient_hessian(X, time, status, b)
-    b = b.copy()
-    b[active] -= np.linalg.solve(hessian[np.ix_(active, active)],
-                                 (gradient + linear_term)[active])
-    return b
+def cox_coef_on(X, time, status, E):
+    """The unpenalized Cox regression on the features E, as coefficients of all p."""
+    return cox_coef(X, time, status) if len(E) == X.shape[1] else np.asarray(
+        cox_lm(X, time, status, exclude=sorted(set(range(X.shape[1])) - set(E))).coef_)
 
 def randomized_inference(X, time, status, pi, scheme='multinomial'):
     n = X.shape[0]
@@ -323,12 +322,13 @@ def randomized_inference(X, time, status, pi, scheme='multinomial'):
 
     # carving
     gradient = loss_gradient_hessian(X, time, status, b)[0]
-    Q = loss_gradient_hessian(X, time, status, newton_step(X, time, status, b, -omega))[1]
+    Q = loss_gradient_hessian(X, time, status, fit.relaxed_coefs_[0])[1]
     problem = GLMProblem(beta_hat=b, G_hat=gradient - omega, Q_hat=Q,
                          D=lam(pi) * np.asarray(fit.design_.scaling_),
                          L=np.full(p, -np.inf), U=np.full(p, np.inf),
                          fit_intercept=False, linear_term=-omega)
-    b_tilde = newton_step(X, time, status, b)
+    # the unpenalized fit on the selected coordinates
+    b_tilde = cox_coef_on(X, time, status, np.nonzero(b)[0])
     Z_full = -loss_gradient_hessian(X, time, status, b_tilde)[0] + Q @ b_tilde
     info = GLMInferenceProblem(problem=problem, Z_full=Z_full, Sigma=Q / n,
                                scalar_noise=(1 - pi) / pi, dispersion=1.)
