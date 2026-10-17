@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- **`Design.add_constant(X)`**, added in 0.3.0: use statsmodels'
+  `sm.add_constant(X)` instead, or fit the intercept with
+  `fit_intercept=True` (#118).
+
 ## 0.3.0 (2026-10-16)
 
 ### Deprecated
