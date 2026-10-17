@@ -21,11 +21,10 @@
   - indexed by the coefficients: `params_` (Series) and `summary_` (DataFrame)
     as before; `covariance_` stays an array, labelled by the new
     `feature_names_` (above);
-  - at the rows of `X_new`: if it is a DataFrame, `predict_se` is a Series and
-    `conf_int` / `prediction_interval` are DataFrames (columns `estimate`,
-    `lower`, `upper`) on its index; if it is an array, they are arrays (so
-    `conf_int` / `prediction_interval` of an array, before DataFrames on a
-    `RangeIndex`, are now arrays with columns estimate, lower, upper);
+  - at the rows of `X_new`: `predict_se` is a Series on its index if it is a
+    DataFrame, else an array; `conf_int` / `prediction_interval` are always
+    DataFrames (columns `estimate`, `lower`, `upper`), now on the index of a
+    DataFrame `X_new` (a `RangeIndex` otherwise, as before);
   - at the observations of the fit: `residuals` and `leverage` are Series on
     the index of `X` if it was a DataFrame, else arrays (#126).
 - **The feature names are checked at predict, as sklearn does:** if `fit` saw

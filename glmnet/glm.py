@@ -1222,15 +1222,13 @@ class GLM(GLMBase):
 
         Returns
         -------
-        pd.DataFrame or np.ndarray
-            If `X_new` is a DataFrame, a DataFrame on its index with columns
-            `estimate`, `lower` and `upper`; else an array whose columns are
-            these.
+        pd.DataFrame
+            Columns `estimate`, `lower` and `upper`, on the index of `X_new` if it
+            is a DataFrame, else on a `RangeIndex`.
         """
         estimate = self._linear_predictor(X_new)
         half = self._quantile(alpha) * np.asarray(self.predict_se(X_new))
-        return _on_rows(X_new, np.column_stack([estimate, estimate - half, estimate + half]),
-                        ['estimate', 'lower', 'upper'])
+        return _interval_frame(X_new, estimate, half)
 
     def leverage(self, X):
         """
@@ -1259,17 +1257,23 @@ class GLM(GLMBase):
         return self._on_train_index(value, 'leverage')
 
 
-def _on_rows(X, value, names):
-    """
-    Values at the rows of `X`: on the index of a DataFrame `X` (a Series if
-    `names` is one name, a DataFrame with columns `names` otherwise), else an
-    array.
-    """
+def _on_rows(X, value, name):
+    """A vector at the rows of `X`: a Series on the index of a DataFrame `X`, else an array."""
     if not isinstance(X, pd.DataFrame):
         return value
-    if isinstance(names, str):
-        return pd.Series(value, index=X.index, name=names)
-    return pd.DataFrame(value, index=X.index, columns=names)
+    return pd.Series(value, index=X.index, name=name)
+
+
+def _interval_frame(X, estimate, half):
+    """
+    Intervals at the rows of `X`: always a DataFrame (its columns are named),
+    on the index of a DataFrame `X`, else on a RangeIndex.
+    """
+    index = X.index if isinstance(X, pd.DataFrame) else pd.RangeIndex(len(estimate))
+    return pd.DataFrame({'estimate': estimate,
+                         'lower': estimate - half,
+                         'upper': estimate + half},
+                        index=index)
 
 
 def anova(*fits):
@@ -1316,9 +1320,9 @@ def prediction_interval(fit, X_new, alpha=0.05, weights=None):
 
     Returns
     -------
-    pd.DataFrame or np.ndarray
-        If `X_new` is a DataFrame, a DataFrame on its index with columns
-        `estimate`, `lower` and `upper`; else an array whose columns are these.
+    pd.DataFrame
+        Columns `estimate`, `lower` and `upper`, on the index of `X_new` if it is a
+        DataFrame, else on a `RangeIndex`.
     """
     if not (getattr(fit, '_unpenalized', False) and fit._use_t()):
         raise ValueError('prediction intervals are for an unpenalized Gaussian GLM with '
@@ -1326,8 +1330,7 @@ def prediction_interval(fit, X_new, alpha=0.05, weights=None):
     estimate = fit._linear_predictor(X_new)
     w = np.ones(estimate.shape[0]) if weights is None else np.asarray(weights, float)
     half = fit._quantile(alpha) * np.sqrt(np.asarray(fit.predict_se(X_new))**2 + fit.dispersion_ / w)
-    return _on_rows(X_new, np.column_stack([estimate, estimate - half, estimate + half]),
-                    ['estimate', 'lower', 'upper'])
+    return _interval_frame(X_new, estimate, half)
 
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):

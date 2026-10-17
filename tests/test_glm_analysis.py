@@ -101,9 +101,8 @@ def test_against_statsmodels(name, case):
     if name != 'gaussian':
         ci = g.conf_int(X_new)
         linear = s.get_prediction(D[rows], which='linear')
-        # an array X_new gives an array: estimate, lower, upper
-        np.testing.assert_allclose(ci[:, 0], linear.predicted, **tol)
-        np.testing.assert_allclose(ci[:, 1:], linear.conf_int(), **tol)
+        np.testing.assert_allclose(ci['estimate'], linear.predicted, **tol)
+        np.testing.assert_allclose(ci[['lower', 'upper']].values, linear.conf_int(), **tol)
 
     # the expected information, as R's hatvalues (statsmodels defaults to the observed)
     np.testing.assert_allclose(g.leverage(X_fit), s.get_hat_matrix_diag(observed=False), **tol)
@@ -178,12 +177,11 @@ def test_prediction_interval(weighted):
     X_new, w_new = X[:6], W[:6] if weighted else None
     frame = s.get_prediction(sm.add_constant(X_new), weights=w_new).summary_frame(alpha=0.1)
     pi = prediction_interval(g, X_new, alpha=0.1, weights=w_new)
-    # an array X_new gives an array: estimate, lower, upper
-    np.testing.assert_allclose(pi[:, 0], frame['mean'])
-    np.testing.assert_allclose(pi[:, 1:], frame[['obs_ci_lower', 'obs_ci_upper']].values)
+    np.testing.assert_allclose(pi['estimate'], frame['mean'])
+    np.testing.assert_allclose(pi[['lower', 'upper']].values, frame[['obs_ci_lower', 'obs_ci_upper']].values)
     # the confidence intervals are those of the mean
     ci = g.conf_int(X_new, alpha=0.1)
-    np.testing.assert_allclose(ci[:, 1:], frame[['mean_ci_lower', 'mean_ci_upper']].values)
+    np.testing.assert_allclose(ci[['lower', 'upper']].values, frame[['mean_ci_lower', 'mean_ci_upper']].values)
 
 
 def test_prediction_interval_only_gaussian():
@@ -261,13 +259,15 @@ def test_pandas_outputs(sandwich):
     for out in frames:
         assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
         assert list(out.columns) == ['estimate', 'lower', 'upper']
-    # an array X_new (to the fit to an array): arrays, with the same values
+    # an array X_new (to the fit to an array): an array for predict_se, with the same values
     assert isinstance(h.predict_se(X[[3, 1, 4]]), np.ndarray)
     np.testing.assert_allclose(h.predict_se(X[[3, 1, 4]]), se)
     arrays = [h.conf_int(X[[3, 1, 4]])] + ([] if sandwich else [prediction_interval(h, X[[3, 1, 4]])])
+    # the intervals are always DataFrames (their columns are named), on a RangeIndex here
     for out, frame in zip(arrays, frames):
-        assert isinstance(out, np.ndarray) and out.shape == (3, 3)
-        np.testing.assert_allclose(out, frame.values)
+        assert isinstance(out, pd.DataFrame) and out.index.equals(pd.RangeIndex(3))
+        assert list(out.columns) == ['estimate', 'lower', 'upper']
+        np.testing.assert_allclose(out.values, frame.values)
 
     # residuals and leverage: on the index of a DataFrame X of the fit, else arrays
     for kind in ['response', 'pearson', 'deviance']:
