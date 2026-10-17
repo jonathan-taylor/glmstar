@@ -12,7 +12,7 @@ except PackageNotFoundError:
 
 from .glmnet import GLMNet
 from .elnet import LinearTerm
-from .glm import GLM, anova
+from .glm import GLM
 from .cox import CoxNetIRLS
 from .paths.gaussnet import GaussNet
 from .paths.lognet import LogNet
