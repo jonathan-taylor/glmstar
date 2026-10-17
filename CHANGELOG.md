@@ -6,6 +6,11 @@
 
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`predict` takes a DataFrame `X`** for `GLMNet`, the C++ paths
+  (`GaussNet`, `LogNet`, `FishNet`, `CoxNet`, ...), `CoxNetIRLS` and the
+  multi-response paths, as `fit` does, so `cross_validation_path`,
+  `cv_predict` and `score_path` work with a DataFrame. The multi-response
+  `predict` takes a sparse `X` again (#120).
 
 ### Documentation and maintenance
 

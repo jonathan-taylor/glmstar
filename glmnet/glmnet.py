@@ -29,7 +29,10 @@ from .glm import (GLM,
                   GLMState,
                   GLMFamilySpec,
                   _state_on_design)
-from ._utils import _get_data, _check_offset, UnboundedObjectiveError
+from ._utils import (_get_data,
+                     _check_offset,
+                     _check_predict_X,
+                     UnboundedObjectiveError)
 from .elnet import LinearTerm
 from .scorer import (PathScorer,
                      ScorePath,
@@ -573,6 +576,7 @@ class GLMNet(BaseEstimator,
         np.ndarray
             Predictions for each lambda value.
         """
+        X = _check_predict_X(X)
 
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
