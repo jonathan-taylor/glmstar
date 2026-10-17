@@ -6,6 +6,11 @@
 
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`CoxLM` converges at the default control:** its Newton steps use the
+  full information of the partial likelihood instead of its diagonal, which
+  converged slowly and stopped far from the maximum (BrainCancer:
+  coefficients off by 0.56 from `coxph`). `GLM` and `CoxLM` warn when
+  they stop at `mxitnr` without converging (#122).
 
 ### Documentation and maintenance
 
