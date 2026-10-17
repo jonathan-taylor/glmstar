@@ -230,55 +230,24 @@ def test_islp_design_and_summarize():
 
 @pytest.mark.parametrize('sandwich', [False, True])
 def test_pandas_outputs(sandwich):
-    # outputs whose rows or columns are labelled are pandas objects with those labels
+    # the outputs at the rows of a new X keep the labels of a DataFrame X
     index = pd.Index([f'obs{i}' for i in range(n)])
     D = pd.DataFrame(X, columns=list('abcd'), index=index)
-    y = pd.Series(3 + X[:, 0] + rng.standard_normal(n), index=index)
+    y = 3 + X[:, 0] + rng.standard_normal(n)
     g = GLM(summarize=True, sandwich=sandwich).fit(D, y)
-    names = ['intercept', 'a', 'b', 'c', 'd']
-
-    C = g.covariance_
-    assert isinstance(C, pd.DataFrame)
-    assert list(C.index) == names and list(C.columns) == names
-    np.testing.assert_allclose(np.sqrt(np.diag(C)), g.summary_['std err'])
-
     new = D.iloc[[3, 1, 4]]
     se = g.predict_se(new)
     assert isinstance(se, pd.Series) and list(se.index) == list(new.index)
-    # the leverage is of the observations of the fit
-    h = g.leverage(D)
-    assert isinstance(h, pd.Series) and h.index.equals(index)
     for out in [g.conf_int(new)] + ([] if sandwich else [prediction_interval(g, new)]):
         assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
-    for kind in ['response', 'pearson', 'deviance']:
-        r = g.residuals(kind)
-        assert isinstance(r, pd.Series) and r.index.equals(index) and r.name == kind
-    np.testing.assert_allclose(g.residuals(), y - g.predict(D))
-
-    # an ndarray X: a RangeIndex, and the values as before
-    h = GLM(summarize=True, sandwich=sandwich).fit(X, np.asarray(y))
-    assert h.residuals().index.equals(pd.RangeIndex(n))
+    # an ndarray X: a RangeIndex, and the same values
+    h = GLM(summarize=True, sandwich=sandwich).fit(X, y)
     assert h.predict_se(X[:3]).index.equals(pd.RangeIndex(3))
+    assert h.conf_int(X[:3]).index.equals(pd.RangeIndex(3))
     np.testing.assert_allclose(h.predict_se(X[:3]), g.predict_se(D[:3]))
-    np.testing.assert_allclose(h.covariance_.values, C.values)
-    # the labels of y when X is an ndarray
-    assert GLM(summarize=True).fit(X, y).residuals().index.equals(index)
-
-
-def test_cox_pandas_outputs():
-    from glmnet.cox import CoxLM, CoxFamilySpec
-    index = pd.Index([f'obs{i}' for i in range(n)])
-    D = pd.DataFrame(X, columns=list('abcd'), index=index)
-    Y = pd.DataFrame({'time': rng.exponential(np.exp(-0.5 * X[:, 0])),
-                      'status': rng.binomial(1, 0.7, n)}, index=index)
-    g = CoxLM(family=CoxFamilySpec(event_data=Y, event_id='time', status_id='status'),
-              summarize=True).fit(D, Y)
-    assert list(g.covariance_.index) == list('abcd') == list(g.covariance_.columns)
-    for kind in ['martingale', 'deviance']:
-        r = g.residuals(kind)
-        assert isinstance(r, pd.Series) and r.index.equals(index)
-    assert g.leverage(D).index.equals(index)
-    assert list(g.conf_int(D[:4]).index) == list(index[:4])
+    # residuals, leverage and covariance_ stay ndarrays
+    assert all(isinstance(out, np.ndarray)
+               for out in [g.residuals(), g.leverage(D), g.covariance_])
 
 
 @pytest.mark.parametrize('family', [None, sm.families.Binomial()])

@@ -554,9 +554,6 @@ class GLMBase(BaseEstimator,
 
         nobs, nvar = X.shape
 
-        # the labels of the observations, for residuals: those of X, or of y
-        self._obs_index = _index_of(X, y)
-
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
         else:
@@ -985,9 +982,6 @@ class GLM(GLMBase):
                                  '[0.025': coef - q * SE,
                                  '0.975]': coef + q * SE},
                                 index=self.params_.index)
-        covariance_ = pd.DataFrame(covariance_,
-                                   index=self.params_.index,
-                                   columns=self.params_.index)
         return covariance_, summary_
 
     def _keep(self):
@@ -1105,19 +1099,12 @@ class GLM(GLMBase):
         mu, w = state.mu, self._weight
         family = self._family.base
         if kind == 'response':
-            value = y - mu
-        elif kind == 'pearson':
-            value = np.sqrt(w) * (y - mu) / np.sqrt(family.variance(mu))
-        elif kind == 'deviance':
-            value = family.resid_dev(y, mu, var_weights=w)
-        else:
-            raise ValueError("residuals are 'response', 'pearson' or 'deviance'")
-        return pd.Series(np.asarray(value, float), index=self._observation_index(), name=kind)
-
-    def _observation_index(self):
-        """The labels of the observations of the fit (those of a DataFrame X or y)."""
-        index = getattr(self, '_obs_index', None)
-        return pd.RangeIndex(len(self._weight)) if index is None else index
+            return y - mu
+        if kind == 'pearson':
+            return np.sqrt(w) * (y - mu) / np.sqrt(family.variance(mu))
+        if kind == 'deviance':
+            return family.resid_dev(y, mu, var_weights=w)
+        raise ValueError("residuals are 'response', 'pearson' or 'deviance'")
 
     def _rows(self, X):
         """[1, X] on the variables in the model, as `params_`, keeping a sparse X sparse."""
@@ -1132,7 +1119,6 @@ class GLM(GLMBase):
 
     def _quadratic_rows(self, X, C):
         """The diagonal of [1, X] C [1, X]^T, with the intercept's row only if fitted."""
-        C = np.asarray(C)
         X = self._rows(X)
         if self.fit_intercept:
             C00, c, C = C[0, 0], C[0, 1:], C[1:, 1:]
@@ -1186,31 +1172,22 @@ class GLM(GLMBase):
         the information in the linear predictor. For a GLM, W is diagonal and this
         is the diagonal of the hat matrix. For Cox, W is not diagonal: this is the
         generalized leverage, which R does not report.
-
-        Returns
-        -------
-        pd.Series
-            Indexed as the rows of `X` (its index, if a DataFrame).
         """
-        index = _index_of(X)
         C = np.linalg.inv(self._precision())
         W = self._get_information()
         if isinstance(W, DiagonalOperator):
-            value = self.weight_total_ * W.weights * self._quadratic_rows(X, C)
-        else:
-            X = self._rows(X)
-            X = X.toarray() if scipy.sparse.issparse(X) else X
-            if self.fit_intercept:
-                X = np.column_stack([np.ones(X.shape[0]), X])
-            value = self.weight_total_ * ((X @ C) * (W @ X)).sum(1)
-        return pd.Series(np.asarray(value, float).reshape(-1), index=index, name='leverage')
+            return self.weight_total_ * W.weights * self._quadratic_rows(X, C)
+        X = self._rows(X)
+        X = X.toarray() if scipy.sparse.issparse(X) else X
+        if self.fit_intercept:
+            X = np.column_stack([np.ones(X.shape[0]), X])
+        return self.weight_total_ * ((X @ C) * (W @ X)).sum(1)
 
 
-def _index_of(X, y=None):
-    """The index of a DataFrame (or Series) `X`, else of `y`, else a RangeIndex over the rows of `X`."""
-    for Z in (X, y):
-        if isinstance(Z, (pd.DataFrame, pd.Series)):
-            return Z.index
+def _index_of(X):
+    """The index of a DataFrame `X`, else a RangeIndex over its rows."""
+    if isinstance(X, (pd.DataFrame, pd.Series)):
+        return X.index
     return pd.RangeIndex(X.shape[0])
 
 
