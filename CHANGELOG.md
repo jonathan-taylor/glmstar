@@ -9,23 +9,23 @@
   1, so their standard errors, intervals and tests were wrong (e.g. 1.6 times too
   large for a Gamma fit). It is now estimated by Pearson's chi-squared over the
   residual degrees of freedom, as R's `summary.glm` and statsmodels do; it stays 1
-  for the binomial, Poisson, negative binomial and Cox (#PR).
+  for the binomial, Poisson, negative binomial and Cox (#119).
 - **t or z:** `summary_`, `summary()` and `conf_int` use t on `df_resid_` only for
   the Gaussian with identity link, an estimated dispersion and `sandwich=False`,
-  and z otherwise; a given `dispersion=` or the sandwich used to keep t (#PR).
+  and z otherwise; a given `dispersion=` or the sandwich used to keep t (#119).
 - **The Gaussian's log-likelihood** (`loglike_`, `aic_`, `bic_`) is at the maximum
-  likelihood estimate of its variance for every link, as R's `logLik.glm` (#PR).
+  likelihood estimate of its variance for every link, as R's `logLik.glm` (#119).
 
 ### New
 
 - **`glmnet.glm.prediction_interval(fit, X_new, alpha, weights)`:** prediction
   intervals for an unpenalized Gaussian `GLM`, as R's
-  `predict.lm(interval="prediction")` (#PR).
+  `predict.lm(interval="prediction")` (#119).
 
 ### Changed
 
 - **`anova` is no longer imported into `glmnet`:** use
-  `from glmnet.glm import anova`, as for the other GLM-only functions (#PR).
+  `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
 
 ## 0.3.0 (2026-10-16)
 
