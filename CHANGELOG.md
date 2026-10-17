@@ -76,7 +76,7 @@
   `sandwich=True` for the robust Cox standard errors) instead of statsmodels,
   `lstsq` or a hand-written solver; the Cox pages' one-step Newton refits are
   replaced by the relaxed fit of `CoxNetIRLS` and a `CoxLM` fit on the
-  selected features, and their score residuals come from `coxdev` (#PR).
+  selected features, and their score residuals come from `coxdev` (#127).
 - **Smaller wheels:** `glmnet/test_data`, 144 unused pickles (5.6 MB) from
   the first packaging commit, is removed. Nothing read them, but they were
   installed with every wheel and sdist (#115).
