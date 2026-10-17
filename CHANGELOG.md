@@ -12,6 +12,13 @@
 
 - **`anova` is no longer imported into `glmnet`:** use
   `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
+- **The analysis of an unpenalized `GLM` / `CoxLM` returns labelled pandas
+  objects:** `covariance_` is a DataFrame indexed and columned by
+  `params_.index`; `predict_se(X)`, `leverage(X)` and `residuals(kind)` are
+  Series; `conf_int(X_new)` and `prediction_interval` keep the index of a
+  DataFrame `X_new`. The rows are labelled by the index of a DataFrame `X` (or
+  of `y`, for the residuals), and by a `RangeIndex` otherwise. The values are
+  unchanged (#PR).
 
 ### Fixes
 

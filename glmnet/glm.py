@@ -553,7 +553,10 @@ class GLMBase(BaseEstimator,
                 self.__dict__.pop(attr, None)
 
         nobs, nvar = X.shape
-        
+
+        # the labels of the observations, for residuals: those of X, or of y
+        self._obs_index = _index_of(X, y)
+
         if isinstance(X, pd.DataFrame):
             self.feature_names_in_ = list(X.columns)
         else:
@@ -966,7 +969,7 @@ class GLM(GLMBase):
         else:
             covariance_ = self.dispersion_ * bread
 
-        SE = np.sqrt(np.diag(covariance_)) 
+        SE = np.sqrt(np.diag(covariance_))
         coef = self.params_.values
         T = coef / SE
 
@@ -982,6 +985,9 @@ class GLM(GLMBase):
                                  '[0.025': coef - q * SE,
                                  '0.975]': coef + q * SE},
                                 index=self.params_.index)
+        covariance_ = pd.DataFrame(covariance_,
+                                   index=self.params_.index,
+                                   columns=self.params_.index)
         return covariance_, summary_
 
     def _keep(self):
@@ -1099,12 +1105,19 @@ class GLM(GLMBase):
         mu, w = state.mu, self._weight
         family = self._family.base
         if kind == 'response':
-            return y - mu
-        if kind == 'pearson':
-            return np.sqrt(w) * (y - mu) / np.sqrt(family.variance(mu))
-        if kind == 'deviance':
-            return family.resid_dev(y, mu, var_weights=w)
-        raise ValueError("residuals are 'response', 'pearson' or 'deviance'")
+            value = y - mu
+        elif kind == 'pearson':
+            value = np.sqrt(w) * (y - mu) / np.sqrt(family.variance(mu))
+        elif kind == 'deviance':
+            value = family.resid_dev(y, mu, var_weights=w)
+        else:
+            raise ValueError("residuals are 'response', 'pearson' or 'deviance'")
+        return pd.Series(np.asarray(value, float), index=self._observation_index(), name=kind)
+
+    def _observation_index(self):
+        """The labels of the observations of the fit (those of a DataFrame X or y)."""
+        index = getattr(self, '_obs_index', None)
+        return pd.RangeIndex(len(self._weight)) if index is None else index
 
     def _rows(self, X):
         """[1, X] on the variables in the model, as `params_`, keeping a sparse X sparse."""
@@ -1119,6 +1132,7 @@ class GLM(GLMBase):
 
     def _quadratic_rows(self, X, C):
         """The diagonal of [1, X] C [1, X]^T, with the intercept's row only if fitted."""
+        C = np.asarray(C)
         X = self._rows(X)
         if self.fit_intercept:
             C00, c, C = C[0, 0], C[0, 1:], C[1:, 1:]
@@ -1135,8 +1149,14 @@ class GLM(GLMBase):
         """
         Standard errors of the linear predictor at the rows of `X`: the square root
         of the diagonal of X Cov X^T, with Cov the covariance of `params_`.
+
+        Returns
+        -------
+        pd.Series
+            Indexed as the rows of `X` (its index, if a DataFrame).
         """
-        return np.sqrt(self._quadratic_rows(X, self._get_covariance()))
+        return pd.Series(np.sqrt(self._quadratic_rows(X, self._get_covariance())),
+                         index=_index_of(X), name='std err')
 
     def conf_int(self, X_new, alpha=0.05):
         """
@@ -1149,13 +1169,15 @@ class GLM(GLMBase):
         Returns
         -------
         pd.DataFrame
-            Columns `estimate`, `lower` and `upper`.
+            Columns `estimate`, `lower` and `upper`, indexed as the rows of
+            `X_new` (its index, if a DataFrame).
         """
         estimate = self._linear_predictor(X_new)
-        half = self._quantile(alpha) * self.predict_se(X_new)
+        half = self._quantile(alpha) * self.predict_se(X_new).values
         return pd.DataFrame({'estimate': estimate,
                              'lower': estimate - half,
-                             'upper': estimate + half})
+                             'upper': estimate + half},
+                            index=_index_of(X_new))
 
     def leverage(self, X):
         """
@@ -1164,16 +1186,32 @@ class GLM(GLMBase):
         the information in the linear predictor. For a GLM, W is diagonal and this
         is the diagonal of the hat matrix. For Cox, W is not diagonal: this is the
         generalized leverage, which R does not report.
+
+        Returns
+        -------
+        pd.Series
+            Indexed as the rows of `X` (its index, if a DataFrame).
         """
+        index = _index_of(X)
         C = np.linalg.inv(self._precision())
         W = self._get_information()
         if isinstance(W, DiagonalOperator):
-            return self.weight_total_ * W.weights * self._quadratic_rows(X, C)
-        X = self._rows(X)
-        X = X.toarray() if scipy.sparse.issparse(X) else X
-        if self.fit_intercept:
-            X = np.column_stack([np.ones(X.shape[0]), X])
-        return self.weight_total_ * ((X @ C) * (W @ X)).sum(1)
+            value = self.weight_total_ * W.weights * self._quadratic_rows(X, C)
+        else:
+            X = self._rows(X)
+            X = X.toarray() if scipy.sparse.issparse(X) else X
+            if self.fit_intercept:
+                X = np.column_stack([np.ones(X.shape[0]), X])
+            value = self.weight_total_ * ((X @ C) * (W @ X)).sum(1)
+        return pd.Series(np.asarray(value, float).reshape(-1), index=index, name='leverage')
+
+
+def _index_of(X, y=None):
+    """The index of a DataFrame (or Series) `X`, else of `y`, else a RangeIndex over the rows of `X`."""
+    for Z in (X, y):
+        if isinstance(Z, (pd.DataFrame, pd.Series)):
+            return Z.index
+    return pd.RangeIndex(X.shape[0])
 
 
 def anova(*fits):
@@ -1221,17 +1259,19 @@ def prediction_interval(fit, X_new, alpha=0.05, weights=None):
     Returns
     -------
     pd.DataFrame
-        Columns `estimate`, `lower` and `upper`.
+        Columns `estimate`, `lower` and `upper`, indexed as the rows of `X_new`
+        (its index, if a DataFrame).
     """
     if not (getattr(fit, '_unpenalized', False) and fit._use_t()):
         raise ValueError('prediction intervals are for an unpenalized Gaussian GLM with '
                          'identity link, an estimated dispersion and sandwich=False')
     estimate = fit._linear_predictor(X_new)
     w = np.ones(estimate.shape[0]) if weights is None else np.asarray(weights, float)
-    half = fit._quantile(alpha) * np.sqrt(fit.predict_se(X_new)**2 + fit.dispersion_ / w)
+    half = fit._quantile(alpha) * np.sqrt(fit.predict_se(X_new).values**2 + fit.dispersion_ / w)
     return pd.DataFrame({'estimate': estimate,
                          'lower': estimate - half,
-                         'upper': estimate + half})
+                         'upper': estimate + half},
+                        index=_index_of(X_new))
 
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
