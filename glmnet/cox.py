@@ -22,7 +22,7 @@ from .glm import (GLMFamilySpec,
 from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
-from ._utils import _get_data, _check_offset
+from ._utils import _get_data, _check_offset, _check_predict_X
 
 def c_index(pred,
             time,
@@ -907,6 +907,7 @@ class CoxNetIRLS(GLMNet):
         """
         if prediction_type not in ['link', 'response']:
             raise ValueError("prediction_type should be one of 'link' or 'response' for Cox models")
+        X = _check_predict_X(X)
 
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
