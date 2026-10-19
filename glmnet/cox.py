@@ -677,13 +677,15 @@ class CoxLM(GLM):
         # the martingale residuals
         M = np.where(w > 0, -result.gradient / 2 / np.where(w > 0, w, 1), 0)
         if kind == 'martingale':
-            return M
-        if kind == 'deviance':
+            value = M
+        elif kind == 'deviance':
             status = np.asarray(self._family._coxdev_args['status'], float)
             with np.errstate(divide='ignore', invalid='ignore'):
                 d = -2 * (M + np.where(status > 0, status * np.log(status - M), 0))
-            return np.sign(M) * np.sqrt(np.maximum(d, 0))
-        raise ValueError("Cox residuals are 'martingale' or 'deviance'")
+            value = np.sign(M) * np.sqrt(np.maximum(d, 0))
+        else:
+            raise ValueError("Cox residuals are 'martingale' or 'deviance'")
+        return self._on_train_index(value, kind)
 
 
 @dataclass
