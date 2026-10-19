@@ -1011,6 +1011,7 @@ class CoxScorer(Scorer):
                         event_id=coxfam.event_id,
                         status_id=coxfam.status_id,
                         start_id=coxfam.start_id,
+                        strata_id=coxfam.strata_id,
                         event_data=event_split)
 
         split_w = sample_weight[split]
@@ -1039,6 +1040,7 @@ class CoxDiffScorer(CoxScorer):
                        event_id=coxfam.event_id,
                        status_id=coxfam.status_id,
                        start_id=coxfam.start_id,
+                       strata_id=coxfam.strata_id,
                        event_data=event_data)
         dev_full = fam_full._coxdev_at(sample_weight)(predictions, sample_weight).deviance
 
@@ -1052,6 +1054,7 @@ class CoxDiffScorer(CoxScorer):
                           event_id=coxfam.event_id,
                           status_id=coxfam.status_id,
                           start_id=coxfam.start_id,
+                          strata_id=coxfam.strata_id,
                           event_data=event_c)
         split_c_w = sample_weight[split_c]
         dev_c = fam_split_c._coxdev_at(split_c_w)(predictions[split_c], split_c_w).deviance

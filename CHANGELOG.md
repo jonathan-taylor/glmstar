@@ -40,6 +40,11 @@
 
 ### Fixes
 
+- **The cross-validated deviance of a stratified Cox model**
+  (`cross_validation_path`'s "Cox Deviance" and "Cox Deviance (Difference)"):
+  `CoxScorer` / `CoxDiffScorer` dropped `strata_id` when building each fold's
+  family, so the folds were scored without the strata (off by up to 0.5 from
+  `cv.glmnet` in the tests). It now matches R's `cv.glmnet(grouped=FALSE)` (#134).
 - **lambda_max of a `GLMNet` path with unpenalized variables** (e.g. a zero
   penalty factor) on a non-canonical link: their fit used the path's
   tolerance (`epsnr=1e-6`), which stops early for linear convergence, so
