@@ -103,7 +103,7 @@
   deviance (vs `cv.glmnet(grouped=FALSE)`) and `CoxLM` (vs `coxph` with
   `strata()` and `offset()`: coefficients, standard errors, log-likelihood).
   The cross-validated deviance of a stratified model is a strict xfail:
-  `CoxScorer` drops the strata (#TBD).
+  `CoxScorer` drops the strata (#130).
 
 ### Documentation and maintenance
 
