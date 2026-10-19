@@ -40,6 +40,11 @@
 
 ### Fixes
 
+- **The cross-validated deviance of a stratified Cox model**
+  (`cross_validation_path`'s "Cox Deviance" and "Cox Deviance (Difference)"):
+  `CoxScorer` / `CoxDiffScorer` dropped `strata_id` when building each fold's
+  family, so the folds were scored without the strata (off by up to 0.5 from
+  `cv.glmnet` in the tests). It now matches R's `cv.glmnet(grouped=FALSE)` (#TBD).
 - **The dispersion of `GLM` for the families with a free dispersion** (Gamma,
   inverse Gaussian, Tweedie, Gaussian with a non-identity link): it was fixed at
   1, so their standard errors, intervals and tests were wrong (e.g. 1.6 times too

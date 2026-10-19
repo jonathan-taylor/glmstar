@@ -206,13 +206,7 @@ C_strat = concordance(Y0 ~ I(-pred) + strata(strata), weights=weight)$concordanc
     np.testing.assert_allclose(value, C_strat, rtol=0, atol=1e-12)
 
 
-xfail_cv_strata = pytest.mark.xfail(
-    strict=True,
-    reason="CoxScorer.score_fn builds the fold's CoxFamilySpec without strata_id, "
-           "so the cross-validated deviance of a stratified model ignores the strata")
-
-
-@pytest.mark.parametrize('strata', [False, pytest.param(True, marks=xfail_cv_strata)])
+@pytest.mark.parametrize('strata', [False, True])
 def test_coxnet_cv_deviance_ungrouped(Rinfo, strata):
     """cross_validation_path's 'Cox Deviance' vs cv.glmnet(grouped=FALSE): the deviance
     of each held-out fold on its own, per unit weight, with start-stop data, weights
