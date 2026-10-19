@@ -32,6 +32,13 @@
   likelihood estimate of its variance for every link, as R's `logLik.glm` (#119).
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`GaussNet.get_fixed_lambda` for `alpha < 1`:** `GaussNet`, as R's
+  `glmnet(family="gaussian")`, fits `y / s_y` at `lambda / s_y`, dividing
+  the ridge part of the penalty by `s_y` (the weighted sd of `y`, now
+  `response_scale_`); `RegGLM` and the IRLS `GLMNet`, as R's
+  `family=gaussian()`, do not. Both match R and are unchanged, but
+  `get_fixed_lambda` now returns the `RegGLM` solving the path's problem
+  (before, it differed for `alpha < 1`). The other families agree (#123).
 - **`CoxLM` converges at the default control:** its Newton steps use the
   full information of the partial likelihood instead of its diagonal, which
   converged slowly and stopped far from the maximum (BrainCancer:
