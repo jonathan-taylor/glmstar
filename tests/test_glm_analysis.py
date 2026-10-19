@@ -11,7 +11,8 @@ import statsmodels.api as sm
 from scipy.stats import chi2
 
 from glmnet import GLM
-from glmnet.glm import GLMControl, BinomialGLM, anova, prediction_interval
+from glmnet.glm import (GLMControl, BinomialGLM, anova, confidence_interval,
+                        prediction_interval)
 
 TIGHT = GLMControl(epsnr=1e-12, mxitnr=100)
 rng = np.random.default_rng(0)
@@ -99,7 +100,7 @@ def test_against_statsmodels(name, case):
     linear = s.get_prediction(D[rows], offset=off_new, which='linear')
     np.testing.assert_allclose(g.predict_se(X_new), linear.se, **tol)
     if name != 'gaussian':
-        ci = g.conf_int(X_new)
+        ci = confidence_interval(g, X_new)
         linear = s.get_prediction(D[rows], which='linear')
         np.testing.assert_allclose(ci['estimate'], linear.predicted, **tol)
         np.testing.assert_allclose(ci[['lower', 'upper']].values, linear.conf_int(), **tol)
@@ -180,7 +181,7 @@ def test_prediction_interval(weighted):
     np.testing.assert_allclose(pi['estimate'], frame['mean'])
     np.testing.assert_allclose(pi[['lower', 'upper']].values, frame[['obs_ci_lower', 'obs_ci_upper']].values)
     # the confidence intervals are those of the mean
-    ci = g.conf_int(X_new, alpha=0.1)
+    ci = confidence_interval(g, X_new, alpha=0.1)
     np.testing.assert_allclose(ci[['lower', 'upper']].values, frame[['mean_ci_lower', 'mean_ci_upper']].values)
 
 
@@ -216,7 +217,7 @@ def test_islp_design_and_summarize():
     assert list(g.params_.index) == list(s.params.index)
     np.testing.assert_allclose(g.params_, s.params)
     np.testing.assert_allclose(g.predict(D), s.predict(D))
-    np.testing.assert_allclose(g.conf_int(D[:5])[['lower', 'upper']].values,
+    np.testing.assert_allclose(confidence_interval(g, D[:5])[['lower', 'upper']].values,
                                s.get_prediction(D[:5]).conf_int())
     np.testing.assert_allclose(g.summary_[['[0.025', '0.975]']].values, s.conf_int())
 

@@ -10,6 +10,10 @@
 
 ### Changed
 
+- **`GLM.conf_int(X_new)` is now the function
+  `glmnet.glm.confidence_interval(fit, X_new, alpha)`**, next to
+  `prediction_interval`; the method, added in 0.3.0, is removed. For the
+  short name, `from glmnet.glm import confidence_interval as conf_int` (#119).
 - **`anova` is no longer imported into `glmnet`:** use
   `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
 
@@ -21,7 +25,7 @@
   large for a Gamma fit). It is now estimated by Pearson's chi-squared over the
   residual degrees of freedom, as R's `summary.glm` and statsmodels do; it stays 1
   for the binomial, Poisson, negative binomial and Cox (#119).
-- **t or z:** `summary_`, `summary()` and `conf_int` use t on `df_resid_` only for
+- **t or z:** `summary_`, `summary()` and the confidence intervals use t on `df_resid_` only for
   the Gaussian with identity link, an estimated dispersion and `sandwich=False`,
   and z otherwise; a given `dispersion=` or the sandwich used to keep t (#119).
 - **The Gaussian's log-likelihood** (`loglike_`, `aic_`, `bic_`) is at the maximum

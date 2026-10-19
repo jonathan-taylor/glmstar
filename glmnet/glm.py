@@ -831,8 +831,8 @@ class GLM(GLMBase):
         Compute a Wald-type statistical summary from fitted GLM.
     sandwich: bool
         Use the sandwich (robust) estimate of the covariance of the
-        coefficients, `covariance_`, in `summary_`, `conf_int` and
-        `predict_se`, in place of the model-based one. Default is False.
+        coefficients, `covariance_`, in `summary_`, `predict_se` and
+        `confidence_interval`, in place of the model-based one. Default is False.
     ridge_coef: float
         Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
     """
@@ -1138,25 +1138,6 @@ class GLM(GLMBase):
         """
         return np.sqrt(self._quadratic_rows(X, self._get_covariance()))
 
-    def conf_int(self, X_new, alpha=0.05):
-        """
-        Wald confidence intervals of level `1 - alpha` for the linear
-        combinations of `params_` given by the rows of `X_new` (with the
-        intercept if fitted), i.e. for the linear predictor at `X_new` without
-        an offset. The intervals for the coefficients themselves are in
-        `summary_`.
-
-        Returns
-        -------
-        pd.DataFrame
-            Columns `estimate`, `lower` and `upper`.
-        """
-        estimate = self._linear_predictor(X_new)
-        half = self._quantile(alpha) * self.predict_se(X_new)
-        return pd.DataFrame({'estimate': estimate,
-                             'lower': estimate - half,
-                             'upper': estimate + half})
-
     def leverage(self, X):
         """
         The leverage of each observation of the fit, the diagonal of
@@ -1206,6 +1187,26 @@ def anova(*fits):
                          'dev_diff': dev_diff,
                          'chi2': chi2,
                          'P(>chi2)': chi2_dbn.sf(chi2, np.abs(df_diff))})
+
+
+def confidence_interval(fit, X_new, alpha=0.05):
+    """
+    Wald confidence intervals of level `1 - alpha` for the linear
+    combinations of `fit.params_` given by the rows of `X_new` (with the
+    intercept if fitted), i.e. for the linear predictor at `X_new` without
+    an offset, for an unpenalized `GLM` or `CoxLM`. The intervals for the
+    coefficients themselves are in `fit.summary_`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns `estimate`, `lower` and `upper`.
+    """
+    estimate = fit._linear_predictor(X_new)
+    half = fit._quantile(alpha) * fit.predict_se(X_new)
+    return pd.DataFrame({'estimate': estimate,
+                         'lower': estimate - half,
+                         'upper': estimate + half})
 
 
 def prediction_interval(fit, X_new, alpha=0.05, weights=None):
