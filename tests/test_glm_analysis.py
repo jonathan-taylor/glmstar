@@ -3,6 +3,8 @@ The standard analysis of an unpenalized GLM fit (coefficient table, intervals,
 log-likelihood, residuals, prediction standard errors, leverage, analysis of
 deviance) against statsmodels, with weights as prior weights (``var_weights``).
 """
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -211,7 +213,8 @@ def test_islp_design_and_summarize():
     df = pd.DataFrame(X, columns=list('abcd'))
     D = pd.concat([pd.DataFrame({'intercept': np.ones(n)}), df], axis=1)
     y = X[:, 0] + rng.standard_normal(n)
-    with pytest.warns(UserWarning, match='intercept'):
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)  # the 'intercept' column is dropped silently
         g = GLM(summarize=True).fit(D, y)
     s = sm.OLS(y, D).fit()
     assert list(g.params_.index) == list(s.params.index)
@@ -338,7 +341,8 @@ def test_feature_names_modelspec():
     df = pd.DataFrame(X, columns=list('abcd'))
     y = 3 + X[:, 0] + rng.standard_normal(n)
     spec = ModelSpec(['a', 'b']).fit(df[:150])
-    with pytest.warns(UserWarning, match='intercept'):
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)  # the 'intercept' column is dropped silently
         g = GLM(summarize=True).fit(spec.transform(df[:150]), y[:150])
     new = spec.transform(df[150:])
     assert 'intercept' in new.columns

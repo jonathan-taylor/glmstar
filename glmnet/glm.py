@@ -787,8 +787,10 @@ class GLMBase(BaseEstimator,
         """
         A DataFrame `X` from a design builder such as ISLP's `ModelSpec` may have a
         constant column `intercept`, which duplicates the fitted intercept: it is
-        dropped, with a warning when fitting. As the only column (the
-        intercept-only model) it is kept but excluded instead.
+        dropped, without a warning as this is ISLP's convention (a warning would
+        be raised at every fold of a cross-validation or step of a selection).
+        As the only column (the intercept-only model) it is kept but excluded
+        instead.
         """
         if fitting:
             self._intercept_column = (self.fit_intercept and
@@ -799,9 +801,6 @@ class GLMBase(BaseEstimator,
             if self._intercept_column and X.shape[1] == 1:
                 self._intercept_column = False
                 self._excluded_intercept = [0]
-            elif self._intercept_column:
-                warnings.warn("dropping the constant column 'intercept' of X: "
-                              "the model has an intercept (fit_intercept=True)")
         if (getattr(self, '_intercept_column', False) and
             isinstance(X, pd.DataFrame) and 'intercept' in X.columns):
             X = X.drop(columns='intercept')
@@ -862,7 +861,8 @@ class GLMBase(BaseEstimator,
     def score(self, X, y, sample_weight=None):
         """
         Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
-        default to `np.ones_like(y) / y.shape[0]`.
+        default to `np.ones_like(y)`, so this is a sum over the observations, not an
+        average: it grows with the number of observations, as `CoxLM.score`.
 
         Parameters
         ----------
@@ -879,7 +879,7 @@ class GLMBase(BaseEstimator,
         Returns
         -------
         score: float
-            Deviance of family for `(X, y, sample_weight)`.
+            Minus half the deviance of family for `(X, y, sample_weight)`.
         """
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
