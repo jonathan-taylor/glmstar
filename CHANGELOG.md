@@ -2,10 +2,42 @@
 
 ## Unreleased
 
+### New
+
+- **`glmnet.glm.prediction_interval(fit, X_new, alpha, weights)`:** prediction
+  intervals for an unpenalized Gaussian `GLM`, as R's
+  `predict.lm(interval="prediction")` (#119).
+
+### Changed
+
+- **`GLM.conf_int(X_new)` is now the function
+  `glmnet.glm.confidence_interval(fit, X_new, alpha)`**, next to
+  `prediction_interval`; the method, added in 0.3.0, is removed. For the
+  short name, `from glmnet.glm import confidence_interval as conf_int` (#119).
+- **`anova` is no longer imported into `glmnet`:** use
+  `from glmnet.glm import anova`, as for the other GLM-only functions (#119).
+
 ### Fixes
 
+- **The dispersion of `GLM` for the families with a free dispersion** (Gamma,
+  inverse Gaussian, Tweedie, Gaussian with a non-identity link): it was fixed at
+  1, so their standard errors, intervals and tests were wrong (e.g. 1.6 times too
+  large for a Gamma fit). It is now estimated by Pearson's chi-squared over the
+  residual degrees of freedom, as R's `summary.glm` and statsmodels do; it stays 1
+  for the binomial, Poisson, negative binomial and Cox (#119).
+- **t or z:** `summary_`, `summary()` and the confidence intervals use t on `df_resid_` only for
+  the Gaussian with identity link, an estimated dispersion and `sandwich=False`,
+  and z otherwise; a given `dispersion=` or the sandwich used to keep t (#119).
+- **The Gaussian's log-likelihood** (`loglike_`, `aic_`, `bic_`) is at the maximum
+  likelihood estimate of its variance for every link, as R's `logLik.glm` (#119).
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+
+### Removed
+
+- **`Design.add_constant(X)`**, added in 0.3.0: use statsmodels'
+  `sm.add_constant(X)` instead, or fit the intercept with
+  `fit_intercept=True` (#118).
 
 ### Documentation and maintenance
 
