@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-10-19)
 
 ### New
 
@@ -10,7 +10,7 @@
 - **`feature_names_`** of `GLM` / `CoxLM`: the names of the entries of `params_`
   and of the rows and columns of `covariance_`, `np.asarray(params_.index)`
   (with `'intercept'` if fitted, without the excluded variables), unlike
-  sklearn's `feature_names_in_` (the columns of the `X` of `fit`) (#126).
+  sklearn's `feature_names_in_` (the columns of the `X` of `fit`) (#128).
 
 ### Changed
 
@@ -37,13 +37,13 @@
     `prediction_interval` are always DataFrames (columns `estimate`, `lower`,
     `upper`), now on the index of a DataFrame `X_new` (a `RangeIndex` otherwise, as before);
   - at the observations of the fit: `residuals` and `leverage` are Series on
-    the index of `X` if it was a DataFrame, else arrays (#126).
+    the index of `X` if it was a DataFrame, else arrays (#128).
 - **The feature names are checked at predict, as sklearn does:** if `fit` saw
   a DataFrame, `predict`, `predict_se`, `confidence_interval`,
   `prediction_interval` and `leverage` raise a `ValueError` for a DataFrame
   whose columns are missing, extra or reordered, and warn for an array (or for a DataFrame when `fit`
   saw an array). A ModelSpec `intercept` column, dropped at `fit`, is dropped
-  before the check (#126).
+  before the check (#128).
 
 ### Fixes
 
