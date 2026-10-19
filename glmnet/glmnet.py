@@ -26,6 +26,7 @@ from .regularized_glm import (RegGLMControl,
                               RegGLM)
 
 from .glm import (GLM,
+                  GLMControl,
                   GLMState,
                   GLMFamilySpec,
                   _state_on_design)
@@ -1361,12 +1362,17 @@ class GLMNet(BaseEstimator,
         elif keep.sum() > 0:
             X_keep = X[:,keep]
 
+            # the unpenalized fit gives lambda_max: at GLM's tolerance, not the
+            # path's (epsnr=1e-6 stops early for a non-canonical link)
+            control = GLMControl(mxitnr=max(self.control.mxitnr, GLMControl.mxitnr),
+                                 epsnr=min(self.control.epsnr, GLMControl.epsnr),
+                                 big=self.control.big)
             glm = GLM(fit_intercept=self.fit_intercept,
                       family=self.family,
                       offset_id=self.offset_id,
                       weight_id=self.weight_id,
                       response_id=self.response_id,
-                      control=self.control)
+                      control=control)
             glm.fit(X_keep, y)
             coef_[keep] = glm.coef_
             intercept_ = glm.intercept_
