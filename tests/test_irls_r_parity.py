@@ -183,31 +183,9 @@ def test_irls_matches_R(Rinfo, data, fam_name):
 
 OPTION_FAMILIES = ['logit', 'poisson', 'cloglog', 'negbin']
 
-XFAIL = {
-    # R's glmnet.path fits the unpenalized variables with glm.fit's default
-    # glm.control(epsilon=1e-8); glmstar's GLMNet._get_initial_state fits them
-    # with GLM(control=self.control), the path's GLMNetControl (epsnr=1e-6), not
-    # GLMControl's 1e-10. For a non-canonical link (linear convergence) its
-    # null fit is loose (slope 0.23029015 vs 0.23028974) and lambda_max is off
-    # by 8e-6 relative (0.23290604 vs R's 0.23290793; by hand at the tight
-    # null fit 0.23290790). Canonical links converge quadratically and pass.
-    ('cloglog', 'penalty_factor_zero'):
-        'the unpenalized null fit for lambda_max uses the path tolerance epsnr=1e-6',
-}
 
-
-def _option_params():
-    for fam_name in OPTION_FAMILIES:
-        for option in OPTIONS:
-            if option == 'plain':
-                continue
-            marks = ()
-            if (fam_name, option) in XFAIL:
-                marks = pytest.mark.xfail(reason=XFAIL[fam_name, option], strict=True)
-            yield pytest.param(fam_name, option, marks=marks, id=f'{option}-{fam_name}')
-
-
-@pytest.mark.parametrize('fam_name,option', list(_option_params()))
+@pytest.mark.parametrize('fam_name', OPTION_FAMILIES)
+@pytest.mark.parametrize('option', [o for o in OPTIONS if o != 'plain'])
 def test_irls_options_match_R(Rinfo, data, fam_name, option):
     check(Rinfo, data, fam_name, option)
 

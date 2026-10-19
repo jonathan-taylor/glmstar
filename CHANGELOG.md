@@ -45,6 +45,16 @@
   lacked R's log(choose(trials, successes)) (AIC 648.4 for R's 352.1 in the
   tests). They now match R's `logLik` / `AIC` for grouped data; 0/1 responses
   are unchanged (#133).
+- **The cross-validated deviance of a stratified Cox model**
+  (`cross_validation_path`'s "Cox Deviance" and "Cox Deviance (Difference)"):
+  `CoxScorer` / `CoxDiffScorer` dropped `strata_id` when building each fold's
+  family, so the folds were scored without the strata (off by up to 0.5 from
+  `cv.glmnet` in the tests). It now matches R's `cv.glmnet(grouped=FALSE)` (#134).
+- **lambda_max of a `GLMNet` path with unpenalized variables** (e.g. a zero
+  penalty factor) on a non-canonical link: their fit used the path's
+  tolerance (`epsnr=1e-6`), which stops early for linear convergence, so
+  every default lambda was off by about 1e-5 relative (cloglog). It now uses
+  `GLMControl`'s tolerance and matches R's `glmnet` (#135).
 - **The dispersion of `GLM` for the families with a free dispersion** (Gamma,
   inverse Gaussian, Tweedie, Gaussian with a non-identity link): it was fixed at
   1, so their standard errors, intervals and tests were wrong (e.g. 1.6 times too
