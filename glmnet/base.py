@@ -629,7 +629,9 @@ class Penalty(object):
     Parameters
     ----------
     lambda_val: float
-        A single value for the `lambda` hyperparameter.
+        A single value for the `lambda` hyperparameter. Defaults to 0 (no
+        penalty), so that the estimators built on it can be constructed
+        without arguments, as sklearn's `clone` and `GridSearchCV` need.
     alpha: float
         The elasticnet mixing parameter in [0,1]. The penalty is
         defined as $(1-\alpha)/2||\beta||_2^2+\alpha||\beta||_1.$
@@ -653,7 +655,7 @@ class Penalty(object):
         the penalty factors are internally rescaled to sum to
         `n_features=X.shape[1]`.
     """
-    lambda_val : float
+    lambda_val : float = 0.0
     alpha: float = 1.0
     lower_limits: float = -np.inf
     upper_limits: float = np.inf
