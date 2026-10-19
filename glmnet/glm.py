@@ -16,6 +16,8 @@ from scipy.stats import norm as normal_dbn
 from scipy.stats import t as t_dbn
 from scipy.stats import chi2 as chi2_dbn
 
+from statsmodels.genmod.families import family as sm_family
+
 from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
                           RegressorMixin)
@@ -534,8 +536,10 @@ class GLMBase(BaseEstimator,
             Warm start: coefficients and intercept on the original scale of
             the features, as `coef_` and `intercept_`.
         dispersion: float, optional
-            Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
-            minimized deviance divided by degrees of freedom.
+            Dispersion parameter of GLM. By default it is estimated, by
+            Pearson's chi-squared over the residual degrees of freedom, for the
+            families with a free dispersion (Gaussian, Gamma, inverse Gaussian,
+            Tweedie...), and is 1 for the binomial, Poisson and negative binomial.
         check: bool
             Run the `_check` method to validate `(X,y)`.
         fit_null: bool
@@ -665,6 +669,11 @@ class GLMBase(BaseEstimator,
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
+            # as R's glm.fit; RegGLM's fits along GLMNet's path do not warn
+            if self._unpenalized:
+                warnings.warn(f'{self.__class__.__name__}: the fit did not converge in '
+                              f'mxitnr={self.control.mxitnr} iterations (epsnr='
+                              f'{self.control.epsnr}); increase control.mxitnr')
         if boundary:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 
@@ -682,9 +691,17 @@ class GLMBase(BaseEstimator,
         self._kept[np.asarray(self._excluded(), int)] = False
         self.df_resid_ = int(np.sum(weight > 0)) - self._kept.sum() - self.fit_intercept
 
-        if dispersion is None:
-            # usual estimate of sigma^2 for the Gaussian, 1 otherwise
-            dispersion = self.deviance_ / self.df_resid_ if self._family.is_gaussian else 1.
+        # the dispersion is estimated, as R's summary.glm and statsmodels do, by
+        # Pearson's chi-squared over the residual degrees of freedom when the
+        # family has a free dispersion (Gaussian with any link, Gamma, inverse
+        # Gaussian, Tweedie...) and none is given; it is 1 for the binomial,
+        # Poisson and negative binomial, and for Cox
+        self._estimated_dispersion = dispersion is None and not self._fixed_dispersion()
+        if self._estimated_dispersion:
+            dispersion = (np.sum(self.residuals('pearson', state=state)**2) / self.df_resid_
+                          if self.df_resid_ > 0 else np.nan)
+        elif dispersion is None:
+            dispersion = 1.
         self.dispersion_ = dispersion
 
         names = list(np.asarray(self.feature_names_in_)[self._kept])
@@ -867,8 +884,8 @@ class GLM(GLMBase):
         Compute a Wald-type statistical summary from fitted GLM.
     sandwich: bool
         Use the sandwich (robust) estimate of the covariance of the
-        coefficients, `covariance_`, in `summary_`, `conf_int` and
-        `predict_se`, in place of the model-based one. Default is False.
+        coefficients, `covariance_`, in `summary_`, `predict_se` and
+        `confidence_interval`, in place of the model-based one. Default is False.
     ridge_coef: float
         Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
     """
@@ -947,9 +964,10 @@ class GLM(GLMBase):
             Warm start: coefficients and intercept on the original scale of
             the features, as `coef_` and `intercept_`.
         dispersion: float, optional
-            Dispersion parameter of GLM. By default it is estimated as the
-            deviance divided by the residual degrees of freedom for the Gaussian,
-            and 1 for the other families.
+            Dispersion parameter of GLM. By default it is estimated, by
+            Pearson's chi-squared over the residual degrees of freedom, for the
+            families with a free dispersion (Gaussian, Gamma, inverse Gaussian,
+            Tweedie...), and is 1 for the binomial, Poisson and negative binomial.
         check: bool
             Run the `_check` method to validate `(X,y)`.
 
@@ -1005,7 +1023,7 @@ class GLM(GLMBase):
         coef = self.params_.values
         T = coef / SE
 
-        if self._family.is_gaussian:
+        if self._use_t():
             stat, pval = 't', 2 * t_dbn.sf(np.fabs(T), df=self.df_resid_)
         else:
             stat, pval = 'z', 2 * normal_dbn.sf(np.fabs(T))
@@ -1049,9 +1067,26 @@ class GLM(GLMBase):
         keep = self._keep()
         return meat[keep][:, keep]
 
+    def _fixed_dispersion(self):
+        """Is the dispersion of the family fixed at 1 (binomial, Poisson, negative binomial, Cox)?"""
+        base = getattr(self._family, 'base', None)
+        return base is None or isinstance(base, (sm_family.Binomial,
+                                                 sm_family.Poisson,
+                                                 sm_family.NegativeBinomial))
+
+    def _use_t(self):
+        """
+        t on `df_resid_` (rather than z) for the Gaussian with identity link, whose
+        dispersion is estimated, with the model-based covariance: the case where the
+        Wald statistic is exactly t.
+        """
+        return (self._family.is_gaussian and
+                getattr(self, '_estimated_dispersion', False) and
+                not getattr(self, 'sandwich', False))
+
     def _loglike(self):
-        # the Gaussian's at the maximum likelihood estimate of its variance
-        if self._family.is_gaussian:
+        # the Gaussian's (any link) at the maximum likelihood estimate of its variance
+        if isinstance(getattr(self._family, 'base', None), sm_family.Gaussian):
             scale = self.deviance_ / np.sum(self._weight > 0)
         else:
             scale = self.dispersion_
@@ -1073,8 +1108,8 @@ class GLM(GLMBase):
         return self.covariance_
 
     def _quantile(self, alpha):
-        # t for the Gaussian, whose dispersion is estimated, as in summary_
-        if self._family.is_gaussian:
+        # t or z, as in summary_
+        if self._use_t():
             return t_dbn.ppf(1 - alpha / 2, df=self.df_resid_)
         return normal_dbn.ppf(1 - alpha / 2)
 
@@ -1107,13 +1142,14 @@ class GLM(GLMBase):
                        SimpleTable(data, headers=headers, stubs=list(coefs.index))]
         return smry
 
-    def residuals(self, kind='response'):
+    def residuals(self, kind='response', state=None):
         """
         Residuals of the fit: 'response' (y - mu), 'pearson' or 'deviance', with
         the weights as prior weights, as R's `residuals.glm`.
         """
         y = np.asarray(self._response, float).reshape(-1)
-        mu, w = self.state_.mu, self._weight
+        state = self.state_ if state is None else state
+        mu, w = state.mu, self._weight
         family = self._family.base
         if kind == 'response':
             return y - mu
@@ -1154,25 +1190,6 @@ class GLM(GLMBase):
         of the diagonal of X Cov X^T, with Cov the covariance of `params_`.
         """
         return np.sqrt(self._quadratic_rows(X, self._get_covariance()))
-
-    def conf_int(self, X_new, alpha=0.05):
-        """
-        Wald confidence intervals of level `1 - alpha` for the linear
-        combinations of `params_` given by the rows of `X_new` (with the
-        intercept if fitted), i.e. for the linear predictor at `X_new` without
-        an offset. The intervals for the coefficients themselves are in
-        `summary_`.
-
-        Returns
-        -------
-        pd.DataFrame
-            Columns `estimate`, `lower` and `upper`.
-        """
-        estimate = self._linear_predictor(X_new)
-        half = self._quantile(alpha) * self.predict_se(X_new)
-        return pd.DataFrame({'estimate': estimate,
-                             'lower': estimate - half,
-                             'upper': estimate + half})
 
     def leverage(self, X):
         """
@@ -1224,6 +1241,51 @@ def anova(*fits):
                          'chi2': chi2,
                          'P(>chi2)': chi2_dbn.sf(chi2, np.abs(df_diff))})
 
+
+def confidence_interval(fit, X_new, alpha=0.05):
+    """
+    Wald confidence intervals of level `1 - alpha` for the linear
+    combinations of `fit.params_` given by the rows of `X_new` (with the
+    intercept if fitted), i.e. for the linear predictor at `X_new` without
+    an offset, for an unpenalized `GLM` or `CoxLM`. The intervals for the
+    coefficients themselves are in `fit.summary_`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns `estimate`, `lower` and `upper`.
+    """
+    estimate = fit._linear_predictor(X_new)
+    half = fit._quantile(alpha) * fit.predict_se(X_new)
+    return pd.DataFrame({'estimate': estimate,
+                         'lower': estimate - half,
+                         'upper': estimate + half})
+
+
+def prediction_interval(fit, X_new, alpha=0.05, weights=None):
+    """
+    Prediction intervals of level `1 - alpha` for new responses at the rows of
+    `X_new`, for an unpenalized Gaussian `GLM` with identity link, an estimated
+    dispersion and the model-based covariance (`sandwich=False`), as R's
+    `predict.lm(interval="prediction")`: the linear predictor plus or minus the t
+    quantile on `fit.df_resid_` times sqrt(se^2 + sigma^2 / w), with se from
+    `fit.predict_se`, sigma^2 the estimated `fit.dispersion_` and `w` the prior
+    weights of the new observations (default 1).
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns `estimate`, `lower` and `upper`.
+    """
+    if not (getattr(fit, '_unpenalized', False) and fit._use_t()):
+        raise ValueError('prediction intervals are for an unpenalized Gaussian GLM with '
+                         'identity link, an estimated dispersion and sandwich=False')
+    estimate = fit._linear_predictor(X_new)
+    w = np.ones(estimate.shape[0]) if weights is None else np.asarray(weights, float)
+    half = fit._quantile(alpha) * np.sqrt(fit.predict_se(X_new)**2 + fit.dispersion_ / w)
+    return pd.DataFrame({'estimate': estimate,
+                         'lower': estimate - half,
+                         'upper': estimate + half})
 
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
@@ -1392,8 +1454,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             Warm start: coefficients and intercept on the original scale of
             the features, as `coef_` and `intercept_`.
         dispersion: float
-            Dispersion parameter of GLM. If family is Gaussian, will be estimated as 
-            minimized deviance divided by degrees of freedom.
+            Dispersion parameter of GLM, 1 for the binomial.
         check: bool
             Run the `_check` method to validate `(X,y)`.
 
