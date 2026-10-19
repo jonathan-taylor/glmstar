@@ -353,6 +353,31 @@ def test_feature_names_modelspec():
     assert list(g.feature_names_) == ['intercept', 'a', 'b']
 
 
+@pytest.mark.parametrize('kind', ['gaussian', 'poisson', 'binomial'])
+def test_predict_is_ndarray(kind):
+    # as sklearn's estimators, predict returns an array even for a DataFrame X
+    # (whose index is not kept); residuals, predict_se etc. are Series
+    rng_ = np.random.default_rng(1)
+    D = pd.DataFrame(rng_.standard_normal((50, 2)), columns=['a', 'b'],
+                     index=np.arange(100, 150))
+    eta = 0.5 * D['a']
+    if kind == 'gaussian':
+        y, g = eta + rng_.standard_normal(50), GLM()
+    elif kind == 'poisson':
+        y, g = rng_.poisson(np.exp(eta)), GLM(family=sm.families.Poisson())
+    else:
+        y, g = rng_.binomial(1, 1 / (1 + np.exp(-eta))), BinomialGLM()
+    g.fit(D, y)
+    for prediction_type in ['response', 'link']:
+        pred = g.predict(D, prediction_type=prediction_type)
+        assert type(pred) is np.ndarray
+        assert pred.shape == (50,)
+    if kind == 'binomial':
+        pred = g.predict(D)
+        assert type(pred) is np.ndarray
+        assert set(pred) <= set(g.classes_)
+
+
 @pytest.mark.parametrize('family', [None, sm.families.Binomial()])
 def test_binomial_glm_predict_class(family):
     y = np.where(rng.binomial(1, 1 / (1 + np.exp(-X[:, 0]))), 'up', 'down')
