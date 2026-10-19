@@ -44,7 +44,7 @@
   successes) or proportions with weights: they took one trial per row, so they
   lacked R's log(choose(trials, successes)) (AIC 648.4 for R's 352.1 in the
   tests). They now match R's `logLik` / `AIC` for grouped data; 0/1 responses
-  are unchanged (#TBD).
+  are unchanged (#133).
 - **The dispersion of `GLM` for the families with a free dispersion** (Gamma,
   inverse Gaussian, Tweedie, Gaussian with a non-identity link): it was fixed at
   1, so their standard errors, intervals and tests were wrong (e.g. 1.6 times too
