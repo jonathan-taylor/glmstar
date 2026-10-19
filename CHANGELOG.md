@@ -44,7 +44,7 @@
   penalty factor) on a non-canonical link: their fit used the path's
   tolerance (`epsnr=1e-6`), which stops early for linear convergence, so
   every default lambda was off by about 1e-5 relative (cloglog). It now uses
-  `GLMControl`'s tolerance and matches R's `glmnet` (#TBD).
+  `GLMControl`'s tolerance and matches R's `glmnet` (#135).
 - **The dispersion of `GLM` for the families with a free dispersion** (Gamma,
   inverse Gaussian, Tweedie, Gaussian with a non-identity link): it was fixed at
   1, so their standard errors, intervals and tests were wrong (e.g. 1.6 times too
