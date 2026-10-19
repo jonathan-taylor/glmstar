@@ -15,6 +15,7 @@ from scipy.sparse.linalg import LinearOperator
 from scipy.stats import norm as normal_dbn
 from scipy.stats import t as t_dbn
 from scipy.stats import chi2 as chi2_dbn
+from scipy.special import gammaln, xlogy, xlog1py
 
 from statsmodels.genmod.families import family as sm_family
 
@@ -1143,12 +1144,23 @@ class GLM(GLMBase):
                 not getattr(self, 'sandwich', False))
 
     def _loglike(self):
+        y = np.asarray(self._response, float).reshape(-1)
+        base = getattr(self._family, 'base', None)
+        if isinstance(base, sm_family.Binomial):
+            # y the proportion of w trials, as R's binomial()$aic: log choose(w, w y) +
+            # w y log(mu) + w (1 - y) log(1 - mu); statsmodels' loglike takes one trial
+            # per row, so it is wrong for counts. For 0/1 y the binomial coefficient
+            # is 1 (0 for any weights), the Bernoulli log-likelihood times w
+            w, mu = self._weight, self.state_.mu
+            s = w * y
+            return np.sum(gammaln(w + 1) - gammaln(s + 1) - gammaln(w - s + 1) +
+                          xlogy(s, mu) + xlog1py(w - s, -mu))
         # the Gaussian's (any link) at the maximum likelihood estimate of its variance
-        if isinstance(getattr(self._family, 'base', None), sm_family.Gaussian):
+        if isinstance(base, sm_family.Gaussian):
             scale = self.deviance_ / np.sum(self._weight > 0)
         else:
             scale = self.dispersion_
-        return self._family.base.loglike(np.asarray(self._response, float).reshape(-1),
+        return self._family.base.loglike(y,
                                          self.state_.mu,
                                          var_weights=self._weight,
                                          scale=scale)
