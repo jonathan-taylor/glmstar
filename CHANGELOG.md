@@ -94,6 +94,19 @@
 - **An estimator sweep** (`tests/test_estimator_sweep.py`): every estimator
   is checked for `clone`, DataFrame and sparse `X`, `GridSearchCV`, the
   lambda scale and convergence (#117).
+- **The unpenalized `GLM` analysis against R's `glm`:** `summary_` (names,
+  estimates, standard errors, statistics, p-values, intervals),
+  `dispersion_`, `covariance_`, `df_resid_`, `deviance_`, residuals,
+  `loglike_` / `aic_` / `bic_`, `predict_se`, `confidence_interval` and
+  `prediction_interval` against `summary.glm`, `vcov`, `logLik`, `predict.glm`
+  and `predict.lm`, for the Gaussian (identity and log), binomial (logit and
+  probit), Poisson, Gamma (log and inverse), inverse Gaussian and negative
+  binomial families, with prior weights, an offset and without an intercept.
+  The tests pin down where the two differ by design: z rather than t for the
+  families with an estimated dispersion other than the Gaussian with identity
+  link, the negative binomial's dispersion fixed at 1, the dispersion not
+  counted in AIC / BIC, and the Gamma / inverse Gaussian log-likelihood at the
+  Pearson dispersion (#131).
 - **Cox against R on combined features**
   (`tests/compare_R/test_cox_edges_r_comparison.py`): (start, stop] data
   with strata, weights, an offset and tied times, dense and sparse, for the
