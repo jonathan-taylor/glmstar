@@ -663,6 +663,11 @@ class GLMBase(BaseEstimator,
         # checks on convergence and fitted values
         if not converged:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm did not converge")
+            # as R's glm.fit; RegGLM's fits along GLMNet's path do not warn
+            if self._unpenalized:
+                warnings.warn(f'{self.__class__.__name__}: the fit did not converge in '
+                              f'mxitnr={self.control.mxitnr} iterations (epsnr='
+                              f'{self.control.epsnr}); increase control.mxitnr')
         if boundary:
             if self.control.logging: logging.debug("Fitting IRLS: algorithm stopped at boundary value")
 

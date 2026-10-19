@@ -14,8 +14,6 @@ from glmnet.cox import CoxLM, CoxFamilySpec
 from glmnet.glm import GLMControl
 
 TIGHT = GLMControl(epsnr=1e-12, mxitnr=100)
-# Cox's IRLS uses the diagonal of the Hessian: it converges slowly
-TIGHT_COX = GLMControl(epsnr=1e-16, mxitnr=200)
 
 
 def _to_R(Rinfo, **arrays):
@@ -37,9 +35,10 @@ def test_coxph(Rinfo, ties, weighted):
     w = rng.uniform(0.5, 2, n) if weighted else np.ones(n)
     Y = pd.DataFrame({'event': event, 'status': status, 'w': w})
     family = CoxFamilySpec(event_data=Y, tie_breaking=ties)
-    fit = CoxLM(family=family, summarize=True, weight_id='w', control=TIGHT_COX).fit(X, Y)
-    small = CoxLM(family=family, weight_id='w', exclude=[2], control=TIGHT_COX).fit(X, Y)
-    robust = CoxLM(family=family, summarize=True, sandwich=True, weight_id='w', control=TIGHT_COX).fit(X, Y)
+    # CoxLM's Newton steps match R at the default control
+    fit = CoxLM(family=family, summarize=True, weight_id='w').fit(X, Y)
+    small = CoxLM(family=family, weight_id='w', exclude=[2]).fit(X, Y)
+    robust = CoxLM(family=family, summarize=True, sandwich=True, weight_id='w').fit(X, Y)
 
     _to_R(Rinfo, x0=X[:, 0], x1=X[:, 1], x2=X[:, 2], event=event, status=status, w=w)
     rpy = Rinfo['rpy']

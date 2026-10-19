@@ -32,6 +32,11 @@
   likelihood estimate of its variance for every link, as R's `logLik.glm` (#119).
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`CoxLM` converges at the default control:** its Newton steps use the
+  full information of the partial likelihood instead of its diagonal, which
+  converged slowly and stopped far from the maximum (BrainCancer:
+  coefficients off by 0.56 from `coxph`). `GLM` and `CoxLM` warn when
+  they stop at `mxitnr` without converging (#122).
 - **`RegGLM` is an sklearn estimator:** `lambda_val` defaults to 0, so
   `RegGLM`, `GaussianRegGLM`, `BinomialRegGLM` and `RegCoxLM` construct
   without arguments, clone and tune in `GridSearchCV` / `Pipeline`.
