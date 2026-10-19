@@ -303,9 +303,6 @@ def test_glm_vs_R(Rinfo, data, form, with_offset):
     np.testing.assert_allclose(fit.predict_se(Xnew), get('Pl$se.fit'), rtol=1e-8)
 
 
-@pytest.mark.xfail(reason="aic_ / loglike_ of grouped binomial data omit R's log(choose(t, s)) and add "
-                          "-t * (lgamma(1 + y) + lgamma(2 - y)): statsmodels' Binomial.loglike "
-                          "with n=1 and var_weights=t", strict=True)
 @pytest.mark.parametrize('form', ['GLM_proportion', 'BinomialGLM_counts'])
 def test_glm_aic_vs_R(Rinfo, data, form):
     _skip(Rinfo)

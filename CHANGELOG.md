@@ -40,6 +40,11 @@
 
 ### Fixes
 
+- **`loglike_`, `aic_` and `bic_` of a binomial `GLM` with counts** (trials,
+  successes) or proportions with weights: they took one trial per row, so they
+  lacked R's log(choose(trials, successes)) (AIC 648.4 for R's 352.1 in the
+  tests). They now match R's `logLik` / `AIC` for grouped data; 0/1 responses
+  are unchanged (#133).
 - **The cross-validated deviance of a stratified Cox model**
   (`cross_validation_path`'s "Cox Deviance" and "Cox Deviance (Difference)"):
   `CoxScorer` / `CoxDiffScorer` dropped `strata_id` when building each fold's
