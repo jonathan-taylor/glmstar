@@ -104,6 +104,38 @@
   discrepancy is an `xfail`: with an unpenalized variable and a non-canonical
   link, the null fit for `lambda_max` uses the path's `epsnr=1e-6`, so the
   default lambda values are about 1e-5 (relative) off R's (#132).
+- **The unpenalized `GLM` analysis against R's `glm`:** `summary_` (names,
+  estimates, standard errors, statistics, p-values, intervals),
+  `dispersion_`, `covariance_`, `df_resid_`, `deviance_`, residuals,
+  `loglike_` / `aic_` / `bic_`, `predict_se`, `confidence_interval` and
+  `prediction_interval` against `summary.glm`, `vcov`, `logLik`, `predict.glm`
+  and `predict.lm`, for the Gaussian (identity and log), binomial (logit and
+  probit), Poisson, Gamma (log and inverse), inverse Gaussian and negative
+  binomial families, with prior weights, an offset and without an intercept.
+  The tests pin down where the two differ by design: z rather than t for the
+  families with an estimated dispersion other than the Gaussian with identity
+  link, the negative binomial's dispersion fixed at 1, the dispersion not
+  counted in AIC / BIC, and the Gamma / inverse Gaussian log-likelihood at the
+  Pearson dispersion (#131).
+- **Cox against R on combined features**
+  (`tests/compare_R/test_cox_edges_r_comparison.py`): (start, stop] data
+  with strata, weights, an offset and tied times, dense and sparse, for the
+  `CoxNet` path and `predict(newoffset=)` (vs `glmnet`), the deviance (vs
+  `coxnet.deviance`, both tie methods, `pred=` and `x=, beta=`), the C index
+  of a stratified response (vs `Cindex`), the ungrouped cross-validated
+  deviance (vs `cv.glmnet(grouped=FALSE)`) and `CoxLM` (vs `coxph` with
+  `strata()` and `offset()`: coefficients, standard errors, log-likelihood).
+  The cross-validated deviance of a stratified model is a strict xfail:
+  `CoxScorer` drops the strata (#130).
+- **Binomial counts and proportions against R** (`tests/compare_R/test_binomial_counts_r_comparison.py`):
+  `LogNet` with (trials, successes) or proportions + weights, and `GLMNet(family=Binomial())`
+  with proportions + weights, against R's `glmnet` with `cbind(failures, successes)`
+  (lambda values, coefficients, intercepts, dev.ratio, link / response predictions, with and
+  without an offset) and `cv.glmnet`; the same path for counts, proportions + weights and the
+  0/1 data with one row per trial; the unpenalized `GLM` / `BinomialGLM` against R's
+  `glm(cbind(s, f) ~ X, binomial)` (coefficients, standard errors, p-values, deviance, null
+  deviance, predictions and their standard errors). The AIC / log-likelihood of grouped data
+  differs from R's (strict xfail) (#129).
 
 ### Documentation and maintenance
 
