@@ -435,3 +435,14 @@ def _check_offset(offset, n, ncol=None):
     if offset.shape != expected:
         raise ValueError(f'offset should have shape {expected}, got {offset.shape}')
     return offset
+
+
+def _check_predict_X(X):
+    """
+    The feature matrix passed to `predict`, as `fit` sees it: a pandas
+    DataFrame is converted to a float array (as `check_X_y` does in
+    `fit`); arrays and sparse matrices are returned unchanged.
+    """
+    if isinstance(X, pd.DataFrame):
+        return np.asarray(X, dtype=float)
+    return X
