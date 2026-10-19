@@ -17,10 +17,10 @@
 - **A ModelSpec `intercept` column is dropped without a warning:** it is
   ISLP's convention, and the warning was raised at every fold of a
   cross-validation and every candidate of a stepwise selection. Other
-  constant columns are still excluded with a warning.
+  constant columns are still excluded with a warning (#136).
 - **`GLM.score` docstring:** the weights default to ones, so the score is the
   log-likelihood summed over the observations (as `CoxLM.score`), not an
-  average; the code is unchanged.
+  average; the code is unchanged (#136).
 - **`GLM.conf_int(X_new)` is now the function
   `glmnet.glm.confidence_interval(fit, X_new, alpha)`**, next to
   `prediction_interval`; the method, added in 0.3.0, is removed. For the
