@@ -38,7 +38,8 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import norm
 
-from glmnet import GLMNet
+from glmnet import GLM, GLMNet
+from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
@@ -138,10 +139,13 @@ $\omega$ at second order.
 
 ```{code-cell} ipython3
 def probit_fit(X, y):
-    return sm.GLM(y, sm.add_constant(X), family=probit).fit()
+    """The probit regression of y on X: coefficients (without the intercept) and standard errors."""
+    fit = GLM(family=probit, summarize=True, control=GLMControl(epsnr=1e-12)).fit(X, y)
+    return fit.params_.values[1:], fit.summary_['std err'].values[1:]
 
 def pilot_eta(X, y):
-    return sm.add_constant(X) @ probit_fit(X, y).params
+    return GLM(family=probit, control=GLMControl(epsnr=1e-12)).fit(X, y).predict(
+        X, prediction_type='link')
 
 def perturbation(X, eta_hat):
     return score_perturbation(X, eta_hat, probit, (1 - pi) / pi, rng=rng)
@@ -187,9 +191,9 @@ def randomized_inference(X, y):
               summary['upper_conf'].values)
 
     # combination
-    full = probit_fit(X[:, E], y)
-    T = (full.params[1:] - pi * relaxed_fit(X, y, E, omega)) / (1 - pi)
-    se = full.bse[1:] / np.sqrt(1 - pi)
+    b_E, se_E = probit_fit(X[:, E], y)
+    T = (b_E - pi * relaxed_fit(X, y, E, omega)) / (1 - pi)
+    se = se_E / np.sqrt(1 - pi)
     combination = (T, T - q * se, T + q * se)
     return E, {'combination': combination, 'carved': carved}
 ```
@@ -205,7 +209,7 @@ targets = {}
 def target(E):
     key = tuple(E)
     if key not in targets:
-        targets[key] = probit_fit(pop_X[:, E], pop_y).params[1:]
+        targets[key] = probit_fit(pop_X[:, E], pop_y)[0]
     return targets[key]
 ```
 
@@ -245,8 +249,8 @@ def calibration(n_rep=300):
                          'covered': lo <= t <= hi, 'length': (hi - lo) * scale[j]})
 
     def probit_intervals(X, y, E):
-        fit = probit_fit(X[:, E], y)
-        return fit.params[1:] - q * fit.bse[1:], fit.params[1:] + q * fit.bse[1:]
+        b, se = probit_fit(X[:, E], y)
+        return b - q * se, b + q * se
 
     for _ in range(n_rep):
         X, y = sim_data(n)

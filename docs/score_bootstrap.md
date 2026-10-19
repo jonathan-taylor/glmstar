@@ -48,7 +48,8 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import norm
 
-from glmnet import GLMNet, LinearTerm
+from glmnet import GLM, GLMNet, LinearTerm
+from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
@@ -81,11 +82,10 @@ $$y^* = \hat\beta_0 + X\hat\beta + \epsilon^*, \qquad \epsilon^*_i \sim N(0, \ha
 
 ```{code-cell} ipython3
 X1 = np.column_stack([np.ones(n), X])
-sw = np.sqrt(w)
-coef_ls = np.linalg.lstsq(X1 * sw[:, None], y * sw, rcond=None)[0]
-fitted = X1 @ coef_ls
+wls = GLM(response_id='y', weight_id='w').fit(X, D)
+fitted = wls.predict(X)
 resid = y - fitted
-sigma2 = (w * resid**2).sum() / (n - p - 1)
+sigma2 = wls.dispersion_
 sigma2
 ```
 
@@ -263,9 +263,11 @@ $-\omega$, using all $n$ observations. `score_perturbation` draws it,
 given the pilot linear predictor $\hat\eta$:
 
 ```{code-cell} ipython3
+tight_glm = GLMControl(epsnr=1e-12)
+
 def pilot_eta(X, y):
-    X1 = sm.add_constant(X)
-    return X1 @ sm.GLM(y, X1, family=sm.families.Binomial()).fit().params
+    return GLM(family=sm.families.Binomial(), control=tight_glm).fit(X, y).predict(
+        X, prediction_type='link')
 
 def perturbation(X, eta_hat):
     return score_perturbation(X, eta_hat, sm.families.Binomial(), (1 - pi) / pi, rng=rng)
@@ -367,8 +369,8 @@ of $S$.
 
 ```{code-cell} ipython3
 def logit_fit(X, y):
-    fit = sm.GLM(y, sm.add_constant(X), family=sm.families.Binomial()).fit()
-    return fit.params[1:], fit.bse[1:]
+    fit = GLM(family=sm.families.Binomial(), summarize=True, control=tight_glm).fit(X, y)
+    return fit.params_.values[1:], fit.summary_['std err'].values[1:]
 
 def randomized_selection(X, y):
     omega = perturbation(X, pilot_eta(X, y))

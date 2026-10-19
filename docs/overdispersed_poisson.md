@@ -36,7 +36,8 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy.stats import norm
 
-from glmnet import GLMNet
+from glmnet import GLM, GLMNet
+from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
@@ -79,12 +80,13 @@ $$\hat\phi = \frac{1}{n - p - 1}\sum_{i=1}^n \frac{(y_i - \hat\mu_i)^2}{\hat\mu_
 
 ```{code-cell} ipython3
 def poisson_fit(X, y):
-    return sm.GLM(y, sm.add_constant(X), family=sm.families.Poisson()).fit()
+    return GLM(family=sm.families.Poisson(), summarize=True,
+               control=GLMControl(epsnr=1e-12)).fit(X, y)
 
 def dispersion(X, y):
     fit = poisson_fit(X, y)
-    phi_hat = (fit.resid_pearson**2).sum() / (len(y) - X.shape[1] - 1)
-    return phi_hat, np.log(fit.fittedvalues)
+    phi_hat = (fit.residuals('pearson')**2).sum() / (len(y) - X.shape[1] - 1)
+    return phi_hat, fit.predict(X, prediction_type='link')
 
 phi_hat, eta_hat = dispersion(X, y)
 phi_hat
@@ -165,8 +167,8 @@ def randomized_inference(X, y, eta_hat, phi_hat):
 
     # combination
     full = poisson_fit(X[:, E], y)
-    T = (full.params[1:] - pi * fit.relaxed_coefs_[0][E]) / (1 - pi)
-    se = full.bse[1:] * np.sqrt(phi_hat / (1 - pi))
+    T = (full.params_.values[1:] - pi * fit.relaxed_coefs_[0][E]) / (1 - pi)
+    se = full.summary_['std err'].values[1:] * np.sqrt(phi_hat / (1 - pi))
     combination = (T, T - q * se, T + q * se)
 
     # carving
@@ -189,7 +191,7 @@ targets = {}
 def target(E):
     key = tuple(E)
     if key not in targets:
-        targets[key] = poisson_fit(pop_X[:, E], pop_y).params[1:]
+        targets[key] = poisson_fit(pop_X[:, E], pop_y).params_.values[1:]
     return targets[key]
 ```
 
@@ -251,8 +253,8 @@ def calibration(n_rep=300):
 
     def poisson_intervals(X, y, E, phi_hat):
         fit = poisson_fit(X[:, E], y)
-        se = fit.bse[1:] * np.sqrt(phi_hat)
-        return fit.params[1:] - q * se, fit.params[1:] + q * se
+        b, se = fit.params_.values[1:], fit.summary_['std err'].values[1:] * np.sqrt(phi_hat)
+        return b - q * se, b + q * se
 
     for _ in range(n_rep):
         X, y = sim_data(n)
