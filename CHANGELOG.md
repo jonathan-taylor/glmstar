@@ -94,6 +94,16 @@
 - **An estimator sweep** (`tests/test_estimator_sweep.py`): every estimator
   is checked for `clone`, DataFrame and sparse `X`, `GridSearchCV`, the
   lambda scale and convergence (#117).
+- **Cox against R on combined features**
+  (`tests/compare_R/test_cox_edges_r_comparison.py`): (start, stop] data
+  with strata, weights, an offset and tied times, dense and sparse, for the
+  `CoxNet` path and `predict(newoffset=)` (vs `glmnet`), the deviance (vs
+  `coxnet.deviance`, both tie methods, `pred=` and `x=, beta=`), the C index
+  of a stratified response (vs `Cindex`), the ungrouped cross-validated
+  deviance (vs `cv.glmnet(grouped=FALSE)`) and `CoxLM` (vs `coxph` with
+  `strata()` and `offset()`: coefficients, standard errors, log-likelihood).
+  The cross-validated deviance of a stratified model is a strict xfail:
+  `CoxScorer` drops the strata (#TBD).
 
 ### Documentation and maintenance
 
