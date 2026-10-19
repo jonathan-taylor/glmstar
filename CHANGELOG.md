@@ -106,7 +106,7 @@
   families with an estimated dispersion other than the Gaussian with identity
   link, the negative binomial's dispersion fixed at 1, the dispersion not
   counted in AIC / BIC, and the Gamma / inverse Gaussian log-likelihood at the
-  Pearson dispersion (#TBD).
+  Pearson dispersion (#131).
 
 ### Documentation and maintenance
 
