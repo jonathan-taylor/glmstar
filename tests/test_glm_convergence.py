@@ -56,9 +56,7 @@ def test_near_separation():
     y = np.asarray(Wage['wage'] > 250, float)
     Z = ModelSpec([poly('age', degree=4)]).fit_transform(Wage)
     reference = sm.GLM(y, Z, family=sm.families.Binomial()).fit(tol=1e-14)
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', UserWarning)  # the 'intercept' column is dropped
-        fit = GLM(family=sm.families.Binomial()).fit(Z, y)
+    fit = GLM(family=sm.families.Binomial()).fit(Z, y)
     np.testing.assert_allclose(fit.params_.values, reference.params, rtol=1e-7)
 
 
