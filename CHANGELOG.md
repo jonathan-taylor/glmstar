@@ -7,7 +7,7 @@
 - **`predict` docstrings of `GLM`, `BinomialGLM` and `BinomialRegGLM`:** the
   prediction is an array even if `X` is a DataFrame, as for sklearn's
   estimators (since #107; before, pandas' `@` made it a Series on the index
-  of `X`), now tested.
+  of `X`), now tested (#137).
 
 ## 0.3.1 (2026-10-19)
 
