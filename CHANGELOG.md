@@ -94,6 +94,16 @@
 - **An estimator sweep** (`tests/test_estimator_sweep.py`): every estimator
   is checked for `clone`, DataFrame and sparse `X`, `GridSearchCV`, the
   lambda scale and convergence (#117).
+- **More families compared with R's `glmnet(family=<family object>)`** in
+  `tests/test_irls_r_parity.py`: binomial with the cloglog and cauchit links,
+  the negative binomial with known theta (`MASS::negative.binomial`), the
+  inverse Gaussian (log and canonical links), Gamma with the identity and
+  inverse links, Gaussian with the log link, and Tweedie (`statmod::tweedie`,
+  skipped without statmod); the options (weights, offset, penalty factors,
+  limits...) also for cloglog and the negative binomial. One known
+  discrepancy is an `xfail`: with an unpenalized variable and a non-canonical
+  link, the null fit for `lambda_max` uses the path's `epsnr=1e-6`, so the
+  default lambda values are about 1e-5 (relative) off R's (#TBD).
 
 ### Documentation and maintenance
 
