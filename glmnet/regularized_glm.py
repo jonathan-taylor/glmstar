@@ -291,6 +291,11 @@ class RegGLM(GLM,
     
     Parameters
     ----------
+    lambda_val: float
+        The penalty parameter `lambda`. Default 0 (no penalty).
+    alpha: float
+        The elasticnet mixing parameter in [0,1], as in R's `glmnet`:
+        `alpha=1` (the default) is the lasso, `alpha=0` the ridge penalty.
     family: GLMFamilySpec
         Specification of one-parameter exponential family, includes some
         additional methods.
@@ -441,14 +446,30 @@ class GaussianRegGLM(RegressorMixin, RegGLM):
     control: RegGLMControl
         Parameters to control the solver.
     """
-    def __post_init__(self):
+    def _finalize_family(self,
+                         response):
         """
-        Post-initialization checks for Gaussian family.
+        Finalize family specification, checking it is Gaussian.
+
+        Parameters
+        ----------
+        response: np.ndarray
+            Response variable.
+
+        Returns
+        -------
+        GLMFamilySpec
+            Family specification.
         """
-        if not self._family.is_gaussian:
-            msg = f'{self.__class__.__name__} expects a Gaussian family.'
-            warnings.warn(msg)
-            if self.control.logging: logging.warn(msg)
+        # as BinomialGLM: the family is checked when fitting, as
+        # sklearn's estimators do not validate their parameters in __init__
+        if not hasattr(self, "_family"):
+            _family = GLMFamilySpec.from_family(self.family, response)
+            if not _family.is_gaussian:
+                msg = f'{self.__class__.__name__} expects a Gaussian family.'
+                warnings.warn(msg)
+                if self.control.logging: logging.warn(msg)
+            return _family
 
 
 @dataclass
@@ -465,16 +486,28 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
     """
     family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
-    def __post_init__(self):
+    def _finalize_family(self,
+                         response):
         """
-        Post-initialization checks for binomial family.
+        Finalize family specification, checking it is binomial.
+
+        Parameters
+        ----------
+        response: np.ndarray
+            Response variable.
+
+        Returns
+        -------
+        GLMFamilySpec
+            Family specification.
         """
-        if not hasattr(self, '_family'):
-            self._family = self.family
-        if not self._family.is_binomial:
-            msg = f'{self.__class__.__name__} expects a Binomial family.'
-            warnings.warn(msg)
-            if self.control.logging: logging.warn(msg)
+        if not hasattr(self, "_family"):
+            _family = GLMFamilySpec.from_family(self.family, response)
+            if not _family.is_binomial:
+                msg = f'{self.__class__.__name__} expects a Binomial family.'
+                warnings.warn(msg)
+                if self.control.logging: logging.warn(msg)
+            return _family
 
     def get_data_arrays(self, X, y, check=True):
         """Prepare and validate data arrays for binomial regression.
@@ -567,9 +600,10 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
                            y,
                            sample_weight=sample_weight,
                            regularizer=regularizer,             # last 4 options non sklearn API
+                           warm_state=warm_state,
                            check=check)
 
-    def predict(self, X, prediction_type='class'):
+    def predict(self, X, prediction_type='class', offset=None):
         """
         Predict outcome of corresponding family.
 
@@ -583,20 +617,20 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         prediction_type: str
             One of "response", "link" or "class". If "response" return a prediction on the mean scale,
             "link" on the link scale, and "class" as a class label. Defaults to "class".
+        offset: np.ndarray, optional
+            Offset added to the linear predictor.
 
         Returns
         -------
         prediction: np.ndarray
             Predictions on the mean scale for family of a GLM.
         """
-        if not hasattr(self.family, 'base'):
-            raise ValueError(f'{self.__class__} expects to have a base family')
-        linpred = X @ self.coef_ + self.intercept_ # often called eta
-        pred = self._family.predict(linpred,
-                                    prediction_type=prediction_type)
+        # as BinomialGLM.predict
+        eta = self._linear_predictor(X, offset)
         if prediction_type == 'class':
-            pred = self._classes[pred]
-        return pred
+            prob = self._family.predict(eta, prediction_type='response')
+            return self.classes_[(prob > 0.5).astype(int)]
+        return self._family.predict(eta, prediction_type=prediction_type)
 
     def predict_proba(self, X):
         """

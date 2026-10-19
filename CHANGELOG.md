@@ -32,6 +32,11 @@
   likelihood estimate of its variance for every link, as R's `logLik.glm` (#119).
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **`RegGLM` is an sklearn estimator:** `lambda_val` defaults to 0, so
+  `RegGLM`, `GaussianRegGLM`, `BinomialRegGLM` and `RegCoxLM` construct
+  without arguments, clone and tune in `GridSearchCV` / `Pipeline`.
+  `GaussianRegGLM` no longer fails at construction (its family is checked
+  at `fit`), and `BinomialRegGLM.predict` works (and takes a DataFrame) (#121).
 - **`predict` takes a DataFrame `X`** for `GLMNet`, the C++ paths
   (`GaussNet`, `LogNet`, `FishNet`, `CoxNet`, ...), `CoxNetIRLS` and the
   multi-response paths, as `fit` does, so `cross_validation_path`,
