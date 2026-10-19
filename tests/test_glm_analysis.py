@@ -10,8 +10,9 @@ import scipy.sparse
 import statsmodels.api as sm
 from scipy.stats import chi2
 
-from glmnet import GLM, anova
-from glmnet.glm import GLMControl, BinomialGLM
+from glmnet import GLM
+from glmnet.glm import (GLMControl, BinomialGLM, anova, confidence_interval,
+                        prediction_interval)
 
 TIGHT = GLMControl(epsnr=1e-12, mxitnr=100)
 rng = np.random.default_rng(0)
@@ -26,7 +27,15 @@ FAMILIES = {
     'probit': (sm.families.Binomial(link=sm.families.links.Probit()),
                lambda eta: rng.binomial(1, 1 / (1 + np.exp(-eta)))),
     'poisson': (sm.families.Poisson(), lambda eta: rng.poisson(np.exp(eta))),
+    # families with a free dispersion, estimated by Pearson's chi-squared over df_resid
+    'gaussian_log': (sm.families.Gaussian(link=sm.families.links.Log()),
+                     lambda eta: np.exp(eta) + 0.3 * rng.standard_normal(n)),
+    'gamma': (sm.families.Gamma(link=sm.families.links.Log()),
+              lambda eta: rng.gamma(5, np.exp(eta) / 5)),
+    'inverse_gaussian': (sm.families.InverseGaussian(link=sm.families.links.Log()),
+                         lambda eta: rng.wald(np.exp(eta), 10)),
 }
+FIXED_DISPERSION = ['gaussian', 'logit', 'probit', 'poisson']
 CASES = ['plain', 'weights', 'offset', 'exclude', 'no_intercept', 'sparse']
 
 
@@ -58,7 +67,8 @@ def _fits(name, case, sandwich=False):
 @pytest.mark.parametrize('name', list(FAMILIES))
 def test_against_statsmodels(name, case):
     g, s, X_fit, D, offset = _fits(name, case)
-    tol = dict(rtol=1e-6, atol=1e-8)
+    # the non-canonical log links of the free-dispersion families converge less tightly
+    tol = dict(rtol=1e-6, atol=1e-8) if name in FIXED_DISPERSION else dict(rtol=1e-4, atol=1e-6)
 
     np.testing.assert_allclose(g.params_.values, s.params, **tol)
     np.testing.assert_allclose(g.summary_['std err'].values, s.bse, **tol)
@@ -68,9 +78,16 @@ def test_against_statsmodels(name, case):
         np.testing.assert_allclose(g.summary_.iloc[:, 3].values, s.pvalues, **tol)
         np.testing.assert_allclose(g.summary_[['[0.025', '0.975]']].values, s.conf_int(), **tol)
 
-    np.testing.assert_allclose(g.loglike_, s.llf, **tol)
-    np.testing.assert_allclose(g.aic_, s.aic, **tol)
-    np.testing.assert_allclose(g.bic_, s.bic_llf, **tol)
+    if name == 'gaussian_log':
+        # the Gaussian's at the MLE of its variance for every link, as R's logLik.glm
+        # (statsmodels takes the MLE only for the identity link)
+        mle = s.model.family.loglike(s.model.endog, s.mu, var_weights=s.model.var_weights,
+                                     scale=np.sum(s.model.var_weights * (s.model.endog - s.mu)**2) / n)
+        np.testing.assert_allclose(g.loglike_, mle, **tol)
+    else:
+        np.testing.assert_allclose(g.loglike_, s.llf, **tol)
+        np.testing.assert_allclose(g.aic_, s.aic, **tol)
+        np.testing.assert_allclose(g.bic_, s.bic_llf, **tol)
 
     np.testing.assert_allclose(g.predict(X_fit, offset=offset), s.fittedvalues, **tol)
     for kind, expected in [('response', s.resid_response), ('pearson', s.resid_pearson),
@@ -83,7 +100,7 @@ def test_against_statsmodels(name, case):
     linear = s.get_prediction(D[rows], offset=off_new, which='linear')
     np.testing.assert_allclose(g.predict_se(X_new), linear.se, **tol)
     if name != 'gaussian':
-        ci = g.conf_int(X_new)
+        ci = confidence_interval(g, X_new)
         linear = s.get_prediction(D[rows], which='linear')
         np.testing.assert_allclose(ci['estimate'], linear.predicted, **tol)
         np.testing.assert_allclose(ci[['lower', 'upper']].values, linear.conf_int(), **tol)
@@ -135,6 +152,48 @@ def test_gaussian_dispersion_is_estimated():
     assert GLM(summarize=True).fit(X, y, dispersion=2.).dispersion_ == 2.
 
 
+def test_t_or_z():
+    # t only for the Gaussian with identity link, an estimated dispersion and sandwich=False
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    stat = lambda g: g.summary_.columns[2]
+    assert stat(GLM(summarize=True).fit(X, y)) == 't'
+    assert stat(GLM(summarize=True).fit(X, y, dispersion=2.)) == 'z'
+    assert stat(GLM(summarize=True, sandwich=True).fit(X, y)) == 'z'
+    for family in [sm.families.Gaussian(link=sm.families.links.Log()),
+                   sm.families.Gamma(link=sm.families.links.Log())]:
+        assert stat(GLM(family=family, summarize=True).fit(X, np.exp(y / 3))) == 'z'
+    # a given dispersion is used as it is, also for the Gamma
+    g = GLM(family=sm.families.Gamma(link=sm.families.links.Log()),
+            summarize=True).fit(X, np.exp(y / 3), dispersion=0.5)
+    assert g.dispersion_ == 0.5
+
+
+@pytest.mark.parametrize('weighted', [False, True])
+def test_prediction_interval(weighted):
+    # as statsmodels' OLS / WLS get_prediction(...).summary_frame()'s obs_ci
+    y = 3 + X[:, 0] + rng.standard_normal(n) / np.sqrt(W if weighted else 1)
+    w = W if weighted else np.ones(n)
+    g = GLM(summarize=True, response_id='y', weight_id='w').fit(X, pd.DataFrame({'y': y, 'w': w}))
+    s = sm.WLS(y, sm.add_constant(X), weights=w).fit()
+    X_new, w_new = X[:6], W[:6] if weighted else None
+    frame = s.get_prediction(sm.add_constant(X_new), weights=w_new).summary_frame(alpha=0.1)
+    pi = prediction_interval(g, X_new, alpha=0.1, weights=w_new)
+    np.testing.assert_allclose(pi['estimate'], frame['mean'])
+    np.testing.assert_allclose(pi[['lower', 'upper']].values, frame[['obs_ci_lower', 'obs_ci_upper']].values)
+    # the confidence intervals are those of the mean
+    ci = confidence_interval(g, X_new, alpha=0.1)
+    np.testing.assert_allclose(ci[['lower', 'upper']].values, frame[['mean_ci_lower', 'mean_ci_upper']].values)
+
+
+def test_prediction_interval_only_gaussian():
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    for g in [GLM(summarize=True, sandwich=True).fit(X, y),
+              GLM(summarize=True).fit(X, y, dispersion=1.),
+              GLM(family=sm.families.Poisson(), summarize=True).fit(X, rng.poisson(2, n))]:
+        with pytest.raises(ValueError, match='prediction intervals'):
+            prediction_interval(g, X[:3])
+
+
 def test_exclude():
     # excluded variables are left out of the fit, the table and df_resid
     y = X[:, 0] + rng.standard_normal(n)
@@ -158,7 +217,7 @@ def test_islp_design_and_summarize():
     assert list(g.params_.index) == list(s.params.index)
     np.testing.assert_allclose(g.params_, s.params)
     np.testing.assert_allclose(g.predict(D), s.predict(D))
-    np.testing.assert_allclose(g.conf_int(D[:5])[['lower', 'upper']].values,
+    np.testing.assert_allclose(confidence_interval(g, D[:5])[['lower', 'upper']].values,
                                s.get_prediction(D[:5]).conf_int())
     np.testing.assert_allclose(g.summary_[['[0.025', '0.975]']].values, s.conf_int())
 

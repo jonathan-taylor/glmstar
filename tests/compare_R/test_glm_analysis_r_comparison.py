@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from glmnet import GLM, anova
+from glmnet import GLM
+from glmnet.glm import anova
 from glmnet.cox import CoxLM, CoxFamilySpec
 from glmnet.glm import GLMControl
 

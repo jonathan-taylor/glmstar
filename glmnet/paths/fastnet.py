@@ -24,7 +24,8 @@ from ..family import GLMFamilySpec
 
 from .._utils import (_jerr_elnetfit,
                       _validate_cpp_args,
-                      _check_offset)
+                      _check_offset,
+                      _check_predict_X)
 
 class _NoProgress(object):
     """Stand-in for a tqdm progress bar that shows nothing."""
@@ -686,6 +687,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         np.ndarray
             Predicted values.
         """
+        X = _check_predict_X(X)
 
         if interpolation_grid is not None:
             grid_ = np.asarray(interpolation_grid)
@@ -701,9 +703,8 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         if prediction_type not in ['response', 'link']:
             raise ValueError("prediction should be one of 'response' or 'link'")
         
-        term1 = np.einsum('ijk,lj->ilk',
-                          coefs_,
-                          X)
+        # X @ coefs_[i] for each lambda (np.einsum would not take sparse X)
+        term1 = np.stack([np.asarray(X @ coef) for coef in coefs_])
         fits = term1 + intercepts_[:, None, :]
         fits = np.transpose(fits, [1,0,2])
         if offset is not None:
