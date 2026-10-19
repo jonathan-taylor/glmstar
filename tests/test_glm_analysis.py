@@ -229,6 +229,126 @@ def test_islp_design_and_summarize():
         pd.testing.assert_frame_equal(ours, theirs)
 
 
+@pytest.mark.parametrize('sandwich', [False, True])
+def test_pandas_outputs(sandwich):
+    # outputs indexed by the features are labelled by their names; outputs at the
+    # rows of a DataFrame X are labelled by its index, at the rows of an array are arrays
+    index = pd.Index([f'obs{i}' for i in range(n)])
+    D = pd.DataFrame(X, columns=list('abcd'), index=index)
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    g = GLM(summarize=True, sandwich=sandwich).fit(D, y)
+    h = GLM(summarize=True, sandwich=sandwich).fit(X, y)
+    names = ['intercept', 'a', 'b', 'c', 'd']
+
+    # covariance_ is an array, labelled by feature_names_ (the names of params_)
+    for fit in [g, h]:
+        C = fit.covariance_
+        assert isinstance(C, np.ndarray) and C.shape == (5, 5)
+        assert isinstance(fit.feature_names_, np.ndarray)
+        assert list(fit.feature_names_) == list(fit.params_.index) == list(fit.summary_.index)
+        np.testing.assert_allclose(np.sqrt(np.diag(C)), fit.summary_['std err'])
+    assert list(g.feature_names_) == names
+    assert list(h.feature_names_) == ['intercept', 'X0', 'X1', 'X2', 'X3']
+    nointercept = GLM(summarize=True, fit_intercept=False, exclude=[2]).fit(D, y)
+    assert list(nointercept.feature_names_) == ['a', 'b', 'd']
+    assert nointercept.covariance_.shape == (3, 3)
+
+    new = D.iloc[[3, 1, 4]]
+    se = g.predict_se(new)
+    assert isinstance(se, pd.Series) and list(se.index) == list(new.index)
+    frames = [confidence_interval(g, new)] + ([] if sandwich else [prediction_interval(g, new)])
+    for out in frames:
+        assert isinstance(out, pd.DataFrame) and list(out.index) == list(new.index)
+        assert list(out.columns) == ['estimate', 'lower', 'upper']
+    # an array X_new (to the fit to an array): an array for predict_se, with the same values
+    assert isinstance(h.predict_se(X[[3, 1, 4]]), np.ndarray)
+    np.testing.assert_allclose(h.predict_se(X[[3, 1, 4]]), se)
+    arrays = [confidence_interval(h, X[[3, 1, 4]])] + ([] if sandwich else [prediction_interval(h, X[[3, 1, 4]])])
+    # the intervals are always DataFrames (their columns are named), on a RangeIndex here
+    for out, frame in zip(arrays, frames):
+        assert isinstance(out, pd.DataFrame) and out.index.equals(pd.RangeIndex(3))
+        assert list(out.columns) == ['estimate', 'lower', 'upper']
+        np.testing.assert_allclose(out.values, frame.values)
+
+    # residuals and leverage: on the index of a DataFrame X of the fit, else arrays
+    for kind in ['response', 'pearson', 'deviance']:
+        r = g.residuals(kind)
+        assert isinstance(r, pd.Series) and r.index.equals(index) and r.name == kind
+        assert isinstance(h.residuals(kind), np.ndarray)
+        np.testing.assert_allclose(r, h.residuals(kind))
+    lev = g.leverage(D)
+    assert isinstance(lev, pd.Series) and lev.index.equals(index)
+    assert isinstance(h.leverage(X), np.ndarray)
+    np.testing.assert_allclose(lev, h.leverage(X))
+
+
+def test_cox_pandas_outputs():
+    from glmnet.cox import CoxLM, CoxFamilySpec
+    index = pd.Index([f'obs{i}' for i in range(n)])
+    D = pd.DataFrame(X, columns=list('abcd'), index=index)
+    Y = pd.DataFrame({'time': rng.exponential(np.exp(-0.5 * X[:, 0])),
+                      'status': rng.binomial(1, 0.7, n)}, index=index)
+    fam = lambda: CoxFamilySpec(event_data=Y, event_id='time', status_id='status')
+    g = CoxLM(family=fam(), summarize=True).fit(D, Y)
+    h = CoxLM(family=fam(), summarize=True).fit(X, Y)
+    for fit in [g, h]:
+        assert list(fit.feature_names_) == list(fit.params_.index)
+        assert isinstance(fit.covariance_, np.ndarray) and fit.covariance_.shape == (4, 4)
+    assert list(g.feature_names_) == list('abcd')
+    for kind in ['martingale', 'deviance']:
+        r = g.residuals(kind)
+        assert isinstance(r, pd.Series) and r.index.equals(index)
+        assert isinstance(h.residuals(kind), np.ndarray)
+        np.testing.assert_allclose(r, h.residuals(kind))
+    assert g.leverage(D).index.equals(index) and isinstance(h.leverage(X), np.ndarray)
+    assert list(confidence_interval(g, D[:4]).index) == list(index[:4])
+    assert isinstance(g.predict_se(D[:4]), pd.Series) and isinstance(h.predict_se(X[:4]), np.ndarray)
+
+
+def test_feature_names_checked_at_predict():
+    # as sklearn: the columns of a DataFrame X at predict must be those of fit
+    D = pd.DataFrame(X, columns=list('abcd'))
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    g = GLM(summarize=True).fit(D, y)
+    calls = [g.predict, g.predict_se, lambda Z: confidence_interval(g, Z),
+             lambda Z: prediction_interval(g, Z)]
+    bad = {'reordered': (D[['b', 'a', 'c', 'd']], 'same order'),
+           'renamed': (D.rename(columns={'a': 'z'}), 'unseen at fit time'),
+           'extra': (D.assign(e=1.), 'unseen at fit time'),
+           'missing': (D[['a', 'b', 'c']], 'yet now missing')}
+    for Z, match in bad.values():
+        for call in calls:
+            with pytest.raises(ValueError, match=match):
+                call(Z)
+    with pytest.raises(ValueError, match='feature names should match'):
+        g.leverage(D[['b', 'a', 'c', 'd']])
+    # an array where fit had names, and names where fit had none: warnings
+    with pytest.warns(UserWarning, match='does not have valid feature names'):
+        g.predict(X)
+    h = GLM(summarize=True).fit(X, y)
+    with pytest.warns(UserWarning, match='fitted without feature names'):
+        h.predict(D)
+    # the columns of fit, in order, are fine
+    np.testing.assert_allclose(g.predict(D), h.predict(X))
+
+
+def test_feature_names_modelspec():
+    # ISLP's ModelSpec: the 'intercept' column is dropped at fit and at predict
+    ModelSpec = pytest.importorskip('ISLP.models').ModelSpec
+    df = pd.DataFrame(X, columns=list('abcd'))
+    y = 3 + X[:, 0] + rng.standard_normal(n)
+    spec = ModelSpec(['a', 'b']).fit(df[:150])
+    with pytest.warns(UserWarning, match='intercept'):
+        g = GLM(summarize=True).fit(spec.transform(df[:150]), y[:150])
+    new = spec.transform(df[150:])
+    assert 'intercept' in new.columns
+    pred = g.predict(new)
+    assert pred.shape == (50,)
+    ci = confidence_interval(g, new)
+    assert list(ci.index) == list(new.index)
+    assert list(g.feature_names_) == ['intercept', 'a', 'b']
+
+
 @pytest.mark.parametrize('family', [None, sm.families.Binomial()])
 def test_binomial_glm_predict_class(family):
     y = np.where(rng.binomial(1, 1 / (1 + np.exp(-X[:, 0]))), 'up', 'down')
