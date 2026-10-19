@@ -89,6 +89,12 @@
   `sm.add_constant(X)` instead, or fit the intercept with
   `fit_intercept=True` (#118).
 
+### Tests
+
+- **An estimator sweep** (`tests/test_estimator_sweep.py`): every estimator
+  is checked for `clone`, DataFrame and sparse `X`, `GridSearchCV`, the
+  lambda scale and convergence (#117).
+
 ### Documentation and maintenance
 
 - **The inference vignettes fit with the estimators:** the unpenalized fits
