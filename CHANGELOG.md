@@ -102,7 +102,7 @@
   0/1 data with one row per trial; the unpenalized `GLM` / `BinomialGLM` against R's
   `glm(cbind(s, f) ~ X, binomial)` (coefficients, standard errors, p-values, deviance, null
   deviance, predictions and their standard errors). The AIC / log-likelihood of grouped data
-  differs from R's (strict xfail) (#TBD).
+  differs from R's (strict xfail) (#129).
 
 ### Documentation and maintenance
 
