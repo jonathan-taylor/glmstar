@@ -2,6 +2,9 @@
 The IRLS GLMNet against R's glmnet with a family object (glmnet.path), with
 both solved to a tight tolerance: the paths should agree to ~1e-8, with the
 same lambda values and path length.
+
+The Tweedie family is R's `statmod::tweedie`; it is skipped if statmod is not
+installed.
 """
 import warnings
 
@@ -23,7 +26,38 @@ FAMILIES = {
     'probit': (sm.families.Binomial(link=sm.families.links.Probit()), 'binomial(link="probit")'),
     'poisson': (sm.families.Poisson(), 'poisson()'),
     'gamma_log': (sm.families.Gamma(link=sm.families.links.Log()), 'Gamma(link="log")'),
+    'cloglog': (sm.families.Binomial(link=sm.families.links.CLogLog()), 'binomial(link="cloglog")'),
+    'cauchit': (sm.families.Binomial(link=sm.families.links.Cauchy()), 'binomial(link="cauchit")'),
+    # known theta: variance mu + mu^2 / theta = mu + alpha mu^2
+    'negbin': (sm.families.NegativeBinomial(alpha=1 / 3.), 'MASS::negative.binomial(theta=3)'),
+    'invgauss_log': (sm.families.InverseGaussian(link=sm.families.links.Log()),
+                     'inverse.gaussian(link="log")'),
+    'invgauss': (sm.families.InverseGaussian(), 'inverse.gaussian()'),
+    'gamma_identity': (sm.families.Gamma(link=sm.families.links.Identity()), 'Gamma(link="identity")'),
+    'gamma_inverse': (sm.families.Gamma(), 'Gamma()'),
+    'gaussian_log': (sm.families.Gaussian(link=sm.families.links.Log()), 'gaussian(link="log")'),
+    'tweedie': (sm.families.Tweedie(var_power=1.5, link=sm.families.links.Log()),
+                'statmod::tweedie(var.power=1.5, link.power=0)'),
 }
+
+# looser tolerances, by (family, option)
+LAMBDA0_RTOL = {
+    # with an offset R's null intercept for lambda_max is glm()'s, with
+    # glm.control(epsilon=1e-8): Fisher scoring for the cloglog link converges
+    # linearly and stops 5.6e-6 short (-0.01903332 vs -0.01903891), so R's
+    # lambda values are 2.5e-6 off; glmstar's agree with R's when glm is run
+    # to epsilon=1e-14
+    ('cloglog', 'offset'): 1e-5,
+}
+COEF_ATOL = {
+    # without an intercept the objective is flat at one lambda (index 44): the
+    # coefficients differ by 1.2e-6 with penalized objectives equal to 1e-10,
+    # and both R's and glmstar's move by 5e-7 when solved still tighter
+    ('negbin', 'no_intercept'): 5e-6,
+}
+
+# R packages a family needs beyond glmnet (and MASS, a recommended package)
+R_PACKAGES = {'tweedie': 'statmod'}
 
 PF = np.r_[0.5, 2., 1., 3., np.ones(P - 4)]
 OPTIONS = {
@@ -43,6 +77,15 @@ OPTIONS = {
 }
 
 
+def tweedie_sample(rng, mu, p, phi):
+    # compound Poisson-gamma, 1 < p < 2: Poisson(lam) many Gamma(shape, scale)
+    lam = mu**(2 - p) / (phi * (2 - p))
+    shape = (2 - p) / (p - 1)
+    scale = phi * (p - 1) * mu**(p - 1)
+    n = rng.poisson(lam)
+    return np.where(n > 0, rng.gamma(np.maximum(n, 1) * shape, scale), 0.)
+
+
 @pytest.fixture(scope='module')
 def data():
     rng = np.random.default_rng(0)
@@ -56,6 +99,18 @@ def data():
                       'gamma_log': rng.gamma(2., np.exp(0.3 * eta) / 2),
                       'w': rng.uniform(0.5, 2, N),
                       'o': rng.normal(0, 0.3, N)})
+    # drawn after the above, which are unchanged by adding them
+    D['cloglog'] = rng.binomial(1, 1 - np.exp(-np.exp(eta))).astype(float)
+    D['cauchit'] = rng.binomial(1, 0.5 + np.arctan(eta) / np.pi).astype(float)
+    # numpy's (n, p): n = theta, p = theta / (theta + mu)
+    D['negbin'] = rng.negative_binomial(3, 3 / (3 + np.exp(1 + 0.5 * eta))).astype(float)
+    D['invgauss_log'] = rng.wald(np.exp(0.3 * eta), 4.)
+    # canonical link 1 / mu^2 = eta: keep mu bounded and positive
+    D['invgauss'] = rng.wald(1 / np.sqrt(1 + 0.1 * eta), 4.)
+    D['gamma_identity'] = rng.gamma(4., (3 + 0.3 * eta) / 4)
+    D['gamma_inverse'] = rng.gamma(4., 1 / (1 + 0.1 * eta) / 4)
+    D['gaussian_log'] = np.exp(1 + 0.3 * eta) + 0.5 * rng.standard_normal(N)
+    D['tweedie'] = tweedie_sample(rng, np.exp(0.5 * eta), 1.5, 1.)
     return X, D
 
 
@@ -85,6 +140,12 @@ def fit_R(Rinfo, X, D, fam_name, args):
 def check(Rinfo, data, fam_name, option):
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
+    pkg = R_PACKAGES.get(fam_name)
+    if pkg:
+        with Rinfo['np_cv_rules'].context():
+            has_pkg = bool(np.ravel(Rinfo['rpy'].r(f'isTRUE(requireNamespace("{pkg}", quietly=TRUE))'))[0])
+        if not has_pkg:
+            pytest.skip(f'requires the R package {pkg}')
     X, D = data
     kw, args = OPTIONS[option]
     R = fit_R(Rinfo, X, D, fam_name, args)
@@ -103,10 +164,11 @@ def check(Rinfo, data, fam_name, option):
                    control=GLMNetControl(**TIGHT), **kwargs()).fit(X, D)
 
     assert G0.lambda_values_.shape == R['lambda0'].shape
-    np.testing.assert_allclose(G0.lambda_values_, R['lambda0'], rtol=1e-6)
+    np.testing.assert_allclose(G0.lambda_values_, R['lambda0'],
+                               rtol=LAMBDA0_RTOL.get((fam_name, option), 1e-6))
     # user lambda values: the whole path is fit
     assert G.coefs_.shape[0] == R['lambda'].shape[0]
-    np.testing.assert_allclose(G.coefs_, R['beta'], atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(G.coefs_, R['beta'], atol=COEF_ATOL.get((fam_name, option), 1e-6), rtol=1e-6)
     np.testing.assert_allclose(G.intercepts_, R['a0'], atol=1e-6, rtol=1e-6)
     np.testing.assert_allclose(G.summary_['Fraction Deviance Explained'], R['dev_ratio'], atol=1e-7)
     for k, v in kw.items():
@@ -119,8 +181,33 @@ def test_irls_matches_R(Rinfo, data, fam_name):
     check(Rinfo, data, fam_name, 'plain')
 
 
-@pytest.mark.parametrize('fam_name', ['logit', 'poisson'])
-@pytest.mark.parametrize('option', [o for o in OPTIONS if o != 'plain'])
+OPTION_FAMILIES = ['logit', 'poisson', 'cloglog', 'negbin']
+
+XFAIL = {
+    # R's glmnet.path fits the unpenalized variables with glm.fit's default
+    # glm.control(epsilon=1e-8); glmstar's GLMNet._get_initial_state fits them
+    # with GLM(control=self.control), the path's GLMNetControl (epsnr=1e-6), not
+    # GLMControl's 1e-10. For a non-canonical link (linear convergence) its
+    # null fit is loose (slope 0.23029015 vs 0.23028974) and lambda_max is off
+    # by 8e-6 relative (0.23290604 vs R's 0.23290793; by hand at the tight
+    # null fit 0.23290790). Canonical links converge quadratically and pass.
+    ('cloglog', 'penalty_factor_zero'):
+        'the unpenalized null fit for lambda_max uses the path tolerance epsnr=1e-6',
+}
+
+
+def _option_params():
+    for fam_name in OPTION_FAMILIES:
+        for option in OPTIONS:
+            if option == 'plain':
+                continue
+            marks = ()
+            if (fam_name, option) in XFAIL:
+                marks = pytest.mark.xfail(reason=XFAIL[fam_name, option], strict=True)
+            yield pytest.param(fam_name, option, marks=marks, id=f'{option}-{fam_name}')
+
+
+@pytest.mark.parametrize('fam_name,option', list(_option_params()))
 def test_irls_options_match_R(Rinfo, data, fam_name, option):
     check(Rinfo, data, fam_name, option)
 
