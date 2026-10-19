@@ -94,6 +94,15 @@
 - **An estimator sweep** (`tests/test_estimator_sweep.py`): every estimator
   is checked for `clone`, DataFrame and sparse `X`, `GridSearchCV`, the
   lambda scale and convergence (#117).
+- **Binomial counts and proportions against R** (`tests/compare_R/test_binomial_counts_r_comparison.py`):
+  `LogNet` with (trials, successes) or proportions + weights, and `GLMNet(family=Binomial())`
+  with proportions + weights, against R's `glmnet` with `cbind(failures, successes)`
+  (lambda values, coefficients, intercepts, dev.ratio, link / response predictions, with and
+  without an offset) and `cv.glmnet`; the same path for counts, proportions + weights and the
+  0/1 data with one row per trial; the unpenalized `GLM` / `BinomialGLM` against R's
+  `glm(cbind(s, f) ~ X, binomial)` (coefficients, standard errors, p-values, deviance, null
+  deviance, predictions and their standard errors). The AIC / log-likelihood of grouped data
+  differs from R's (strict xfail) (#TBD).
 
 ### Documentation and maintenance
 
