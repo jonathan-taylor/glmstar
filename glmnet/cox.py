@@ -608,6 +608,20 @@ class CoxFamilySpec(object):
 
         return [CoxDiffScorer(coxfam=self), CoxScorer(coxfam=self)]
 
+def _cox_score(estimator, X, y, sample_weight=None):
+    """
+    The partial log-likelihood (minus half the deviance) of a fitted Cox
+    `estimator` on `(X, y)`: its family holds the event data of the fit, so
+    the family of `y` is built for scoring new data (as `GridSearchCV` does).
+    """
+    family = estimator._finalize_family(response=y)
+    _, _, _, offset, weight = estimator.get_data_arrays(X, y, check=False)
+    if sample_weight is None:
+        sample_weight = weight
+    eta = estimator._linear_predictor(X, offset)
+    return -family.deviance(None, eta, np.asarray(sample_weight, float)) / 2
+
+
 @dataclass
 class CoxLM(GLM):
     """
@@ -622,6 +636,8 @@ class CoxLM(GLM):
         as the intercept is absorbed into the baseline hazard.
     """
     fit_intercept: Literal[False] = False
+
+    _shift_invariant = True
 
     def _finalize_family(self,
                          response):
@@ -737,6 +753,13 @@ class CoxLM(GLM):
         U = self.weight_total_ * U
         return U.T @ U
 
+    def score(self, X, y, sample_weight=None):
+        """
+        Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
+        with the weights of `y` (`weight_id`) unless `sample_weight` is given.
+        """
+        return _cox_score(self, X, y, sample_weight)
+
     def residuals(self, kind='martingale'):
         """
         Martingale (the default) or deviance residuals of the fit, as R's
@@ -793,6 +816,13 @@ class RegCoxLM(RegGLM):
                              status_id=self.family.status_id,
                              start_id=self.family.start_id,
                              strata_id=self.family.strata_id)
+
+    def score(self, X, y, sample_weight=None):
+        """
+        Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
+        with the weights of `y` (`weight_id`) unless `sample_weight` is given.
+        """
+        return _cox_score(self, X, y, sample_weight)
 
 @dataclass
 class CoxNetIRLS(GLMNet):

@@ -32,6 +32,13 @@
   likelihood estimate of its variance for every link, as R's `logLik.glm` (#119).
 - **`glmnet.__version__`** was `"unknown"` in an installed glmstar: it
   looked up the distribution `glmnet`, not `glmstar` (#116).
+- **Unpenalized `GLM` fits:** `GLMControl.epsnr` defaults to `1e-10` (it
+  stopped early, e.g. near separation); the fit starts at the mean of the
+  response and halves steps leaving the family's domain, so the Gamma
+  (inverse link), identity and sqrt links fit; constant columns of `X`
+  other than `intercept` are excluded with a warning instead of giving a
+  singular fit (any constant column, for Cox); `CoxLM` and `RegCoxLM` have a
+  `score` on new data. The penalized path fits are unchanged (#124).
 - **`GaussNet.get_fixed_lambda` for `alpha < 1`:** `GaussNet`, as R's
   `glmnet(family="gaussian")`, fits `y / s_y` at `lambda / s_y`, dividing
   the ridge part of the penalty by `s_y` (the weighted sd of `y`, now
