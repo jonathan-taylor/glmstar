@@ -103,7 +103,7 @@
   limits...) also for cloglog and the negative binomial. One known
   discrepancy is an `xfail`: with an unpenalized variable and a non-canonical
   link, the null fit for `lambda_max` uses the path's `epsnr=1e-6`, so the
-  default lambda values are about 1e-5 (relative) off R's (#TBD).
+  default lambda values are about 1e-5 (relative) off R's (#132).
 
 ### Documentation and maintenance
 
