@@ -266,7 +266,7 @@ class GAM(BaseEstimator):
 
         self._estimated_dispersion = dispersion is None and not self._fixed_dispersion()
         if self._estimated_dispersion:
-            dispersion = (np.sum(self.residuals('pearson')**2) / self.df_resid_
+            dispersion = (np.sum(self._residuals('pearson')**2) / self.df_resid_
                           if self.df_resid_ > 0 else np.nan)
         elif dispersion is None:
             dispersion = 1.
@@ -324,7 +324,7 @@ class GAM(BaseEstimator):
                             index=self.edf_.index)
 
     # as for GLM: they use only the response, weights, family and state_
-    residuals = GLM.residuals
+    _residuals = GLM._residuals
     _on_train_index = GLM._on_train_index
     _fixed_dispersion = GLM._fixed_dispersion
     _loglike = GLM._loglike

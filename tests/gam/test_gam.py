@@ -214,3 +214,14 @@ def test_modified_backfitting_many_levels():
             for m in (False, True)]
     np.testing.assert_allclose(fits[1].state_.linear_predictor, fits[0].state_.linear_predictor,
                                rtol=1e-8, atol=1e-9)
+
+
+def test_residuals_function(data):
+    # glmstar's residuals(fit, kind) works on a GAM, as on a GLM
+    from glmnet.glm import residuals
+    G = GAM(terms=[s('a', df=4), factor('c')], family=sm.families.Binomial(),
+            control=TIGHT).fit(data, data['yb'])
+    mu = G.predict(data)
+    np.testing.assert_allclose(residuals(G), data['yb'] - mu, rtol=1e-10)
+    np.testing.assert_allclose(residuals(G, 'pearson'),
+                               (data['yb'] - mu) / np.sqrt(mu * (1 - mu)), rtol=1e-8)
