@@ -17,6 +17,16 @@
 
 ### Changed
 
+- **`GLM.summary()` is replaced by the function `glmnet.glm.summarize(fit,
+  conf_int=False, level=None, full=False)`**, for `GLM` and `CoxLM`: the
+  coefficient table (`coef`, `std err`, `t` or `z`, `P>|t|` or `P>|z|`, and
+  with `conf_int` or a `level` the confidence intervals), unrounded, as a
+  DataFrame. `full=True` also prints a description of the fit above it (the
+  family, observations, degrees of freedom of the model and residuals,
+  deviance and null deviance, dispersion, log-likelihood, AIC, BIC and the
+  covariance); by default only the table is returned. ISLP's `summarize`
+  parsed the statsmodels-style tables of `summary()`; it can call this
+  directly.
 - **`GLM.residuals(kind)` and `GLM.leverage(X)` are now the functions
   `glmnet.glm.residuals(fit, kind)` and `glmnet.glm.leverage(fit, X)`**, as
   `confidence_interval`, for `GLM` and `CoxLM`; the methods are removed. The

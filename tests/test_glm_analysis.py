@@ -14,7 +14,7 @@ from scipy.stats import chi2
 
 from glmnet import GLM
 from glmnet.glm import (GLMControl, BinomialGLM, anova, confidence_interval,
-                        leverage, prediction_interval, residuals)
+                        leverage, prediction_interval, residuals, summarize)
 
 TIGHT = GLMControl(epsnr=1e-12, mxitnr=100)
 rng = np.random.default_rng(0)
@@ -209,7 +209,7 @@ def test_exclude():
 
 
 def test_islp_design_and_summarize():
-    # a ModelSpec-like DataFrame with a constant 'intercept' column, and ISLP's summarize
+    # a ModelSpec-like DataFrame with a constant 'intercept' column, and summarize
     df = pd.DataFrame(X, columns=list('abcd'))
     D = pd.concat([pd.DataFrame({'intercept': np.ones(n)}), df], axis=1)
     y = X[:, 0] + rng.standard_normal(n)
@@ -224,12 +224,36 @@ def test_islp_design_and_summarize():
                                s.get_prediction(D[:5]).conf_int())
     np.testing.assert_allclose(g.summary_[['[0.025', '0.975]']].values, s.conf_int())
 
-    summarize = pytest.importorskip('ISLP.models').summarize
-    for conf_int in [False, True]:
-        ours, theirs = summarize(g, conf_int=conf_int), summarize(s, conf_int=conf_int)
-        # statsmodels labels the intervals with alpha / 2 = 0.025000000000000022
-        theirs.columns = ours.columns
-        pd.testing.assert_frame_equal(ours, theirs)
+    # the table ISLP's summarize gives for statsmodels, unrounded
+    expected = pd.DataFrame({'coef': s.params, 'std err': s.bse, 't': s.tvalues,
+                             'P>|t|': s.pvalues})
+    pd.testing.assert_frame_equal(summarize(g), expected, rtol=1e-8)
+    for kwargs, alpha in [({'conf_int': True}, 0.05), ({'level': 0.9}, 0.1)]:
+        table = summarize(g, **kwargs)
+        bounds = [f'[{alpha / 2:g}', f'{1 - alpha / 2:g}]']
+        assert list(table.columns) == list(expected.columns) + bounds
+        np.testing.assert_allclose(table[bounds].values, s.conf_int(alpha=alpha), rtol=1e-8)
+
+
+def test_summarize_full(capsys):
+    # full=True prints a description of the fit above the table; the default doesn't
+    y = X[:, 0] + rng.standard_normal(n)
+    g = GLM(summarize=True).fit(X, y)
+    table = summarize(g)
+    assert capsys.readouterr().out == ''
+    pd.testing.assert_frame_equal(summarize(g, full=True), table)
+    out = capsys.readouterr().out
+    for label, value in [('Df residuals:', f'{g.df_resid_:g}'), ('Deviance:', f'{g.deviance_:.4f}'),
+                         ('Null deviance:', f'{g.null_deviance_:.4f}'), ('AIC:', f'{g.aic_:.4f}'),
+                         ('Covariance:', 'model')]:
+        assert label in out and value in out
+    # without summarize=True the table is computed; a binomial fit has z statistics
+    yb = rng.binomial(1, 0.5, n)
+    b = GLM(family=sm.families.Binomial()).fit(X, yb)
+    assert b.summary_ is None
+    assert list(summarize(b).columns) == ['coef', 'std err', 'z', 'P>|z|']
+    s = sm.GLM(yb, sm.add_constant(X), family=sm.families.Binomial()).fit()
+    np.testing.assert_allclose(summarize(b)['std err'], s.bse, rtol=1e-6)
 
 
 @pytest.mark.parametrize('sandwich', [False, True])

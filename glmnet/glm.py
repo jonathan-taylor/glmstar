@@ -1195,35 +1195,6 @@ class GLM(GLMBase):
             return t_dbn.ppf(1 - alpha / 2, df=self.df_resid_)
         return normal_dbn.ppf(1 - alpha / 2)
 
-    def summary(self, alpha=0.05):
-        """
-        A statsmodels `Summary`: `tables[0]` describes the fit, `tables[1]` is
-        `summary_` with confidence intervals of level `1 - alpha`, as for a
-        statsmodels results instance (so that ISLP's `summarize` works).
-        """
-        from statsmodels.iolib.summary import Summary
-        from statsmodels.iolib.table import SimpleTable
-
-        coefs = (self._summarize()[1] if self.summary_ is None else self.summary_).iloc[:, :4]
-        q = self._quantile(alpha)
-        lower, upper = coefs['coef'] - q * coefs['std err'], coefs['coef'] + q * coefs['std err']
-        # statsmodels' formats
-        data = [[f'{row[0]:.4f}'] + [f'{v:.3f}' for v in row[1:]] + [f'{lo:.3f}', f'{hi:.3f}']
-                for row, lo, hi in zip(coefs.values, lower, upper)]
-        headers = list(coefs.columns) + [f'[{alpha / 2:g}', f'{1 - alpha / 2:g}]']
-        fit = [['Family:', getattr(self._family, 'name', None) or type(self._family.base).__name__],
-               ['No. Observations:', f'{len(self._weight)}'],
-               ['Df Residuals:', f'{self.df_resid_}'],
-               ['Deviance:', f'{self.deviance_:.4f}'],
-               ['Dispersion:', f'{self.dispersion_:.4g}'],
-               ['Log-Likelihood:', f'{self.loglike_:.4f}'],
-               ['AIC:', f'{self.aic_:.4f}'],
-               ['Covariance:', 'sandwich' if self.sandwich else 'model']]
-        smry = Summary()
-        smry.tables = [SimpleTable(fit, title=f'{type(self).__name__} results'),
-                       SimpleTable(data, headers=headers, stubs=list(coefs.index))]
-        return smry
-
     def _residuals(self, kind='response', state=None):
         """The residuals of `residuals`, at `state` (default `state_`)."""
         y = np.asarray(self._response, float).reshape(-1)
@@ -1424,6 +1395,76 @@ def leverage(fit, X):
             X = np.column_stack([np.ones(X.shape[0]), X])
         value = fit.weight_total_ * ((X @ C) * (W @ X)).sum(1)
     return fit._on_train_index(value, 'leverage')
+
+def summarize(fit, conf_int=False, level=None, full=False):
+    """
+    The coefficient table of an unpenalized `GLM` or `CoxLM`: the estimates,
+    their standard errors, the t (or z) statistics and the p-values, as ISLP's
+    `summarize` gives for a statsmodels fit, and, with `conf_int` (or a
+    `level`), the confidence intervals.
+
+    Parameters
+    ----------
+    fit: GLM or CoxLM
+        A fit (with `summarize=True` its `summary_` is used; otherwise the
+        table is computed).
+    conf_int: bool
+        Include the confidence intervals, of level `level`.
+    level: float, optional
+        The level of the intervals (default 0.95); giving one implies
+        `conf_int`.
+    full: bool
+        Also print a description of the fit above the table: the family,
+        the number of observations, the degrees of freedom of the model and
+        of the residuals, the deviance and null deviance, the dispersion, the
+        log-likelihood, AIC, BIC and the covariance (model or sandwich).
+        Default False.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per coefficient: `coef`, `std err`, `t` (or `z`), `P>|t|`
+        (or `P>|z|`), and with `conf_int` the bounds `[alpha/2` and
+        `1-alpha/2]`, with `alpha = 1 - level`.
+    """
+    if level is not None:
+        conf_int = True
+    else:
+        level = 0.95
+    table = fit.summary_ if getattr(fit, 'summary_', None) is not None else fit._summarize()[1]
+    table = table.iloc[:, :4].copy()
+    if conf_int:
+        alpha = 1 - level
+        q = fit._quantile(alpha)
+        table[f'[{alpha / 2:g}'] = table['coef'] - q * table['std err']
+        table[f'{1 - alpha / 2:g}]'] = table['coef'] + q * table['std err']
+    if full:
+        print(_describe(fit))
+    return table
+
+
+def _describe(fit):
+    """The description of a fit printed by `summarize(fit, full=True)`."""
+    family = getattr(fit._family, 'name', None) or type(fit._family.base).__name__
+    rows = [('Family', family),
+            ('Observations', f'{int(np.sum(np.asarray(fit._weight) > 0))}'),
+            ('Df (parameters)', f'{len(fit.params_)}'),
+            ('Df residuals', f'{fit.df_resid_:g}'),
+            ('Deviance', f'{fit.deviance_:.4f}')]
+    for label, attr, fmt in [('Null deviance', 'null_deviance_', '.4f'),
+                             ('Dispersion', 'dispersion_', '.4g'),
+                             ('Log-likelihood', 'loglike_', '.4f'),
+                             ('AIC', 'aic_', '.4f'),
+                             ('BIC', 'bic_', '.4f')]:
+        value = getattr(fit, attr, None)
+        if value is not None:
+            rows.append((label, f'{value:{fmt}}'))
+    rows.append(('Covariance', 'sandwich' if fit.sandwich else 'model'))
+    width = max(len(label) for label, _ in rows)
+    lines = [f'{type(fit).__name__} results']
+    lines += [f'{label + ":":<{width + 1}} {value}' for label, value in rows]
+    return '\n'.join(lines)
+
 
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
