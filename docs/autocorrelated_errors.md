@@ -49,6 +49,7 @@ from scipy.signal import lfilter
 from scipy.stats import norm
 
 from glmnet import GLM, GLMNet, LinearTerm
+from glmnet.glm import residuals
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem
 from lassoinf import LassoInference
@@ -139,7 +140,7 @@ def ar1_fit(X, y):
     X1 = with_intercept(X)
     n = len(y)
     B = np.linalg.inv(X1.T @ X1)
-    r = least_squares_fit(X, y).residuals()
+    r = residuals(least_squares_fit(X, y))
     zero = np.zeros((1, X1.shape[1]))
     LX1 = 0.5 * (np.vstack([X1[1:], zero]) + np.vstack([zero, X1[:-1]]))
     XLX = X1.T @ LX1

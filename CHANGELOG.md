@@ -17,6 +17,11 @@
 
 ### Changed
 
+- **`GLM.residuals(kind)` and `GLM.leverage(X)` are now the functions
+  `glmnet.glm.residuals(fit, kind)` and `glmnet.glm.leverage(fit, X)`**, as
+  `confidence_interval`, for `GLM` and `CoxLM`; the methods are removed. The
+  default `kind` is still `'response'` for a `GLM` and `'martingale'` for a
+  `CoxLM`, and the values are unchanged (#139).
 - **`glmnet.irls` cleanup:** dead code removed, and "ISLR" corrected to "IRLS"
   in the log messages. The `boundary` returned by `IRLS` is True if any step
   was halved at a boundary, not only the last; an error from step halving

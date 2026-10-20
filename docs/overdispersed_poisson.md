@@ -37,7 +37,7 @@ import statsmodels.api as sm
 from scipy.stats import norm
 
 from glmnet import GLM, GLMNet
-from glmnet.glm import GLMControl
+from glmnet.glm import GLMControl, residuals
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
 from lassoinf import LassoInference
@@ -85,7 +85,7 @@ def poisson_fit(X, y):
 
 def dispersion(X, y):
     fit = poisson_fit(X, y)
-    phi_hat = (fit.residuals('pearson')**2).sum() / (len(y) - X.shape[1] - 1)
+    phi_hat = (residuals(fit, 'pearson')**2).sum() / (len(y) - X.shape[1] - 1)
     return phi_hat, fit.predict(X, prediction_type='link')
 
 phi_hat, eta_hat = dispersion(X, y)

@@ -713,7 +713,7 @@ class GLMBase(BaseEstimator,
         # Poisson and negative binomial, and for Cox
         self._estimated_dispersion = dispersion is None and not self._fixed_dispersion()
         if self._estimated_dispersion:
-            dispersion = (np.sum(self.residuals('pearson', state=state)**2) / self.df_resid_
+            dispersion = (np.sum(self._residuals('pearson', state=state)**2) / self.df_resid_
                           if self.df_resid_ > 0 else np.nan)
         elif dispersion is None:
             dispersion = 1.
@@ -1224,11 +1224,8 @@ class GLM(GLMBase):
                        SimpleTable(data, headers=headers, stubs=list(coefs.index))]
         return smry
 
-    def residuals(self, kind='response', state=None):
-        """
-        Residuals of the fit: 'response' (y - mu), 'pearson' or 'deviance', with
-        the weights as prior weights, as R's `residuals.glm`.
-        """
+    def _residuals(self, kind='response', state=None):
+        """The residuals of `residuals`, at `state` (default `state_`)."""
         y = np.asarray(self._response, float).reshape(-1)
         state = self.state_ if state is None else state
         mu, w = state.mu, self._weight
@@ -1288,32 +1285,6 @@ class GLM(GLMBase):
             A Series on the index of `X` if it is a DataFrame, else an array.
         """
         return _on_rows(X, np.sqrt(self._quadratic_rows(X, self._get_covariance())), 'std err')
-
-    def leverage(self, X):
-        """
-        The leverage of each observation of the fit, the diagonal of
-        X (X^T W X)^{-1} X^T W, with `X` the design the model was fitted to and W
-        the information in the linear predictor. For a GLM, W is diagonal and this
-        is the diagonal of the hat matrix. For Cox, W is not diagonal: this is the
-        generalized leverage, which R does not report.
-
-        Returns
-        -------
-        np.ndarray or pd.Series
-            A Series on the index of the fit's `X` if it was a DataFrame, else an
-            array.
-        """
-        C = np.linalg.inv(self._precision())
-        W = self._get_information()
-        if isinstance(W, DiagonalOperator):
-            value = self.weight_total_ * W.weights * self._quadratic_rows(X, C)
-        else:
-            X = self._rows(X)
-            X = X.toarray() if scipy.sparse.issparse(X) else X
-            if self.fit_intercept:
-                X = np.column_stack([np.ones(X.shape[0]), X])
-            value = self.weight_total_ * ((X @ C) * (W @ X)).sum(1)
-        return self._on_train_index(value, 'leverage')
 
 
 def _on_rows(X, value, name):
@@ -1409,6 +1380,50 @@ def prediction_interval(fit, X_new, alpha=0.05, weights=None):
     w = np.ones(estimate.shape[0]) if weights is None else np.asarray(weights, float)
     half = fit._quantile(alpha) * np.sqrt(np.asarray(fit.predict_se(X_new))**2 + fit.dispersion_ / w)
     return _interval_frame(X_new, estimate, half)
+
+
+def residuals(fit, kind=None):
+    """
+    Residuals of an unpenalized `GLM` or `CoxLM` at the observations of its
+    fit. For a `GLM`: 'response' (y - mu, the default), 'pearson' or
+    'deviance', with the weights as prior weights, as R's `residuals.glm`. For
+    a `CoxLM`: 'martingale' (the default) or 'deviance', as R's
+    `residuals.coxph`.
+
+    Returns
+    -------
+    np.ndarray or pd.Series
+        A Series on the index of the fit's `X` if it was a DataFrame, else an
+        array.
+    """
+    return fit._residuals() if kind is None else fit._residuals(kind)
+
+
+def leverage(fit, X):
+    """
+    The leverage of each observation of an unpenalized `GLM` or `CoxLM`, the
+    diagonal of X (X^T W X)^{-1} X^T W, with `X` the design the model was
+    fitted to and W the information in the linear predictor. For a GLM, W is
+    diagonal and this is the diagonal of the hat matrix. For Cox, W is not
+    diagonal: this is the generalized leverage, which R does not report.
+
+    Returns
+    -------
+    np.ndarray or pd.Series
+        A Series on the index of the fit's `X` if it was a DataFrame, else an
+        array.
+    """
+    C = np.linalg.inv(fit._precision())
+    W = fit._get_information()
+    if isinstance(W, DiagonalOperator):
+        value = fit.weight_total_ * W.weights * fit._quadratic_rows(X, C)
+    else:
+        X = fit._rows(X)
+        X = X.toarray() if scipy.sparse.issparse(X) else X
+        if fit.fit_intercept:
+            X = np.column_stack([np.ones(X.shape[0]), X])
+        value = fit.weight_total_ * ((X @ C) * (W @ X)).sum(1)
+    return fit._on_train_index(value, 'leverage')
 
 @dataclass
 class GaussianGLM(RegressorMixin, GLM):
