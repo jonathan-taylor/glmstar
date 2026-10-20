@@ -21,6 +21,12 @@
   in the log messages. The `boundary` returned by `IRLS` is True if any step
   was halved at a boundary, not only the last; an error from step halving
   names the check that failed. Fits are unchanged.
+### Fixes
+
+- **`predict` docstrings of `GLM`, `BinomialGLM` and `BinomialRegGLM`:** the
+  prediction is an array even if `X` is a DataFrame, as for sklearn's
+  estimators (since #107; before, pandas' `@` made it a Series on the index
+  of `X`), now tested (#137).
 
 ## 0.3.1 (2026-10-19)
 

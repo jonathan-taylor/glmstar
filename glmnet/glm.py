@@ -749,7 +749,9 @@ class GLMBase(BaseEstimator,
         Returns
         -------
         prediction: np.ndarray
-            Predictions on the mean scale for family of a GLM.
+            Predictions of shape `(n_samples,)` on the scale of `prediction_type`.
+            An array even if `X` is a DataFrame, as for sklearn's estimators: for
+            a Series on the index of `X`, use `pd.Series(fit.predict(X), index=X.index)`.
         """
         return self._family.predict(self._linear_predictor(X, offset),
                                     prediction_type=prediction_type)
@@ -1612,7 +1614,9 @@ class BinomialGLM(ClassifierMixin, GLM):
         Returns
         -------
         prediction: np.ndarray
-            Predictions on the mean scale for family of a GLM.
+            Predictions of shape `(n_samples,)`: labels from `classes_` if
+            `prediction_type` is "class", else on the scale of `prediction_type`.
+            An array even if `X` is a DataFrame, as for sklearn's estimators.
         """
         eta = self._linear_predictor(X, offset)
         if prediction_type == 'class':
