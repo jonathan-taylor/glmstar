@@ -1,19 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-10-20)
 
 ### New
 
 - **`GLMControl(convergence='eta')`:** stop the IRLS iterations on the
   relative change in the linear predictor (in norm) instead of the objective
-  (`'objective'`, the default, unchanged).
+  (`'objective'`, the default, unchanged) (#138).
 - **`n_iter_`** of the estimators fitted by IRLS (`GLM`, `CoxLM`, `RegGLM`, ...):
-  the number of IRLS iterations.
+  the number of IRLS iterations (#138).
 - **`glmnet.irls.IRLS`** documents what it needs of the family, regularizer and
   state, and takes `info`, a dict filled with the number of iterations and of
   halved steps. A regularizer with `has_objective = False` (for smoothers that
   do not minimize an objective) skips the descent check, and its iterations
-  stop on the change in the linear predictor.
+  stop on the change in the linear predictor (#138).
 
 ### Changed
 
@@ -26,7 +26,7 @@
   deviance and null deviance, dispersion, log-likelihood, AIC, BIC and the
   covariance); by default only the table is returned. ISLP's `summarize`
   parsed the statsmodels-style tables of `summary()`; it can call this
-  directly.
+  directly (#141).
 - **`GLM.residuals(kind)` and `GLM.leverage(X)` are now the functions
   `glmnet.glm.residuals(fit, kind)` and `glmnet.glm.leverage(fit, X)`**, as
   `confidence_interval`, for `GLM` and `CoxLM`; the methods are removed. The
@@ -35,7 +35,8 @@
 - **`glmnet.irls` cleanup:** dead code removed, and "ISLR" corrected to "IRLS"
   in the log messages. The `boundary` returned by `IRLS` is True if any step
   was halved at a boundary, not only the last; an error from step halving
-  names the check that failed. Fits are unchanged.
+  names the check that failed. Fits are unchanged (#138).
+
 ### Fixes
 
 - **`predict` docstrings of `GLM`, `BinomialGLM` and `BinomialRegGLM`:** the
