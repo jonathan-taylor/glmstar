@@ -760,11 +760,8 @@ class CoxLM(GLM):
         """
         return _cox_score(self, X, y, sample_weight)
 
-    def residuals(self, kind='martingale'):
-        """
-        Martingale (the default) or deviance residuals of the fit, as R's
-        `residuals.coxph`.
-        """
+    def _residuals(self, kind='martingale', state=None):
+        """The residuals of `glmnet.glm.residuals`: martingale or deviance, at `state_`."""
         w = np.asarray(self._weight, float)
         result = self._family._coxdev_at(w)(self.state_.mu, w)
         # the deviance's gradient in the linear predictor is -2 w M, with M

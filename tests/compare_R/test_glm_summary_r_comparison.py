@@ -37,7 +37,7 @@ import statsmodels.api as sm
 from scipy.stats import norm
 
 from glmnet import GLM
-from glmnet.glm import GLMControl, confidence_interval, prediction_interval
+from glmnet.glm import GLMControl, confidence_interval, prediction_interval, residuals
 
 TIGHT = GLMControl(epsnr=1e-15, mxitnr=200)
 R_CONTROL = 'glm.control(epsilon=1e-15, maxit=200)'
@@ -189,7 +189,7 @@ pr <- predict(f, newdata=dnew, type="link", se.fit=TRUE{disp})''')
     np.testing.assert_allclose(fit.deviance_, get('deviance(f)')[0], **tol)
     np.testing.assert_allclose(fit.predict(X, offset=Y['off']), get('fitted(f)'), **tol)
     for kind in ['response', 'pearson', 'deviance']:
-        np.testing.assert_allclose(fit.residuals(kind), get(f'residuals(f, type="{kind}")'), **tol)
+        np.testing.assert_allclose(residuals(fit, kind), get(f'residuals(f, type="{kind}")'), **tol)
 
     # the log-likelihood, AIC and BIC
     k = len(fit.params_)
