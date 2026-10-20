@@ -6,11 +6,15 @@ A term is set up on its column of the training data (`setup`), told the
 weights of the current working (IRLS) problem (`set_weights`), and then asked
 to smooth partial residuals at those weights (`smooth`), as often as
 backfitting needs. Its fits are centered by the backfitter, to mean 0 over the
-training rows (unweighted, as `mgcv`), the intercept taking up the rest. After
-the fit, `finalize` gives it its final fit, from which it predicts at new
-values (`predict`).
+training rows (unweighted, as `mgcv`), the intercept taking up the rest.
 
-`penalty(f)` is the term's contribution to the objective, so that local
+A term may also keep coefficients of its last smooth (`coef()`, centered as
+the fit; for a spline, those of its basis), linear in the fit. The backfitter
+keeps them with the fits, so that IRLS can average them when it halves a step.
+After the fit, `finalize` gives the term its final fit (and coefficients),
+from which it predicts at new values (`predict`).
+
+`penalty(f, coef)` is the term's contribution to the objective, so that local
 scoring can check that its steps decrease it. A term whose smoothing does not
 minimize a fixed objective (loess, or a spline fitted to a fixed `df` whose
 smoothing parameter changes with the weights) has `has_objective = False`.
@@ -20,7 +24,6 @@ from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
-from scipy.linalg import solveh_banded
 
 
 def _scatter_smooth():
@@ -58,18 +61,23 @@ class Term(object):
         """The term's weighted fit to `r`, at the training rows."""
         raise NotImplementedError
 
-    def penalty(self, f):
-        """The term's penalty at its fit `f` (at the training rows)."""
+    def coef(self):
+        """Coefficients of the last smooth, centered as its fit (None: the term has none)."""
+        return None
+
+    def penalty(self, f, coef=None):
+        """The term's penalty at its fit `f` (at the training rows), with coefficients `coef`."""
         return 0.
 
     def edf(self):
         """The degrees of freedom of the term, at the current weights, without the constant."""
         raise NotImplementedError
 
-    def finalize(self, f, r):
+    def finalize(self, f, r, coef=None):
         """
         Fix the fitted function from its (centered) fit `f` at the training
-        rows and the partial residuals `r` it was fitted to.
+        rows, its coefficients `coef` and the partial residuals `r` it was
+        fitted to.
         """
         raise NotImplementedError
 
@@ -106,7 +114,7 @@ class SlopeTerm(Term):
     def edf(self):
         return 1.
 
-    def finalize(self, f, r):
+    def finalize(self, f, r, coef=None):
         _, self.coef_ = _weighted_ls(self.x_, f, np.ones_like(f))
         return self
 
@@ -138,7 +146,7 @@ class FactorTerm(Term):
         nl = len(self.levels_)
         return float(np.sum(np.bincount(self.codes_, weights=self.w_, minlength=nl) > 0) - 1)
 
-    def finalize(self, f, r):
+    def finalize(self, f, r, coef=None):
         nl = len(self.levels_)
         counts = np.bincount(self.codes_, minlength=nl)
         sums = np.bincount(self.codes_, weights=f, minlength=nl)
@@ -150,37 +158,25 @@ class FactorTerm(Term):
         return self.effects_.reindex(np.asarray(x)).fillna(0.).to_numpy()
 
 
-def _reinsch_QR(t):
-    """
-    Green & Silverman's banded Q (as its three diagonals) and R (upper banded,
-    for `solveh_banded`) for the natural cubic spline with knots `t`: the
-    penalty of the spline with values `g` at the knots is
-    `g^T Q R^{-1} Q^T g`, the integral of its squared second derivative.
-    """
-    h = np.diff(t)
-    Qd = np.vstack([1 / h[:-1], -1 / h[:-1] - 1 / h[1:], 1 / h[1:]])
-    R = np.zeros((2, len(t) - 2))
-    R[1] = (h[:-1] + h[1:]) / 3
-    R[0, 1:] = h[1:-1] / 6
-    return Qd, R
-
-
 @dataclass
 class SplineTerm(Term):
     """
     A cubic smoothing spline in the column: the term `s(column, df=4)` (or
-    `s(column, lam=...)`). Its knots are the distinct values of the column, so
-    it is the natural cubic spline minimizing the weighted residual sum of
-    squares plus `lam` times the integral of its squared second derivative.
+    `s(column, lam=...)`), the natural cubic spline minimizing the weighted
+    residual sum of squares plus `lam` times the integral of its squared
+    second derivative. Its knots are those of R's `gam::s` (and
+    `smooth.spline`): all the distinct values of the column when there are
+    fewer than 50, otherwise `.nknots.smspl` of them (about 200), evenly
+    spaced among the sorted distinct values.
 
     With `lam` the smoothing parameter is fixed. With `df` (the default, 4)
     it is chosen, at every working problem's weights, so that the smoother's
     trace less 1 (for the constant) is `df`, as R's `gam::s`; the term then has
     no fixed objective. `lam` is on the scale of the GAM's objective, the
     deviance over twice the sum of the weights, plus `lam / 2` times the
-    integral. (R's `mgcv`, with `bs='cr'` and these knots, fits the same
-    spline with `sp = lam * sum(weights) * smooth$S.scale`, as it rescales
-    its penalties.)
+    integral. (R's `mgcv`, with `bs='cr'` and the knots at the distinct
+    values, fits the same spline with `sp = lam * sum(weights) *
+    smooth$S.scale`, as it rescales its penalties.)
     """
     df: Optional[float] = None
     lam: Optional[float] = None
@@ -200,14 +196,13 @@ class SplineTerm(Term):
     def setup(self, x):
         ss = _scatter_smooth()
         self.x_ = np.asarray(x, float)
-        self.knots_, self._inverse = np.unique(self.x_, return_inverse=True)
-        if len(self.knots_) < 4:
+        if len(np.unique(self.x_)) < 4:
             raise ValueError(f'{self.name}: a smoothing spline needs at least 4 distinct values')
+        self._smoother = ss.SplineSmoother(self.x_, lamval=self.lam or 0.)
+        self.knots_ = np.asarray(self._smoother.knots)
         if self.df is not None and not 1 < self.df < len(self.knots_) - 1:
             raise ValueError(f'{self.name}: df should be in (1, {len(self.knots_) - 1})')
-        self._smoother = ss.SplineSmoother(self.x_, lamval=self.lam or 0.,
-                                           engine='reinsch')
-        self._Q, self._R = _reinsch_QR(self.knots_)
+        self._coef = None
         return self
 
     def set_weights(self, w):
@@ -220,39 +215,35 @@ class SplineTerm(Term):
         self._smoother.lamval = self.lam_
 
     def smooth(self, r):
-        self._smoother.smooth(r)
-        return self._smoother.predict(self.x_)
+        f = self._smoother.smooth(r)
+        center = f.mean()
+        # a constant added to the coefficients adds it to the spline
+        self._coef = self._smoother.spline_coef_ - center
+        return f - center
 
-    def _values_at_knots(self, f):
-        g = np.empty(len(self.knots_))
-        g[self._inverse] = f
-        return g
+    def coef(self):
+        return self._coef
 
-    def roughness(self, f):
-        """The integral of the squared second derivative of the spline with values `f`."""
-        g = self._values_at_knots(f)
-        Q = self._Q
-        Qg = Q[0] * g[:-2] + Q[1] * g[1:-1] + Q[2] * g[2:]
-        return float(Qg @ solveh_banded(self._R, Qg))
+    def roughness(self, coef):
+        """The integral of the squared second derivative of the spline with coefficients `coef`."""
+        return self._smoother.roughness(coef)
 
-    def penalty(self, f):
-        if self.lam is None:
+    def penalty(self, f, coef=None):
+        if self.lam is None or coef is None:     # no coefficients: the zero function
             return 0.
-        return self.lam * self.roughness(f) / 2
+        return self.lam * self.roughness(coef) / 2
 
     def edf(self):
         return self._smoother.compute_df(self.lam_) - 1
 
-    def finalize(self, f, r):
-        # the fit is a natural cubic spline with these knots: interpolating its
-        # values at the knots recovers it
-        ss = _scatter_smooth()
-        self._interpolant = ss.SplineSmoother(self.knots_, lamval=0., engine='reinsch')
-        self._interpolant.smooth(self._values_at_knots(f))
+    def finalize(self, f, r, coef=None):
+        if coef is None:
+            coef = np.zeros_like(self._smoother.spline_coef_)
+        self._smoother.set_spline_coef(coef)
         return self
 
     def predict(self, x):
-        return self._interpolant.predict(np.asarray(x, float))
+        return self._smoother.predict(np.asarray(x, float))
 
 
 @dataclass
@@ -293,7 +284,7 @@ class LoessTerm(Term):
             trace += self.smooth(e)[i]
         return trace - 1
 
-    def finalize(self, f, r):
+    def finalize(self, f, r, coef=None):
         self._smoother.smooth(r)
         self.center_ = self._smoother.predict(self.x_).mean()
         return self

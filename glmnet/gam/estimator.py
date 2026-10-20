@@ -210,9 +210,11 @@ class GAM(BaseEstimator):
         # the terms at the weights of the final working problem
         z, w = family.get_response_and_weights(state, response, offset, normed_weight)
         total = state.fits.sum(1)
+        coefs = state.coefs if state.coefs is not None else [None] * len(self.terms_)
         for j, term in enumerate(self.terms_):
             term.set_weights(w)
-            term.finalize(state.fits[:, j], z - state.intercept - (total - state.fits[:, j]))
+            term.finalize(state.fits[:, j], z - state.intercept - (total - state.fits[:, j]),
+                          coefs[j])
 
         names = [term.name for term in self.terms_]
         self.state_ = state

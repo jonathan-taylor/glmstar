@@ -29,11 +29,15 @@ class GAMState(object):
         Objective function value.
     pmin : float, default=1e-9
         Minimum probability for binomial family.
+    coefs : list, optional
+        Coefficients of the terms (`Term.coef()`, linear in their fits), one
+        entry per term; None for a term without them, or whose fit is 0.
     """
     fits: np.ndarray
     intercept: float
     obj_val: float = np.inf
     pmin: float = 1e-9
+    coefs: Optional[list] = None
 
     def update(self,
                design,                    # ignored: the fits are at the training rows
@@ -100,7 +104,9 @@ class GAMRegularizer(object):
 
     def half_step(self, state, oldstate):
         return GAMState(0.5 * (oldstate.fits + state.fits),
-                        0.5 * (oldstate.intercept + state.intercept))
+                        0.5 * (oldstate.intercept + state.intercept),
+                        coefs=[_average(c_old, c) for c_old, c in zip(_coefs(oldstate, self.terms),
+                                                                      _coefs(state, self.terms))])
 
     def _debug_msg(self, state):
         return f'Intercept: {state.intercept}, Objective: {state.obj_val}'
@@ -134,6 +140,7 @@ class GAMRegularizer(object):
 
         sw = w.sum()
         fits = np.array(cur_state.fits, float)
+        coefs = list(_coefs(cur_state, self.terms))
         total = fits.sum(1)
         intercept = (w * (z - total)).sum() / sw
 
@@ -142,7 +149,10 @@ class GAMRegularizer(object):
             for j, term in enumerate(self.terms):
                 partial = z - intercept - (total - fits[:, j])
                 f = term.smooth(partial)
-                f = f - f.mean()
+                center = f.mean()
+                f = f - center
+                coef = term.coef()
+                coefs[j] = None if coef is None else coef - center
                 total += f - fits[:, j]
                 fits[:, j] = f
                 intercept = (w * (z - total)).sum() / sw
@@ -154,11 +164,26 @@ class GAMRegularizer(object):
                           f'sweeps (relative change {change:.2g}); increase bf_maxit')
 
         self.n_sweeps_ = sweep + 1
-        self.warm_state = GAMState(fits, intercept)
+        self.warm_state = GAMState(fits, intercept, coefs=coefs)
         return self.warm_state
 
     def objective(self, state):
-        value = sum(term.penalty(state.fits[:, j]) for j, term in enumerate(self.terms))
+        coefs = _coefs(state, self.terms)
+        value = sum(term.penalty(state.fits[:, j], coef)
+                    for j, (term, coef) in enumerate(zip(self.terms, coefs)))
         if self.linear_term is not None:
             value += np.asarray(self.linear_term) @ state.linear_predictor
         return value
+
+
+def _coefs(state, terms):
+    return state.coefs if state.coefs is not None else [None] * len(terms)
+
+
+def _average(a, b):
+    # None stands for the coefficients of the zero function
+    if a is None and b is None:
+        return None
+    a = np.zeros_like(b) if a is None else a
+    b = np.zeros_like(a) if b is None else b
+    return 0.5 * (a + b)

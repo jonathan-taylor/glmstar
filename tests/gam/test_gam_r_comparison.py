@@ -108,3 +108,31 @@ def test_fixed_df_gam(Rinfo, data, family):
     # R's nl.df leaves out the linear part
     np.testing.assert_allclose(G.edf_.iloc[:2] - 1, np.asarray(rpy.r('g$nl.df')), atol=1e-3)
     np.testing.assert_allclose(G.df_resid_, rpy.r('g$df.residual')[0], atol=1e-3)
+
+
+@pytest.mark.parametrize('family', ['gaussian', 'binomial'])
+def test_many_distinct_values_gam(Rinfo, family):
+    # 50 or more distinct values: R's gam (as smooth.spline) thins the knots
+    # (.nknots.smspl, about 190 here) and so does scatter_smooth. gam rounds x
+    # to 6 significant digits, so the data are rounded to 5 decimals.
+    rng = np.random.default_rng(2)
+    n = 3000
+    D = pd.DataFrame({'a': np.round(rng.uniform(0, 1, n), 5),
+                      'b': np.round(rng.uniform(-2, 2, n), 4),
+                      'c': rng.choice(list('xyz'), n)})
+    eta = np.sin(2 * np.pi * D['a']) + 0.25 * D['b']**2 + D['c'].map({'x': 0, 'y': .5, 'z': -.5})
+    D['y'] = eta + 0.5 * rng.standard_normal(n)
+    D['yb'] = rng.binomial(1, 1 / (1 + np.exp(-eta)))
+    rpy = _R(Rinfo, D, 'gam')
+    klass, yname = FAMILIES[family]
+    G = GAM(terms=[s('a', df=4), s('b', df=3), factor('c')], family=klass(),
+            control=GAMControl(epsnr=1e-10, mxitnr=100)).fit(D, D[yname])
+    assert len(G.terms_[0].knots_) < 200
+    rpy.r('suppressPackageStartupMessages(library(gam))')
+    rpy.r(f"""g <- gam::gam({yname} ~ s(a, df=4) + s(b, df=3) + c, data=D, family={family},
+               control=gam::gam.control(epsilon=1e-12, bf.epsilon=1e-12,
+                                        maxit=100, bf.maxit=200))""")
+    eta_R = np.asarray(rpy.r('g$additive.predictors'))
+    np.testing.assert_allclose(G.state_.linear_predictor, eta_R, rtol=1e-3, atol=1e-4)
+    np.testing.assert_allclose(G.deviance_, rpy.r('deviance(g)')[0], rtol=1e-5)
+    np.testing.assert_allclose(G.edf_.iloc[:2] - 1, np.asarray(rpy.r('g$nl.df')), atol=1e-3)

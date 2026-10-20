@@ -105,6 +105,32 @@ def test_objective_decreases_and_converges(data):
     assert 1 < G.edf_['lo(b)'] < 10
 
 
+def test_many_distinct_values():
+    # continuous x: the knots are thinned (as R's gam), df is matched, the
+    # fixed-lam objective is that of the spline, and predict reproduces the fit
+    rng = np.random.default_rng(3)
+    n = 20000
+    D = pd.DataFrame({'a': rng.uniform(0, 1, n), 'b': rng.uniform(-2, 2, n)})
+    D['yb'] = rng.binomial(1, 1 / (1 + np.exp(-np.sin(2 * np.pi * D['a']) - 0.4 * D['b'])))
+    # (df terms move lam with the weights, by about 1e-11 relative at the
+    # root of the df match: eta converges to about 1e-11)
+    G = GAM(terms=[s('a', df=5), s('b', lam=1e-3)], family=sm.families.Binomial(),
+            control=GAMControl(epsnr=1e-10, mxitnr=100)).fit(D, D['yb'])
+    assert G.n_iter_ < 20
+    assert len(G.terms_[0].knots_) < 250
+    np.testing.assert_allclose(G.edf_['s(a)'], 5, rtol=1e-6)
+    np.testing.assert_allclose(G.predict(D, 'link'), G.state_.linear_predictor,
+                               rtol=1e-8, atol=1e-10)
+    # the objective: deviance / (2 sum w) + lam / 2 * int f''^2, with the
+    # integral from the second derivative of the fitted spline
+    term = G.terms_[1]
+    t = term.knots_
+    d2 = term._smoother.predict(t, deriv=2)
+    h = np.diff(t)
+    rough = np.sum(h / 3 * (d2[:-1]**2 + d2[:-1] * d2[1:] + d2[1:]**2))
+    np.testing.assert_allclose(G.regularizer_.objective(G.state_), 1e-3 / 2 * rough, rtol=1e-6)
+
+
 def test_ndarray_and_integer_columns(data):
     X = data[['a', 'b']].to_numpy()
     G = GAM(terms=[s(0, lam=1e-4), s(1, df=3)]).fit(X, data['y'].to_numpy())
