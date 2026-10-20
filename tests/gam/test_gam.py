@@ -146,3 +146,71 @@ def test_errors(data):
         GAM(terms=[s('a')]).fit(pd.DataFrame({'a': [0., 1, 2] * 5}), np.arange(15.))
     with pytest.raises(ValueError, match='at least one term'):
         GAM().fit(data, data['y'])
+
+
+def _correlated(rho, n=3000, seed=4):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0, 1, n)
+    b = rho * a + np.sqrt(1 - rho**2) * rng.uniform(0, 1, n)
+    eta = np.sin(2 * np.pi * a) + b
+    D = pd.DataFrame(dict(a=a, b=b, c=rng.choice(list('xyz'), n)))
+    D['y'] = eta + 0.5 * rng.standard_normal(n)
+    D['yb'] = rng.binomial(1, 1 / (1 + np.exp(-eta)))
+    return D
+
+
+@pytest.mark.parametrize('family, y', [(sm.families.Gaussian, 'y'), (sm.families.Binomial, 'yb')])
+@pytest.mark.parametrize('terms', [lambda: [s('a', df=4), s('b', df=4), factor('c')],
+                                   lambda: [s('a', lam=1e-4), linear('b'), factor('c')],
+                                   lambda: [lo('a'), s('b', df=3), factor('c')]])
+def test_modified_backfitting_same_fit(family, y, terms):
+    # modified and plain backfitting have the same fixed point (n small: a
+    # loess term's df smooths one unit vector per observation)
+    D = _correlated(0.5, n=400)
+    fits = [GAM(terms=terms(), family=family(),
+                control=GAMControl(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000,
+                                   bf_modified=modified)).fit(D, D[y])
+            for modified in (False, True)]
+    np.testing.assert_allclose(fits[1].state_.linear_predictor, fits[0].state_.linear_predictor,
+                               rtol=1e-7, atol=1e-8)
+    for G in fits:
+        np.testing.assert_allclose(G.predict(D, 'link'), G.state_.linear_predictor,
+                                   rtol=1e-8, atol=1e-9)
+
+
+def test_modified_backfitting_concurvity():
+    # nearly collinear predictors: plain backfitting crawls (here it doesn't
+    # converge in 300 sweeps), modified backfitting converges quickly
+    D = _correlated(0.999)
+    terms = [s('a', df=4), s('b', df=4), factor('c')]
+    control = dict(bf_tol=1e-10, bf_maxit=300)
+    with pytest.warns(UserWarning, match='did not converge'):
+        GAM(terms=terms, control=GAMControl(bf_modified=False, **control)).fit(D, D['y'])
+    G = GAM(terms=terms, control=GAMControl(**control)).fit(D, D['y'])
+    assert G.regularizer_.n_sweeps_ < 300
+
+
+def test_modified_backfitting_collinear_terms():
+    # s(a) and linear(a) share their linear part: the split between them is
+    # not identified (minimum norm), but the fit is, and it converges
+    D = _correlated(0.)
+    G = GAM(terms=[s('a', df=4), linear('a'), s('b', df=3)],
+            control=GAMControl(bf_tol=1e-10)).fit(D, D['y'])
+    assert G.regularizer_.n_sweeps_ < 20
+    G0 = GAM(terms=[s('a', df=4), s('b', df=3)], control=GAMControl(bf_tol=1e-10)).fit(D, D['y'])
+    np.testing.assert_allclose(G.state_.linear_predictor, G0.state_.linear_predictor,
+                               rtol=1e-7, atol=1e-8)
+
+
+def test_modified_backfitting_many_levels():
+    # a factor with more than max_joint_levels levels is backfitted
+    rng = np.random.default_rng(5)
+    n = 3000
+    D = pd.DataFrame(dict(a=rng.uniform(0, 1, n), g=rng.integers(0, 80, n)))
+    D['y'] = np.sin(2 * np.pi * D['a']) + 0.01 * D['g'] + 0.5 * rng.standard_normal(n)
+    assert factor('g').setup(D['g']).linear_columns() is None
+    fits = [GAM(terms=[s('a', df=4), factor('g')],
+                control=GAMControl(bf_tol=1e-13, bf_maxit=5000, bf_modified=m)).fit(D, D['y'])
+            for m in (False, True)]
+    np.testing.assert_allclose(fits[1].state_.linear_predictor, fits[0].state_.linear_predictor,
+                               rtol=1e-8, atol=1e-9)

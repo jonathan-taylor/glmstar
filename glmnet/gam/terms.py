@@ -14,6 +14,15 @@ keeps them with the fits, so that IRLS can average them when it halves a step.
 After the fit, `finalize` gives the term its final fit (and coefficients),
 from which it predicts at new values (`predict`).
 
+For modified backfitting (Buja, Hastie & Tibshirani, 1989) a term also gives
+the columns of the functions its smoother reproduces, other than the
+constant (`linear_columns()`: `x` for a spline or a linear term; the
+indicators for a factor), which are fitted jointly with those of the other
+terms, and smooths only the rest (`smooth_nonlinear`). A term that is itself a
+projection on its columns (linear, factor) is not smoothed then. This needs a
+symmetric smoother (in the weighted inner product), for which it has the same
+fixed point as plain backfitting; loess is not, and gives no columns.
+
 `penalty(f, coef)` is the term's contribution to the objective, so that local
 scoring can check that its steps decrease it. A term whose smoothing does not
 minimize a fixed objective (loess, or a spline fitted to a fixed `df` whose
@@ -65,6 +74,33 @@ class Term(object):
         """Coefficients of the last smooth, centered as its fit (None: the term has none)."""
         return None
 
+    def linear_columns(self):
+        """
+        Columns (at the training rows, without the constant) of the functions
+        the term's smoother reproduces, for modified backfitting; None if none.
+        """
+        return None
+
+    @property
+    def nonlinear(self):
+        """Whether the term has a part beyond its `linear_columns` (to backfit)."""
+        return True
+
+    def smooth_nonlinear(self, r):
+        """
+        The smooth of `r` less its weighted least squares fit on the constant
+        and `linear_columns()`: the smoother's part beyond them.
+        """
+        f = self.smooth(r)
+        return f - _weighted_fit(self.linear_columns(), f, self.w_)
+
+    def combine_coef(self, beta, center):
+        """
+        The coefficients of the fit `linear_columns() @ beta` plus the last
+        `smooth_nonlinear`, less `center` (None: the term has none).
+        """
+        return None
+
     def penalty(self, f, coef=None):
         """The term's penalty at its fit `f` (at the training rows), with coefficients `coef`."""
         return 0.
@@ -84,6 +120,18 @@ class Term(object):
     def predict(self, x):
         """The fitted function at `x`."""
         raise NotImplementedError
+
+
+def _weighted_fit(X, r, w):
+    """The weighted least squares fit of `r` on the constant and the columns `X` (or None)."""
+    sw = w.sum()
+    rbar = (w * r).sum() / sw
+    if X is None:
+        return np.full_like(r, rbar)
+    Xc = X - (w[:, None] * X).sum(0) / sw
+    sq = np.sqrt(w)
+    beta = np.linalg.lstsq(sq[:, None] * Xc, sq * (r - rbar), rcond=None)[0]
+    return rbar + Xc @ beta
 
 
 def _weighted_ls(x, r, w):
@@ -111,6 +159,11 @@ class SlopeTerm(Term):
         _, slope = _weighted_ls(self.x_, r, self.w_)
         return slope * (self.x_ - self.center_)
 
+    def linear_columns(self):
+        return (self.x_ - self.center_)[:, None]
+
+    nonlinear = False
+
     def edf(self):
         return 1.
 
@@ -126,14 +179,27 @@ class SlopeTerm(Term):
 class FactorTerm(Term):
     """
     A categorical column, one effect per level: the term `factor(column)`.
-    Levels not seen in fitting predict 0.
+    Levels not seen in fitting predict 0. In modified backfitting its
+    indicators are fitted jointly with the other terms' linear columns when it
+    has at most `max_joint_levels` levels; otherwise it is backfitted.
     """
 
     _label = 'factor'
+    max_joint_levels = 50
 
     def setup(self, x):
         self.levels_, self.codes_ = np.unique(np.asarray(x), return_inverse=True)
         return self
+
+    def linear_columns(self):
+        nl = len(self.levels_)
+        if not 1 < nl <= self.max_joint_levels:
+            return None
+        return (self.codes_[:, None] == np.arange(1, nl)[None, :]).astype(float)
+
+    @property
+    def nonlinear(self):
+        return self.linear_columns() is None
 
     def smooth(self, r):
         nl = len(self.levels_)
@@ -202,7 +268,11 @@ class SplineTerm(Term):
         self.knots_ = np.asarray(self._smoother.knots)
         if self.df is not None and not 1 < self.df < len(self.knots_) - 1:
             raise ValueError(f'{self.name}: df should be in (1, {len(self.knots_) - 1})')
-        self._coef = None
+        self.center_ = self.x_.mean()
+        # the coefficients of the function x: the spline reproduces it
+        self._smoother.smooth(self.x_)
+        self._x_coef = self._smoother.spline_coef_.copy()
+        self._coef = self._nl_coef = None
         return self
 
     def set_weights(self, w):
@@ -223,6 +293,19 @@ class SplineTerm(Term):
 
     def coef(self):
         return self._coef
+
+    def linear_columns(self):
+        return (self.x_ - self.center_)[:, None]
+
+    def smooth_nonlinear(self, r):
+        S = self._smoother
+        f = S.smooth(r)
+        # the weighted least squares line through the fit
+        self._nl_coef = S.spline_coef_ - S.coef_ * self._x_coef - S.intercept_
+        return f - (S.coef_ * self.x_ + S.intercept_)
+
+    def combine_coef(self, beta, center):
+        return beta[0] * (self._x_coef - self.center_) + self._nl_coef - center
 
     def roughness(self, coef):
         """The integral of the squared second derivative of the spline with coefficients `coef`."""
@@ -274,6 +357,10 @@ class LoessTerm(Term):
         self._smoother.smooth(r)
         return self._smoother.predict(self.x_)
 
+    # no linear_columns: loess is not a symmetric smoother, so splitting off
+    # its linear part would change the fit (a single lo() term would no
+    # longer give the loess smooth); it is backfitted whole
+
     def edf(self):
         # the trace of the smoother, by smoothing the unit vectors
         n = self.x_.shape[0]
@@ -285,12 +372,19 @@ class LoessTerm(Term):
         return trace - 1
 
     def finalize(self, f, r, coef=None):
+        # the fit is the smooth of r plus a function the smoother reproduces:
+        # a constant (backfitting), or a line (modified backfitting)
         self._smoother.smooth(r)
-        self.center_ = self._smoother.predict(self.x_).mean()
+        d = f - self._smoother.predict(self.x_)
+        if self.degree < 1:
+            self.line_ = (d.mean(), 0.)
+        else:
+            self.line_ = _weighted_ls(self.x_, d, np.ones_like(d))
         return self
 
     def predict(self, x):
-        return self._smoother.predict(np.asarray(x, float)) - self.center_
+        x = np.asarray(x, float)
+        return self._smoother.predict(x) + self.line_[0] + self.line_[1] * x
 
 
 def s(column, df=None, lam=None):

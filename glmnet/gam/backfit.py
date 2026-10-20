@@ -11,6 +11,7 @@ import numpy as np
 from statsmodels.genmod.families import family as sm_family
 
 from glmnet.family import GLMState
+from .terms import _weighted_fit
 
 
 @dataclass
@@ -73,6 +74,15 @@ class GAMRegularizer(object):
     The penalties of the terms of a GAM, and its Newton step: weighted
     backfitting of the terms to the working response.
 
+    With `modified=True` (the default, as R's `gam`) backfitting is modified
+    (Buja, Hastie & Tibshirani, 1989): each sweep fits the constant and the
+    terms' linear columns (the linear terms, the factors' indicators and the
+    linear parts of the splines) jointly, by weighted least squares, then
+    backfits only the splines' parts beyond them (and loess terms whole). It
+    has the same fixed point as plain backfitting, as the splines are
+    symmetric smoothers; the linear parts are not left to converge term by
+    term, which is slow, or never, when the predictors are (nearly) collinear.
+
     The objective is the deviance over twice the sum of the weights, plus the
     terms' penalties, plus the linear term `linear_term @ eta` (`eta` the
     linear predictor, without the offset). For the working problem of IRLS,
@@ -90,11 +100,14 @@ class GAMRegularizer(object):
     bf_tol : float
         Backfitting stops when the change in the fits, relative to
         `0.1 + |fits|` (Frobenius norms), is below `bf_tol`.
+    modified : bool
+        Modified backfitting (the default) or plain backfitting.
     """
     terms: list
     linear_term: Optional[np.ndarray] = None
     bf_maxit: int = 500
     bf_tol: float = 1e-10
+    modified: bool = True
     fit_intercept: bool = True
     warm_state: dict = field(default_factory=dict)
 
@@ -138,9 +151,23 @@ class GAMRegularizer(object):
         for term in self.terms:
             term.set_weights(w)
 
-        sw = w.sum()
         fits = np.array(cur_state.fits, float)
         coefs = list(_coefs(cur_state, self.terms))
+        if self.modified:
+            fits, intercept, coefs, sweep, change = self._modified_backfit(z, w, fits, coefs)
+        else:
+            fits, intercept, coefs, sweep, change = self._backfit(z, w, fits, coefs)
+        if change >= self.bf_tol:
+            warnings.warn(f'GAM backfitting: the fits did not converge in {self.bf_maxit} '
+                          f'sweeps (relative change {change:.2g}); increase bf_maxit')
+
+        self.n_sweeps_ = sweep + 1
+        self.warm_state = GAMState(fits, intercept, coefs=coefs)
+        return self.warm_state
+
+    def _backfit(self, z, w, fits, coefs):
+        """Plain (Gauss-Seidel) backfitting."""
+        sw = w.sum()
         total = fits.sum(1)
         intercept = (w * (z - total)).sum() / sw
 
@@ -159,13 +186,69 @@ class GAMRegularizer(object):
             change = np.linalg.norm(fits - old) / (0.1 + np.linalg.norm(fits))
             if change < self.bf_tol:
                 break
-        else:
-            warnings.warn(f'GAM backfitting: the fits did not converge in {self.bf_maxit} '
-                          f'sweeps (relative change {change:.2g}); increase bf_maxit')
+        return fits, intercept, coefs, sweep, change
 
-        self.n_sweeps_ = sweep + 1
-        self.warm_state = GAMState(fits, intercept, coefs=coefs)
-        return self.warm_state
+    def _modified_backfit(self, z, w, fits, coefs):
+        """
+        Modified backfitting: the constant and the terms' linear columns
+        jointly by weighted least squares, then the smooths' other parts.
+        """
+        n, terms = z.shape[0], self.terms
+        columns, slices, start = [np.ones((n, 1))], [], 1
+        for term in terms:
+            X_j = term.linear_columns()
+            if X_j is None:
+                slices.append(None)
+            else:
+                columns.append(X_j)
+                slices.append(slice(start, start + X_j.shape[1]))
+                start += X_j.shape[1]
+        X = np.hstack(columns)
+
+        # the weighted least squares projection on the columns of X (of
+        # minimum norm if they are collinear)
+        sq = np.sqrt(w)
+        U, d, Vt = np.linalg.svd(sq[:, None] * X, full_matrices=False)
+        keep = d > d[0] * 1e-10
+        U, d, Vt = U[:, keep], d[keep], Vt[keep]
+
+        def project(r):
+            return Vt.T @ ((U.T @ (sq * r)) / d)
+
+        smooths = [j for j, term in enumerate(terms) if term.nonlinear]
+        # the parts beyond the linear columns, from the current fits
+        nonlin = np.zeros_like(fits)
+        for j in smooths:
+            X_j = None if slices[j] is None else X[:, slices[j]]
+            nonlin[:, j] = fits[:, j] - _weighted_fit(X_j, fits[:, j], w)
+        nonlin_total = nonlin.sum(1)
+        beta = project(z - nonlin_total)
+
+        for sweep in range(self.bf_maxit):
+            old = fits.copy()
+            linear = X @ beta
+            for j in smooths:
+                partial = z - linear - (nonlin_total - nonlin[:, j])
+                f = terms[j].smooth_nonlinear(partial)
+                nonlin_total += f - nonlin[:, j]
+                nonlin[:, j] = f
+            beta = project(z - nonlin_total)
+
+            intercept = beta[0]
+            for j, term in enumerate(terms):
+                f = nonlin[:, j].copy()
+                beta_j = None if slices[j] is None else beta[slices[j]]
+                if beta_j is not None:
+                    f += X[:, slices[j]] @ beta_j
+                center = f.mean()
+                fits[:, j] = f - center
+                intercept += center
+                coefs[j] = term.combine_coef(beta_j if beta_j is not None else np.zeros(0),
+                                             center)
+            change = np.linalg.norm(fits - old) / (0.1 + np.linalg.norm(fits))
+            if change < self.bf_tol:
+                break
+        return fits, intercept, coefs, sweep, change
 
     def objective(self, state):
         coefs = _coefs(state, self.terms)

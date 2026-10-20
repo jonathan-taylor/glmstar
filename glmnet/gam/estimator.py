@@ -31,9 +31,14 @@ class GAMControl(GLMControl):
     bf_tol: float
         Backfitting stops when the change in the fits of the terms, relative
         to `0.1 + |fits|` (Frobenius norms), is below `bf_tol`.
+    bf_modified: bool
+        Modified backfitting (the default, as R's `gam`): each sweep fits the
+        linear parts of all the terms jointly, then backfits the smooths'
+        nonlinear parts. False: plain backfitting.
     """
     bf_maxit: int = 500
     bf_tol: float = 1e-10
+    bf_modified: bool = True
 
 
 @dataclass
@@ -174,7 +179,8 @@ class GAM(BaseEstimator):
         regularizer = self.regularizer_ = GAMRegularizer(terms=self.terms_,
                                                          linear_term=linear_term,
                                                          bf_maxit=self.control.bf_maxit,
-                                                         bf_tol=self.control.bf_tol)
+                                                         bf_tol=self.control.bf_tol,
+                                                         modified=self.control.bf_modified)
 
         null_state, null_deviance = family.get_null_deviance(response=response,
                                                              sample_weight=normed_weight,
@@ -210,9 +216,13 @@ class GAM(BaseEstimator):
         # the terms at the weights of the final working problem
         z, w = family.get_response_and_weights(state, response, offset, normed_weight)
         total = state.fits.sum(1)
+        # (the df first: a loess term's df smooths unit vectors, which would
+        # overwrite its final fit)
         coefs = state.coefs if state.coefs is not None else [None] * len(self.terms_)
+        edf = []
         for j, term in enumerate(self.terms_):
             term.set_weights(w)
+            edf.append(term.edf())
             term.finalize(state.fits[:, j], z - state.intercept - (total - state.fits[:, j]),
                           coefs[j])
 
@@ -220,7 +230,7 @@ class GAM(BaseEstimator):
         self.state_ = state
         self.intercept_ = state.intercept
         self.fits_ = self._on_train_index_frame(state.fits, names)
-        self.edf_ = pd.Series([term.edf() for term in self.terms_], index=names, name='edf')
+        self.edf_ = pd.Series(edf, index=names, name='edf')
 
         self.deviance_ = weight_total * family.deviance(response, state.mu, normed_weight)
         self.df_resid_ = float(np.sum(weight > 0) - 1 - self.edf_.sum())
