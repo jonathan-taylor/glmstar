@@ -9,7 +9,7 @@ import pytest
 import statsmodels.api as sm
 
 from glmnet import GLM
-from glmnet.glm import anova
+from glmnet.glm import anova, leverage, residuals
 from glmnet.cox import CoxLM, CoxFamilySpec
 from glmnet.glm import GLMControl
 
@@ -56,14 +56,14 @@ fr <- coxph(Surv(event, status) ~ x0 + x1 + x2, weights=w, ties="{ties}", robust
     np.testing.assert_allclose(fit.summary_['std err'].values, get('sqrt(diag(vcov(f)))'), rtol=1e-6)
     np.testing.assert_allclose(fit.loglike_, get('f$loglik[2]')[0], rtol=1e-10)
     np.testing.assert_allclose(fit.aic_, get('AIC(f)')[0], rtol=1e-10)
-    np.testing.assert_allclose(fit.residuals(), get('residuals(f, "martingale")'), atol=1e-5)
-    np.testing.assert_allclose(fit.residuals('deviance'), get('residuals(f, "deviance")'), atol=1e-5)
+    np.testing.assert_allclose(residuals(fit), get('residuals(f, "martingale")'), atol=1e-5)
+    np.testing.assert_allclose(residuals(fit, 'deviance'), get('residuals(f, "deviance")'), atol=1e-5)
     table = anova(small, fit)
     np.testing.assert_allclose(table['chi2'].iloc[1], get('a[2, "Chisq"]')[0], rtol=1e-6)
     np.testing.assert_allclose(table['P(>chi2)'].iloc[1], get('a[2, "Pr(>|Chi|)"]')[0], rtol=1e-5)
     np.testing.assert_allclose(robust.covariance_, get('vcov(fr)').reshape(3, 3), rtol=1e-5)
     # the generalized leverage has trace p
-    np.testing.assert_allclose(fit.leverage(X).sum(), 3)
+    np.testing.assert_allclose(leverage(fit, X).sum(), 3)
 
 
 @pytest.mark.parametrize('name', ['gaussian', 'probit', 'poisson'])
@@ -91,9 +91,9 @@ f1 <- glm(y ~ x0, family={Rfamily}, weights=w, control=glm.control(epsilon=1e-14
 a <- anova(f1, f, test="Chisq")}})''')
     get = lambda expr: np.asarray(rpy.r(expr), float)
 
-    np.testing.assert_allclose(fit.leverage(X), get('hatvalues(f)'), rtol=1e-6)
+    np.testing.assert_allclose(leverage(fit, X), get('hatvalues(f)'), rtol=1e-6)
     table = anova(small, fit)
     np.testing.assert_allclose(table['dev_diff'].iloc[1], get('a[2, "Deviance"]')[0], rtol=1e-6)
     np.testing.assert_allclose(table['P(>chi2)'].iloc[1], get('a[2, "Pr(>Chi)"]')[0], rtol=1e-5)
-    np.testing.assert_allclose(fit.residuals('pearson'), get('residuals(f, "pearson")'), rtol=1e-6, atol=1e-8)
-    np.testing.assert_allclose(fit.residuals('deviance'), get('residuals(f, "deviance")'), rtol=1e-6, atol=1e-8)
+    np.testing.assert_allclose(residuals(fit, 'pearson'), get('residuals(f, "pearson")'), rtol=1e-6, atol=1e-8)
+    np.testing.assert_allclose(residuals(fit, 'deviance'), get('residuals(f, "deviance")'), rtol=1e-6, atol=1e-8)

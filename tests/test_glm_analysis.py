@@ -14,7 +14,7 @@ from scipy.stats import chi2
 
 from glmnet import GLM
 from glmnet.glm import (GLMControl, BinomialGLM, anova, confidence_interval,
-                        prediction_interval)
+                        leverage, prediction_interval, residuals)
 
 TIGHT = GLMControl(epsnr=1e-12, mxitnr=100)
 rng = np.random.default_rng(0)
@@ -94,7 +94,7 @@ def test_against_statsmodels(name, case):
     np.testing.assert_allclose(g.predict(X_fit, offset=offset), s.fittedvalues, **tol)
     for kind, expected in [('response', s.resid_response), ('pearson', s.resid_pearson),
                            ('deviance', s.resid_deviance)]:
-        np.testing.assert_allclose(g.residuals(kind), expected, **tol)
+        np.testing.assert_allclose(residuals(g, kind), expected, **tol)
 
     rows = slice(0, 7)
     X_new = X_fit[rows] if not scipy.sparse.issparse(X_fit) else X_fit[[0, 1, 2, 3, 4, 5, 6]]
@@ -108,7 +108,7 @@ def test_against_statsmodels(name, case):
         np.testing.assert_allclose(ci[['lower', 'upper']].values, linear.conf_int(), **tol)
 
     # the expected information, as R's hatvalues (statsmodels defaults to the observed)
-    np.testing.assert_allclose(g.leverage(X_fit), s.get_hat_matrix_diag(observed=False), **tol)
+    np.testing.assert_allclose(leverage(g, X_fit), s.get_hat_matrix_diag(observed=False), **tol)
 
 
 @pytest.mark.parametrize('case', ['plain', 'weights', 'offset', 'exclude', 'sparse'])
@@ -120,7 +120,7 @@ def test_sandwich(name, case):
     np.testing.assert_allclose(g.summary_['std err'].values, s.bse, **tol)
     np.testing.assert_allclose(g.predict_se(X_fit[:5]), s.get_prediction(D[:5], which='linear').se, **tol)
     # the leverage does not change
-    np.testing.assert_allclose(g.leverage(X_fit), s.get_hat_matrix_diag(observed=False), **tol)
+    np.testing.assert_allclose(leverage(g, X_fit), s.get_hat_matrix_diag(observed=False), **tol)
     with pytest.warns(UserWarning, match='sandwich'):
         anova(g, g)
 
@@ -275,14 +275,14 @@ def test_pandas_outputs(sandwich):
 
     # residuals and leverage: on the index of a DataFrame X of the fit, else arrays
     for kind in ['response', 'pearson', 'deviance']:
-        r = g.residuals(kind)
+        r = residuals(g, kind)
         assert isinstance(r, pd.Series) and r.index.equals(index) and r.name == kind
-        assert isinstance(h.residuals(kind), np.ndarray)
-        np.testing.assert_allclose(r, h.residuals(kind))
-    lev = g.leverage(D)
+        assert isinstance(residuals(h, kind), np.ndarray)
+        np.testing.assert_allclose(r, residuals(h, kind))
+    lev = leverage(g, D)
     assert isinstance(lev, pd.Series) and lev.index.equals(index)
-    assert isinstance(h.leverage(X), np.ndarray)
-    np.testing.assert_allclose(lev, h.leverage(X))
+    assert isinstance(leverage(h, X), np.ndarray)
+    np.testing.assert_allclose(lev, leverage(h, X))
 
 
 def test_cox_pandas_outputs():
@@ -299,11 +299,11 @@ def test_cox_pandas_outputs():
         assert isinstance(fit.covariance_, np.ndarray) and fit.covariance_.shape == (4, 4)
     assert list(g.feature_names_) == list('abcd')
     for kind in ['martingale', 'deviance']:
-        r = g.residuals(kind)
+        r = residuals(g, kind)
         assert isinstance(r, pd.Series) and r.index.equals(index)
-        assert isinstance(h.residuals(kind), np.ndarray)
-        np.testing.assert_allclose(r, h.residuals(kind))
-    assert g.leverage(D).index.equals(index) and isinstance(h.leverage(X), np.ndarray)
+        assert isinstance(residuals(h, kind), np.ndarray)
+        np.testing.assert_allclose(r, residuals(h, kind))
+    assert leverage(g, D).index.equals(index) and isinstance(leverage(h, X), np.ndarray)
     assert list(confidence_interval(g, D[:4]).index) == list(index[:4])
     assert isinstance(g.predict_se(D[:4]), pd.Series) and isinstance(h.predict_se(X[:4]), np.ndarray)
 
@@ -324,7 +324,7 @@ def test_feature_names_checked_at_predict():
             with pytest.raises(ValueError, match=match):
                 call(Z)
     with pytest.raises(ValueError, match='feature names should match'):
-        g.leverage(D[['b', 'a', 'c', 'd']])
+        leverage(g, D[['b', 'a', 'c', 'd']])
     # an array where fit had names, and names where fit had none: warnings
     with pytest.warns(UserWarning, match='does not have valid feature names'):
         g.predict(X)
