@@ -623,7 +623,9 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         Returns
         -------
         prediction: np.ndarray
-            Predictions on the mean scale for family of a GLM.
+            Predictions of shape `(n_samples,)`: labels from `classes_` if
+            `prediction_type` is "class", else on the scale of `prediction_type`.
+            An array even if `X` is a DataFrame, as for sklearn's estimators.
         """
         # as BinomialGLM.predict
         eta = self._linear_predictor(X, offset)
