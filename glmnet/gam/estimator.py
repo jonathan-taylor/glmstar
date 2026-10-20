@@ -9,7 +9,7 @@ from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, clone
 
 from glmnet._utils import _get_data, _parent_dataclass_from_child
 from glmnet.family import GLMFamilySpec
@@ -48,8 +48,11 @@ class GAM(BaseEstimator):
     fitted by local scoring: IRLS, each working problem solved by weighted
     backfitting of the terms (Hastie & Tibshirani, 1990).
 
-    The terms (`ISLP.gam.s`, `lo`, `linear`, `factor`) each name a column
-    of `X`. The smoothing of each term is fixed: by its smoothing parameter
+    The model is given either by a ModelSpec (`model_spec`), whose smooth
+    features (`ISLP.gam.s`, `lo`) are smoothed and whose other terms are
+    fitted as one parametric block each, or by a list of terms
+    (`ISLP.gam.s`, `lo`, `linear`, `factor`), each naming a column of `X`.
+    The smoothing of each term is fixed: by its smoothing parameter
     `lam`, or by its degrees of freedom `df` (as R's `gam`). When every term
     has a fixed smoothing parameter (`s(lam=...)`, `linear`, `factor`), the
     fit minimizes
@@ -63,7 +66,7 @@ class GAM(BaseEstimator):
     Parameters
     ----------
     terms: list
-        Terms of the model.
+        Terms of the model (if no `model_spec`).
     family: sm_family.Family
         Family (statsmodels) of the response. Default Gaussian.
     control: GAMControl
@@ -74,11 +77,17 @@ class GAM(BaseEstimator):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    model_spec: ModelSpec
+        The model (instead of `terms`): e.g.
+        `MS([s('year', df=4), s('age', df=5), 'education'])`. It is fitted
+        (a clone) on the `X` of `fit`, and transforms the `X` of `predict`.
 
     Attributes
     ----------
     terms_: list
-        The fitted terms (copies of `terms`).
+        The fitted terms (copies of `terms`, or built from `model_spec`).
+    model_spec_: ModelSpec
+        The fitted clone of `model_spec`, if given.
     intercept_: float
         Intercept: the fits of the terms have mean 0 over the training rows.
     fits_: pd.DataFrame or np.ndarray
@@ -100,15 +109,24 @@ class GAM(BaseEstimator):
     offset_id: Union[str, int] = None
     weight_id: Union[str, int] = None
     response_id: Union[str, int] = None
+    model_spec: object = None
 
     fit_intercept = True
 
-    def _columns(self, X):
+    def _design(self, X):
+        """`X`, or its design from the fitted `model_spec_`."""
+        spec = getattr(self, 'model_spec_', None)
+        return X if spec is None else spec.transform(X)
+
+    @staticmethod
+    def _columns(X, terms):
         """The columns of `X` of the terms."""
         cols = []
-        for term in self.terms:
+        for term in terms:
             if isinstance(X, pd.DataFrame):
-                if isinstance(term.column, str):
+                # a name or a list of names (a ColumnsTerm), else positions
+                labels = term.column if isinstance(term.column, list) else [term.column]
+                if all(isinstance(c, str) for c in labels):
                     cols.append(X[term.column].to_numpy())
                 else:
                     cols.append(X.iloc[:, term.column].to_numpy())
@@ -144,7 +162,18 @@ class GAM(BaseEstimator):
         -------
         self
         """
-        if not self.terms:
+        from .model_spec import as_term, terms_from_spec
+        if self.model_spec is not None:
+            if self.terms:
+                raise ValueError('give one of terms and model_spec')
+            self.model_spec_ = clone(self.model_spec).fit(X)
+            X = self.model_spec_.transform(X)
+            columns = X.columns if isinstance(X, pd.DataFrame) else np.arange(X.shape[1])
+            terms = terms_from_spec(self.model_spec_, columns)
+        else:
+            self.model_spec_ = None
+            terms = [as_term(term) for term in self.terms]
+        if not terms:
             raise ValueError('a GAM needs at least one term')
         if self.control is None:
             self.control = GAMControl()
@@ -169,8 +198,8 @@ class GAM(BaseEstimator):
         normed_weight = weight / weight_total
         self.weight_total_ = weight_total
 
-        self.terms_ = [deepcopy(term).setup(x) for term, x in zip(self.terms,
-                                                                 self._columns(X))]
+        self.terms_ = [deepcopy(term).setup(x) for term, x in zip(terms,
+                                                                 self._columns(X, terms))]
         if linear_term is not None:
             linear_term = np.asarray(linear_term, float).reshape(-1)
             if linear_term.shape != (nobs,):
@@ -257,16 +286,21 @@ class GAM(BaseEstimator):
 
     def partial_effect(self, term, x):
         """
-        The fitted function of a term at `x`: `term` is its index in `terms`
-        or its name (e.g. `'s(age)'`).
+        The fitted function of a term: `term` is its index or its name (e.g.
+        `'s(age, df=5)'`), and `x` its values, or, with a `model_spec`, a
+        DataFrame of the data (whose design gives the term's columns).
         """
         if not isinstance(term, (int, np.integer)):
             term = [t.name for t in self.terms_].index(term)
-        return self.terms_[term].predict(x)
+        term = self.terms_[term]
+        if self.model_spec_ is not None and isinstance(x, pd.DataFrame):
+            x = self._columns(self._design(x), [term])[0]
+        return term.predict(x)
 
     def _linear_predictor(self, X, offset=None):
+        X = self._design(X)
         eta = self.intercept_ + sum(term.predict(x) for term, x in zip(self.terms_,
-                                                                       self._columns(X)))
+                                                                       self._columns(X, self.terms_)))
         if offset is not None:
             eta = eta + offset
         return np.asarray(eta, float)

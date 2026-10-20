@@ -66,13 +66,13 @@ def test_fitted_values_and_partial_effects(data):
     np.testing.assert_allclose(G.predict(data, 'link'), G.state_.linear_predictor,
                                rtol=1e-8, atol=1e-10)
     fits = G.fits_
-    assert list(fits.columns) == ['s(a)', 's(b)', 'factor(c)']
+    assert list(fits.columns) == ['s(a, df=5)', 's(b, lam=0.01)', 'factor(c)']
     np.testing.assert_allclose(fits.mean(axis=0), 0, atol=1e-10)
     for name, column in zip(fits.columns, ['a', 'b', 'c']):
         np.testing.assert_allclose(G.partial_effect(name, data[column]), fits[name],
                                    rtol=1e-8, atol=1e-10)
     # df matched at the final weights
-    np.testing.assert_allclose(G.edf_['s(a)'], 5, rtol=1e-5)
+    np.testing.assert_allclose(G.edf_['s(a, df=5)'], 5, rtol=1e-5)
     assert G.summary().shape == (3, 2)
 
 
@@ -118,7 +118,7 @@ def test_many_distinct_values():
             control=GAMControl(epsnr=1e-10, mxitnr=100)).fit(D, D['yb'])
     assert G.n_iter_ < 20
     assert len(G.terms_[0].knots_) < 250
-    np.testing.assert_allclose(G.edf_['s(a)'], 5, rtol=1e-6)
+    np.testing.assert_allclose(G.edf_['s(a, df=5)'], 5, rtol=1e-6)
     np.testing.assert_allclose(G.predict(D, 'link'), G.state_.linear_predictor,
                                rtol=1e-8, atol=1e-10)
     # the objective: deviance / (2 sum w) + lam / 2 * int f''^2, with the

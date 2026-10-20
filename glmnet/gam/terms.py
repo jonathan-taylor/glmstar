@@ -56,7 +56,8 @@ class Term(object):
 
     @property
     def name(self):
-        return f'{self._label}({self.column})'
+        label = getattr(self, 'label', None)
+        return label if label else f'{self._label}({self.column})'
 
     def setup(self, x):
         """Set the term up on its column `x` of the training data."""
@@ -385,6 +386,47 @@ class LoessTerm(Term):
     def predict(self, x):
         x = np.asarray(x, float)
         return self._smoother.predict(x) + self.line_[0] + self.line_[1] * x
+
+
+@dataclass
+class ColumnsTerm(Term):
+    """
+    A block of columns of `X` (`column` a list of them) entering linearly: a
+    parametric term, as the columns ModelSpec builds for a contrast, a
+    numeric column or a basis (`ns()`, `poly()`). Its fit is the weighted
+    least squares fit on the (centered) columns, and in modified backfitting
+    they are fitted jointly with the other terms' linear parts.
+    """
+    label: Optional[str] = None
+
+    _label = 'columns'
+
+    def setup(self, x):
+        x = np.asarray(x, float)
+        self.X_ = x.reshape((x.shape[0], -1))
+        self.center_ = self.X_.mean(0)
+        return self
+
+    def linear_columns(self):
+        return self.X_ - self.center_
+
+    nonlinear = False
+
+    def smooth(self, r):
+        return _weighted_fit(self.linear_columns(), r, self.w_) - (self.w_ * r).sum() / self.w_.sum()
+
+    def edf(self):
+        Xc = self.linear_columns()[self.w_ > 0]
+        return float(np.linalg.matrix_rank(Xc))
+
+    def finalize(self, f, r, coef=None):
+        self.coef_ = np.linalg.lstsq(self.linear_columns(), f - f.mean(), rcond=None)[0]
+        self.offset_ = f.mean()
+        return self
+
+    def predict(self, x):
+        x = np.asarray(x, float).reshape((np.asarray(x).shape[0], -1))
+        return (x - self.center_) @ self.coef_ + self.offset_
 
 
 def s(column, df=None, lam=None):

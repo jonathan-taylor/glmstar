@@ -87,7 +87,7 @@ def test_fixed_lambda_mgcv(Rinfo, data, family, use_offset):
 
     # the curves, centered as mgcv's (mean 0 over the rows)
     pred = rpy.r('predict(m, type="terms")')
-    np.testing.assert_allclose(G.fits_['s(a)'], np.asarray(pred)[:, 1], rtol=1e-7, atol=1e-8)
+    np.testing.assert_allclose(G.fits_['s(a, lam=0.0001)'], np.asarray(pred)[:, 1], rtol=1e-7, atol=1e-8)
 
 
 @pytest.mark.parametrize('family', list(FAMILIES))
