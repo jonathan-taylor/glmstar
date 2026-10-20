@@ -1,7 +1,7 @@
 """
 The analysis of unpenalized fits against R: `coxph` (coefficients, standard
 errors, partial log-likelihood, AIC, martingale and deviance residuals, anova)
-and `glm` (`hatvalues`, `anova(test="Chisq")`).
+and `glm` (`hatvalues`, `anova(test="Chisq")`, and `test="F"` for the Gaussian).
 """
 import numpy as np
 import pandas as pd
@@ -88,12 +88,32 @@ def test_glm_hatvalues_and_anova(Rinfo, name):
     rpy.r(f'''suppressWarnings({{
 f <- glm(y ~ x0 + x1 + x2, family={Rfamily}, weights=w, control=glm.control(epsilon=1e-14, maxit=100))
 f1 <- glm(y ~ x0, family={Rfamily}, weights=w, control=glm.control(epsilon=1e-14, maxit=100))
-a <- anova(f1, f, test="Chisq")}})''')
+a <- anova(f1, f, test="{'F' if name == 'gaussian' else 'Chisq'}")}})''')
     get = lambda expr: np.asarray(rpy.r(expr), float)
 
     np.testing.assert_allclose(leverage(fit, X), get('hatvalues(f)'), rtol=1e-6)
     table = anova(small, fit)
     np.testing.assert_allclose(table['dev_diff'].iloc[1], get('a[2, "Deviance"]')[0], rtol=1e-6)
-    np.testing.assert_allclose(table['P(>chi2)'].iloc[1], get('a[2, "Pr(>Chi)"]')[0], rtol=1e-5)
+    if name == 'gaussian':
+        # least squares: the F-test, as R's anova(test="F") (and anova.lm)
+        np.testing.assert_allclose(table['F'].iloc[1], get('a[2, "F"]')[0], rtol=1e-6)
+        np.testing.assert_allclose(table['P(>F)'].iloc[1], get('a[2, "Pr(>F)"]')[0], rtol=1e-5)
+    else:
+        np.testing.assert_allclose(table['P(>chi2)'].iloc[1], get('a[2, "Pr(>Chi)"]')[0], rtol=1e-5)
     np.testing.assert_allclose(residuals(fit, 'pearson'), get('residuals(f, "pearson")'), rtol=1e-6, atol=1e-8)
     np.testing.assert_allclose(residuals(fit, 'deviance'), get('residuals(f, "deviance")'), rtol=1e-6, atol=1e-8)
+
+
+def test_anova_least_squares_three_models(Rinfo):
+    # three nested least squares fits: R's anova.lm, F on the largest model's
+    # residual degrees of freedom in every row
+    rng = np.random.default_rng(0)
+    n = 200
+    X = rng.standard_normal((n, 3))
+    y = 0.3 + 0.5 * X[:, 0] - 0.4 * X[:, 1] + rng.standard_normal(n)
+    table = anova(*[GLM(exclude=exclude).fit(X, y) for exclude in ([1, 2], [2], [])])
+    _to_R(Rinfo, x0=X[:, 0], x1=X[:, 1], x2=X[:, 2], y=y)
+    a = np.asarray(Rinfo['rpy'].r('a <- anova(lm(y ~ x0), lm(y ~ x0 + x1), lm(y ~ x0 + x1 + x2)); '
+                                  'cbind(a$RSS, a$F, a[["Pr(>F)"]])'), float)
+    np.testing.assert_allclose(table['deviance'], a[:, 0], rtol=1e-10)
+    np.testing.assert_allclose(table[['F', 'P(>F)']].values[1:], a[1:, 1:], rtol=1e-10)

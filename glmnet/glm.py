@@ -15,6 +15,7 @@ from scipy.sparse.linalg import LinearOperator
 from scipy.stats import norm as normal_dbn
 from scipy.stats import t as t_dbn
 from scipy.stats import chi2 as chi2_dbn
+from scipy.stats import f as f_dbn
 from scipy.special import gammaln, xlogy, xlog1py
 
 from statsmodels.genmod.families import family as sm_family
@@ -1280,14 +1281,23 @@ def _interval_frame(X, estimate, half):
 def anova(*fits):
     """
     Analysis of deviance for nested fits to the same data, from the smallest model
-    to the largest: R's `anova(..., test="Chisq")`, for every family. The
-    statistic is the drop in deviance divided by the dispersion of the largest
-    model, compared with chi-squared on the drop in residual degrees of freedom.
+    to the largest.
+
+    For the Gaussian with identity link, an estimated dispersion and the
+    model-based covariance (least squares, where the coefficients' statistics
+    are t), it is the F-test of R's `anova.lm` (and statsmodels' `anova_lm`):
+    the drop in deviance (residual sum of squares) over the drop in residual
+    degrees of freedom, divided by the dispersion of the largest model, against
+    F on those degrees of freedom and the largest model's residual degrees of
+    freedom. Otherwise it is R's `anova(..., test="Chisq")`: the drop in deviance
+    divided by the dispersion of the largest model, against chi-squared on the
+    drop in residual degrees of freedom.
 
     Returns
     -------
     pd.DataFrame
-        Columns `df_resid`, `deviance`, `df_diff`, `dev_diff`, `chi2` and `P(>chi2)`.
+        Columns `df_resid`, `deviance`, `df_diff`, `dev_diff`, and `F` and `P(>F)`
+        (Gaussian, identity link, as above) or `chi2` and `P(>chi2)`.
     """
     if len({len(fit._weight) for fit in fits}) > 1:
         raise ValueError('the fits are to different numbers of observations')
@@ -1295,18 +1305,26 @@ def anova(*fits):
         warnings.warn('a fit uses the sandwich covariance: the drop in deviance is not '
                       'chi-squared when the model is wrong, so the p-values of anova are '
                       'not robust')
-    scale = min(fits, key=lambda fit: fit.df_resid_).dispersion_
+    largest = min(fits, key=lambda fit: fit.df_resid_)
+    scale = largest.dispersion_
     df = np.array([fit.df_resid_ for fit in fits], float)
     dev = np.array([fit.deviance_ for fit in fits], float)
     df_diff = np.hstack([np.nan, -np.diff(df)])
     dev_diff = np.hstack([np.nan, -np.diff(dev)])
-    chi2 = np.abs(dev_diff) / scale
-    return pd.DataFrame({'df_resid': df,
-                         'deviance': dev,
-                         'df_diff': df_diff,
-                         'dev_diff': dev_diff,
-                         'chi2': chi2,
-                         'P(>chi2)': chi2_dbn.sf(chi2, np.abs(df_diff))})
+    table = pd.DataFrame({'df_resid': df,
+                          'deviance': dev,
+                          'df_diff': df_diff,
+                          'dev_diff': dev_diff})
+    if all(fit._use_t() for fit in fits):
+        # least squares: F, as R's anova.lm
+        F = (np.abs(dev_diff) / np.abs(df_diff)) / scale
+        table['F'] = F
+        table['P(>F)'] = f_dbn.sf(F, np.abs(df_diff), largest.df_resid_)
+    else:
+        chi2 = np.abs(dev_diff) / scale
+        table['chi2'] = chi2
+        table['P(>chi2)'] = chi2_dbn.sf(chi2, np.abs(df_diff))
+    return table
 
 
 def confidence_interval(fit, X_new, alpha=0.05):
