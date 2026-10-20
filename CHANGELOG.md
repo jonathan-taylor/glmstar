@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **`GLMControl(convergence='eta')`:** stop the IRLS iterations on the
+  relative change in the linear predictor (in norm) instead of the objective
+  (`'objective'`, the default, unchanged).
+- **`n_iter_`** of the estimators fitted by IRLS (`GLM`, `CoxLM`, `RegGLM`, ...):
+  the number of IRLS iterations.
+- **`glmnet.irls.IRLS`** documents what it needs of the family, regularizer and
+  state, and takes `info`, a dict filled with the number of iterations and of
+  halved steps. A regularizer with `has_objective = False` (for smoothers that
+  do not minimize an objective) skips the descent check, and its iterations
+  stop on the change in the linear predictor.
+
+### Changed
+
+- **`glmnet.irls` cleanup:** dead code removed, and "ISLR" corrected to "IRLS"
+  in the log messages. The `boundary` returned by `IRLS` is True if any step
+  was halved at a boundary, not only the last; an error from step halving
+  names the check that failed. Fits are unchanged.
+
 ## 0.3.1 (2026-10-19)
 
 ### New

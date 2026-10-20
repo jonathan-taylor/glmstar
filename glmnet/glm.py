@@ -61,11 +61,16 @@ class GLMControl(object):
         A large float, effectively `np.inf`.
     logging: bool
         Write info and debug messages to log?
+    convergence: str
+        What `epsnr` is a tolerance for: `'objective'` (the default), the
+        relative change in the objective, as above; or `'eta'`, the relative
+        change in the linear predictor, in norm.
     """
     mxitnr: int = 25
     epsnr: float = 1e-10
     big: float = 9.9e35
     logging: bool = False
+    convergence: str = 'objective'
 
 
 @dataclass
@@ -654,6 +659,7 @@ class GLMBase(BaseEstimator,
                      offset,
                      obj_function)
 
+        irls_info = {}
         (converged,
          boundary,
          state,
@@ -665,7 +671,9 @@ class GLMBase(BaseEstimator,
                    normed_sample_weight,
                    state,
                    obj_function,
-                   self.control)
+                   self.control,
+                   info=irls_info)
+        self.n_iter_ = irls_info['n_iter']
 
         if self.summarize:
             # at the normalized weights: _summarize scales it by weight_total_
@@ -947,6 +955,8 @@ class GLM(GLMBase):
         leaves out the excluded variables.
     covariance_: np.ndarray
         The covariance of `params_` (if `summarize`), labelled by `feature_names_`.
+    n_iter_: int
+        The number of IRLS iterations of the fit.
     """
     summarize: bool = False
     sandwich: bool = False
