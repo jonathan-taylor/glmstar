@@ -12,6 +12,11 @@
   those degrees of freedom and the largest model's residual degrees of
   freedom, as R's `anova.lm` and statsmodels' `anova_lm`. Other fits keep
   `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`).
+### New
+
+- **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
+  -log(lambda), with the feature names as columns (a column per feature and
+  response for multi-response paths).
 
 ## 0.3.2 (2026-10-20)
 
