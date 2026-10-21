@@ -14,6 +14,7 @@ from statsmodels.genmod.families import family as sm_family
 
 from glmnet._utils import _get_data, _parent_dataclass_from_child
 from glmnet.family import GLMFamilySpec
+from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
@@ -68,8 +69,14 @@ class GAM(BaseEstimator):
     ----------
     terms: list
         Terms of the model (if no `model_spec`).
-    family: sm_family.Family
-        Family (statsmodels) of the response. Default Gaussian.
+    family: sm_family.Family or glmnet.cox.CoxFamily
+        Family (statsmodels) of the response. Default Gaussian. Or the Cox
+        model's (glmstar's `CoxFamily`, with Efron or Breslow ties, start
+        times and strata): `y` is then a DataFrame of the event data (and
+        the offset and weights), the fit has no intercept and maximizes the
+        penalized partial likelihood, with the diagonal of its Hessian as
+        the working weights; `predict` gives the linear predictor (`'link'`)
+        or the relative risk `exp(eta)` (`'response'`).
     control: GAMControl
         Parameters for the IRLS iterations and the backfitting.
     offset_id: Union[str,int]
@@ -186,16 +193,21 @@ class GAM(BaseEstimator):
         self._train_index = X.index if isinstance(X, pd.DataFrame) else None
         nobs = X.shape[0]
 
-        family = self._family = GLMFamilySpec.from_family(self.family, y)
-        _, _, response, offset, weight = _get_data(self,
-                                                   np.zeros((nobs, 1)),
-                                                   y,
-                                                   offset_id=self.offset_id,
-                                                   response_id=self.response_id,
-                                                   weight_id=self.weight_id,
-                                                   check=False)
-        response = np.asarray(response, float).reshape(-1)
-        weight = np.asarray(weight, float).reshape(-1)
+        self._cox = isinstance(self.family, CoxFamily)
+        if self._cox:
+            family, response, offset, weight = self._cox_data(y, nobs)
+            self._family = family
+        else:
+            family = self._family = GLMFamilySpec.from_family(self.family, y)
+            _, _, response, offset, weight = _get_data(self,
+                                                       np.zeros((nobs, 1)),
+                                                       y,
+                                                       offset_id=self.offset_id,
+                                                       response_id=self.response_id,
+                                                       weight_id=self.weight_id,
+                                                       check=False)
+            response = np.asarray(response, float).reshape(-1)
+            weight = np.asarray(weight, float).reshape(-1)
         self._response, self._weight = response, weight
         weight_total = weight.sum()
         normed_weight = weight / weight_total
@@ -212,20 +224,26 @@ class GAM(BaseEstimator):
                                                          linear_term=linear_term,
                                                          bf_maxit=self.control.bf_maxit,
                                                          bf_tol=self.control.bf_tol,
-                                                         modified=self.control.bf_modified)
+                                                         modified=self.control.bf_modified,
+                                                         fit_intercept=not self._cox)
 
         null_state, null_deviance = family.get_null_deviance(response=response,
                                                              sample_weight=normed_weight,
                                                              offset=offset,
-                                                             fit_intercept=True)
+                                                             fit_intercept=not self._cox)
+        if self._cox:
+            # no intercept: the null fit is the offset (as R's coxph)
+            null_deviance = family.deviance(response,
+                                            np.zeros(nobs) if offset is None else offset,
+                                            normed_weight)
         self.null_deviance_ = weight_total * null_deviance
+        null_intercept = 0. if self._cox else float(null_state.coef[0])
 
         def obj_function(state):
             return (family.deviance(response, state.mu, normed_weight) / 2 +
                     regularizer.objective(state))
 
-        state = GAMState(np.zeros((nobs, len(self.terms_))),
-                         float(null_state.coef[0]))
+        state = GAMState(np.zeros((nobs, len(self.terms_))), null_intercept)
         state.update(None, family, offset, obj_function)
 
         info = {}
@@ -263,7 +281,8 @@ class GAM(BaseEstimator):
         self.edf_ = pd.Series(edf, index=names, name='edf')
 
         self.deviance_ = weight_total * family.deviance(response, state.mu, normed_weight)
-        self.df_resid_ = float(np.sum(weight > 0) - 1 - self.edf_.sum())
+        # the intercept counts as one degree of freedom (none for Cox)
+        self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
 
         self._estimated_dispersion = dispersion is None and not self._fixed_dispersion()
         if self._estimated_dispersion:
@@ -275,7 +294,8 @@ class GAM(BaseEstimator):
 
         # as R's gam (and glm): the dispersion, when free, counts as a
         # parameter, and the log-likelihood is at R's estimate of it
-        k, n = 1 + self.edf_.sum() + (not self._fixed_dispersion()), np.sum(weight > 0)
+        k = (not self._cox) + self.edf_.sum() + (not self._fixed_dispersion())
+        n = np.sum(weight > 0)
         self.loglike_ = self._loglike()
         self.aic_ = -2 * self.loglike_ + 2 * k
         self.bic_ = -2 * self.loglike_ + np.log(n) * k
@@ -317,8 +337,35 @@ class GAM(BaseEstimator):
         if prediction_type == 'link':
             return eta
         elif prediction_type == 'response':
+            if self._cox:
+                return np.exp(eta)
             return self._family.base.link.inverse(eta)
         raise ValueError("prediction_type should be one of 'response' or 'link'")
+
+    def _cox_data(self, y, nobs):
+        """
+        The Cox family of the event data in `y` (a DataFrame with the
+        columns of `family`: event times, status, and optionally start times
+        and strata), and the offset and weights (`offset_id`, `weight_id`).
+        """
+        if not isinstance(y, pd.DataFrame):
+            raise ValueError('for the Cox family, y should be a DataFrame with the columns '
+                             'of the event times and status (and the start times, strata, '
+                             'offset and weights, if any)')
+        if y.shape[0] != nobs:
+            raise ValueError('X and y should have the same number of rows')
+        fam = self.family
+        family = CoxFamilySpec(event_data=y,
+                               tie_breaking=fam.tie_breaking,
+                               event_id=fam.event_id,
+                               status_id=fam.status_id,
+                               start_id=fam.start_id,
+                               strata_id=fam.strata_id)
+        offset = (None if self.offset_id is None
+                  else np.asarray(y[self.offset_id], float).reshape(-1))
+        weight = (np.ones(nobs) if self.weight_id is None
+                  else np.asarray(y[self.weight_id], float).reshape(-1))
+        return family, None, offset, weight
 
     def summary(self):
         """The terms, their degrees of freedom and smoothing parameters."""
@@ -327,11 +374,21 @@ class GAM(BaseEstimator):
                             index=self.edf_.index)
 
     # as for GLM: they use only the response, weights, family and state_
-    _residuals = GLM._residuals
     _on_train_index = GLM._on_train_index
     _fixed_dispersion = GLM._fixed_dispersion
 
+    def _residuals(self, kind='response', state=None):
+        if getattr(self, '_cox', False):
+            raise NotImplementedError('residuals of a Cox GAM are not available')
+        return GLM._residuals(self, kind=kind, state=state)
+
     def _loglike(self):
+        if self._cox:
+            # the (log) partial likelihood, as R's coxph: the saturated one
+            # less half the deviance
+            result = self._family._coxdev_at(self._weight)(self.state_.link_parameter,
+                                                                  self._weight)
+            return float(result.loglik_sat - result.deviance / 2)
         base = self._family.base
         if isinstance(base, (sm_family.Gamma, sm_family.InverseGaussian)):
             # R's Gamma()$aic and inverse.gaussian()$aic: at the dispersion

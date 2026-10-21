@@ -1,0 +1,131 @@
+"""
+GAMs for the Cox family (glmstar's `CoxFamily`): local scoring with the
+diagonal of the Hessian of the partial likelihood as working weights, whose
+fixed point is the penalized partial likelihood estimate. Checked against
+glmstar's `CoxLM` and R's `coxph` for parametric terms, with ties (Efron and
+Breslow), start times, strata, weights and an offset.
+"""
+import numpy as np
+import pandas as pd
+import pytest
+
+pytest.importorskip('scatter_smooth')
+
+from glmnet.cox import CoxFamily, CoxLM
+from ISLP.gam import GAM, GAMControl, s, linear, factor
+
+# the parametric fits converge on the objective; with df terms (matched at
+# each step's weights) local scoring stops on the change in eta
+TIGHT = GAMControl(epsnr=1e-16, mxitnr=500, bf_tol=1e-13, bf_maxit=5000)
+SMOOTH = GAMControl(epsnr=1e-12, mxitnr=500, bf_tol=1e-13, bf_maxit=5000)
+OPTIONS = {'plain': {},
+           'start': dict(start_id='start'),
+           'strata': dict(strata_id='st'),
+           'all': dict(start_id='start', strata_id='st')}
+
+
+@pytest.fixture(scope='module')
+def data():
+    rng = np.random.default_rng(0)
+    n = 300
+    D = pd.DataFrame({'x': np.round(rng.uniform(0, 1, n), 2),
+                      'z': rng.normal(0, 1, n),
+                      'c': rng.choice(list('abc'), n),
+                      'st': rng.integers(0, 2, n),
+                      'w': rng.uniform(0.5, 2, n),
+                      'o': rng.normal(0, 0.3, n)})
+    eta = np.sin(2 * np.pi * D['x']) + 0.5 * D['z'] + D['c'].map({'a': 0, 'b': .5, 'c': -.5})
+    T = rng.exponential(1 / np.exp(eta))
+    C = rng.exponential(2, n)
+    # rounded: tied event times
+    D['time'] = np.round(np.minimum(T, C), 1) + 0.1
+    D['status'] = (T <= C).astype(int)
+    D['start'] = np.where(rng.uniform(size=n) < 0.3, D['time'] * rng.uniform(0, 0.8, n), 0.)
+    return D
+
+
+def _family(ties, option):
+    return CoxFamily(event_id='time', status_id='status', tie_breaking=ties, **OPTIONS[option])
+
+
+def _gam(D, terms, ties='efron', option='plain', weights=False, offset=False, control=TIGHT):
+    return GAM(terms=terms, family=_family(ties, option), control=control,
+               weight_id='w' if weights else None,
+               offset_id='o' if offset else None).fit(D, D)
+
+
+def _centered(eta):
+    eta = np.asarray(eta, float)
+    return eta - eta.mean()
+
+
+@pytest.mark.parametrize('ties', ['efron', 'breslow'])
+@pytest.mark.parametrize('option', list(OPTIONS))
+@pytest.mark.parametrize('weights', [False, True])
+@pytest.mark.parametrize('offset', [False, True])
+def test_parametric_is_coxlm(data, ties, option, weights, offset):
+    # linear terms and a factor: the Cox model (CoxLM, glmstar's), up to the
+    # constant of the linear predictor
+    G = _gam(data, [linear('x'), linear('z'), factor('c')], ties, option, weights, offset)
+    X = pd.get_dummies(data[['x', 'z', 'c']], columns=['c'], drop_first=True, dtype=float)
+    L = CoxLM(family=_family(ties, option), weight_id='w' if weights else None,
+              offset_id='o' if offset else None).fit(X, data)
+    eta_L = X.to_numpy() @ L.coef_
+    np.testing.assert_allclose(_centered(G.predict(data, 'link')), _centered(eta_L),
+                               atol=1e-8)
+    assert G.intercept_ == 0
+    np.testing.assert_allclose(G.edf_.values, [1, 1, 2])
+    n = data.shape[0]
+    np.testing.assert_allclose(G.df_resid_, n - 4)
+    np.testing.assert_allclose(G.aic_, -2 * G.loglike_ + 2 * 4)
+    assert G.dispersion_ == 1
+
+
+@pytest.mark.parametrize('ties', ['efron', 'breslow'])
+@pytest.mark.parametrize('option', ['plain', 'all'])
+def test_parametric_coxph(Rinfo, data, ties, option):
+    # against R's coxph: the coefficients and the partial log-likelihood
+    rpy = Rinfo['rpy']
+    if not rpy.r('isTRUE(requireNamespace("survival", quietly=TRUE))')[0]:
+        pytest.skip('requires the R package survival')
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('D', data)
+    G = _gam(data, [linear('x'), linear('z')], ties, option, weights=True, offset=True)
+    surv = 'Surv(start, time, status)' if option == 'all' else 'Surv(time, status)'
+    strata = ' + strata(st)' if option == 'all' else ''
+    rpy.r(f'f <- survival::coxph({surv} ~ x + z{strata} + offset(o), data=D, weights=w, '
+          f'ties="{ties}", control=survival::coxph.control(eps=1e-11, iter.max=100))')
+    coef_R = np.asarray(rpy.r('coef(f)'))
+    slopes = [np.polyfit(data[c], G.fits_.iloc[:, j], 1)[0] for j, c in enumerate(['x', 'z'])]
+    np.testing.assert_allclose(slopes, coef_R, rtol=1e-7)
+    np.testing.assert_allclose(G.loglike_, rpy.r('f$loglik[2]')[0], rtol=1e-10)
+    np.testing.assert_allclose(G.null_deviance_ / -2 + (G.loglike_ + G.deviance_ / 2),
+                               rpy.r('f$loglik[1]')[0], rtol=1e-10)
+
+
+@pytest.mark.parametrize('ties', ['efron', 'breslow'])
+@pytest.mark.parametrize('option', list(OPTIONS))
+def test_smooth(data, ties, option):
+    # smooths with df: their df at the final working weights; a constant
+    # offset and the scale of the weights leave the fit unchanged
+    terms = [s('x', df=4), linear('z'), factor('c')]
+    G = _gam(data, terms, ties, option, weights=True, control=SMOOTH)
+    np.testing.assert_allclose(G.edf_.values, [4, 1, 2], rtol=1e-6)
+    eta = G.predict(data, 'link')
+    np.testing.assert_allclose(eta, G.fits_.sum(axis=1), atol=1e-12)
+    np.testing.assert_allclose(G.predict(data), np.exp(eta))
+    np.testing.assert_allclose(G.fits_.mean(axis=0), 0, atol=1e-10)
+
+    D2 = data.assign(o=3., w=10 * data['w'])
+    H = _gam(D2, terms, ties, option, weights=True, offset=True, control=SMOOTH)
+    np.testing.assert_allclose(H.fits_, G.fits_, atol=1e-7)
+    np.testing.assert_allclose(H.edf_, G.edf_, rtol=1e-6)
+
+
+def test_cox_errors(data):
+    with pytest.raises(ValueError, match='DataFrame'):
+        GAM(terms=[s('x', df=4)], family=_family('efron', 'plain')).fit(data, data['time'].values)
+    G = _gam(data, [s('x', df=4)], control=SMOOTH)
+    from glmnet.glm import residuals
+    with pytest.raises(NotImplementedError):
+        residuals(G, 'deviance')

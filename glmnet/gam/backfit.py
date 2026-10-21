@@ -11,6 +11,7 @@ import numpy as np
 from statsmodels.genmod.families import family as sm_family
 
 from glmnet.family import GLMState
+from glmnet.cox import CoxState
 from .terms import _weighted_fit
 
 
@@ -45,14 +46,19 @@ class GAMState(object):
                family,
                offset,
                objective=None):
-        """Set the linear predictor, the mean and the objective, as `GLMState.update`."""
-        base = family.base
+        """
+        Set the linear predictor, the mean and the objective, as
+        `GLMState.update` (`CoxState.update` for the Cox family, which has no
+        mean: it is the linear predictor).
+        """
+        base = getattr(family, 'base', None)
         self.linear_predictor = self.intercept + self.fits.sum(1)
         if offset is None:
             self.link_parameter = self.linear_predictor
         else:
             self.link_parameter = self.linear_predictor + offset
-        self.mean_parameter = base.link.inverse(self.link_parameter)
+        self.mean_parameter = (self.link_parameter if base is None
+                               else base.link.inverse(self.link_parameter))
 
         # shorthand
         self.mu = self.mean_parameter
@@ -65,7 +71,10 @@ class GAMState(object):
         if objective is not None:
             self.obj_val = objective(self)
 
-    logl_score = GLMState.logl_score
+    def logl_score(self, family, y, sample_weight):
+        if getattr(family, 'base', None) is None:
+            return CoxState.logl_score(self, family, y, sample_weight)
+        return GLMState.logl_score(self, family, y, sample_weight)
 
 
 @dataclass
@@ -110,6 +119,9 @@ class GAMRegularizer(object):
     modified: bool = True
     fit_intercept: bool = True
     warm_state: dict = field(default_factory=dict)
+    # fit_intercept=False: for a family whose deviance does not change with
+    # a constant added to the linear predictor (Cox), the constant of each
+    # step is dropped (backfitting still fits it: the terms are centered)
 
     @property
     def has_objective(self):
@@ -162,6 +174,8 @@ class GAMRegularizer(object):
                           f'sweeps (relative change {change:.2g}); increase bf_maxit')
 
         self.n_sweeps_ = sweep + 1
+        if not self.fit_intercept:
+            intercept = 0.
         self.warm_state = GAMState(fits, intercept, coefs=coefs)
         return self.warm_state
 
