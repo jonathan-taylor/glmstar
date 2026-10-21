@@ -21,6 +21,8 @@ dependencies = [
     "joblib",
     "statsmodels>=0.13",
     "coxdev>=0.3.0",
+    # glmnet.gam: the smoothing spline and loess terms
+    "scatter-smooth>=0.3.0",
     "tqdm",
     "matplotlib"
 ]

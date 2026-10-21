@@ -32,7 +32,7 @@ def pytest_generate_tests(metafunc):
     # We use string matching on the path.
     # Note: metafunc.definition.fspath is a LocalPath object in older pytest or Path in newer.
     fspath = str(metafunc.definition.fspath)
-    is_subdir = any(d in fspath for d in ['/glm/', '/compare_R/', '/flex/', '/paths/'])
+    is_subdir = any(d in fspath for d in ['/glm/', '/compare_R/', '/flex/', '/paths/', '/gam/'])
 
     if 'offset' in metafunc.fixturenames:
         metafunc.parametrize("offset", [None, lambda n: rng.standard_normal(n)])
