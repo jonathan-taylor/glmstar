@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **The C++ solvers accept read-only arrays** for the inputs they only read:
+  the data, indices and pointers of a sparse (CSC) `X`; the dense `X`,
+  weights, limits, centers and scales of the point solver behind `GLMNet` and
+  `RegGLM`; and the penalty factors, excluded variables, lambda values and
+  survival data of the path solvers. (The path solvers standardize a dense
+  `X`, `y` and weights in place, so those stay writeable; the estimators pass
+  copies.) A sparse matrix with read-only buffers, such as a `dgCMatrix`
+  passed from R by reticulate or a memory-mapped array, raised `ValueError:
+  array is not writeable` in `GLMNet`, `RegGLM` and the path estimators
+  (`LogNet`, `GaussNet`, `FishNet`, `MultiGaussNet`, `CoxNet`). It is still
+  mapped without a copy.
+
 ## 0.3.2 (2026-10-20)
 
 ### New
