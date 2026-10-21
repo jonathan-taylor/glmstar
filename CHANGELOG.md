@@ -53,7 +53,7 @@
   the dispersion), by Laplace's method, with exact gradients (JAX: `pip
   install glmstar[gam]`; for the Cox family, mgcv's `cox.ph`, numpy).
   Random effects' variances are `variance_components_`. Checked against
-  mgcv, lme4 (`lmer`, `glmer`) and nlme (`lme`).
+  mgcv, lme4 (`lmer`, `glmer`) and nlme (`lme`) (#148).
 - **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
   -log(lambda), with the feature names as columns (a column per feature and
   response for multi-response paths).
