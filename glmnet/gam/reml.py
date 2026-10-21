@@ -24,6 +24,7 @@ penalties' null space), the negative log REML is
 and ML integrates only the penalized coefficients: `H` restricted to them,
 and no last term.
 """
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -248,8 +249,12 @@ class LaplaceCriterion(object):
         """
         self._set_lams(params)
         gam = self.gam
-        state = gam._local_scoring(state=self._warm, control=self._inner_control())
-        self._warm = state
+        # (a fit that does not converge, at smoothing parameters the search
+        # tries far from the optimum, is not a warm start)
+        state = gam._local_scoring(state=deepcopy(self._warm), control=self._inner_control(),
+                                   warn=False)
+        if gam.converged_:
+            self._warm = state
         return self.T.T @ self.design.gamma(state)
 
     def _inner_control(self):

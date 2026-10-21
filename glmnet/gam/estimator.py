@@ -392,10 +392,11 @@ class GAM(BaseEstimator):
                 term.df = 4.
         return terms
 
-    def _local_scoring(self, state=None, control=None):
+    def _local_scoring(self, state=None, control=None, warn=True):
         """
         Local scoring (IRLS) from `state` (by default the intercept-only
-        fit), with the terms' current smoothing: the fitted state.
+        fit), with the terms' current smoothing: the fitted state (whether it
+        converged in `converged_`).
         """
         family, response = self._family, self._response
         offset, normed_weight = self._offset, self._normed_weight
@@ -420,7 +421,8 @@ class GAM(BaseEstimator):
                                              control,
                                              info=info)
         self.n_iter_ = info['n_iter']
-        if not converged:
+        self.converged_ = converged
+        if not converged and warn:
             import warnings
             warnings.warn(f'GAM: local scoring did not converge in mxitnr={control.mxitnr} '
                           'iterations; increase control.mxitnr')
