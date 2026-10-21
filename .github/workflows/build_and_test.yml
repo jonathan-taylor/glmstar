@@ -100,8 +100,12 @@ jobs:
 
       # --vsenv: build with MSVC (meson may otherwise pick a MinGW gcc on the
       # PATH, whose runtime DLLs Python doesn't find when importing)
+      # TEMPORARY: coxdev 0.3.0's Windows wheels need MinGW DLLs they don't
+      # ship; until coxdev 0.3.1, coxdev from its branch with the fix
+      # (jonathan-taylor/coxdev#59), built with MSVC
       - name: Install dependencies
         run: |
+          pip install "coxdev @ git+https://github.com/jonathan-taylor/coxdev@windows-msvc" -Csetup-args=--vsenv
           pip install ".[dev,gam]" -Csetup-args=--vsenv
 
       - name: Test pyglmnet

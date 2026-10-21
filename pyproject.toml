@@ -102,6 +102,10 @@ skip = ["*-win32", "*-manylinux_i686", "*-musllinux_i686"]
 # runtime DLLs the wheel doesn't ship (Python doesn't search the PATH for an
 # extension's DLLs); and check that the extensions load
 config-settings = {setup-args = "--vsenv"}
+# TEMPORARY: coxdev 0.3.0's Windows wheels need MinGW DLLs they don't ship;
+# until coxdev 0.3.1, test against coxdev from its branch with the fix
+# (jonathan-taylor/coxdev#59), built with MSVC
+before-test = "pip install --force-reinstall --no-deps \"coxdev @ git+https://github.com/jonathan-taylor/coxdev@windows-msvc\" -Csetup-args=--vsenv"
 test-command = "python -c \"import glmnet, glmnet.elnet; from glmnet import GLM, GLMNet; import numpy as np; X = np.random.default_rng(0).standard_normal((50, 3)); GLMNet().fit(X, X @ [1., 0., -1.])\""
 
 [tool.uv]
