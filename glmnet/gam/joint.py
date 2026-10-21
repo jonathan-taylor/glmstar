@@ -145,6 +145,26 @@ class JointDesign(object):
             return solve_triangular(R, Q.T @ b)
         return np.linalg.lstsq(A, b, rcond=None)[0]
 
+    def gamma(self, state):
+        """
+        The coefficients of the design of a fitted state: its intercept, the
+        penalized terms' coefficients (`state.coefs`, on their bases) and,
+        for the others, the least squares fit of their block to their fit.
+        The design may be rank deficient (a random effect's indicators span
+        the constant), so the coefficients are not recovered from the linear
+        predictor.
+        """
+        gamma = np.zeros(self.n_coef)
+        gamma[0] = state.intercept
+        coefs = state.coefs if state.coefs is not None else [None] * len(self.terms)
+        for j, (term, Z, sl) in enumerate(zip(self.terms, self.Z, self.slices)):
+            coef = coefs[j]
+            if term.penalty_matrix() is not None and coef is not None:
+                gamma[sl] = Z.T @ coef if Z is not None else coef
+            elif term.penalty_matrix() is None:
+                gamma[sl] = np.linalg.lstsq(self.X[:, sl], state.fits[:, j], rcond=None)[0]
+        return gamma
+
     def split(self, gamma):
         """
         The fits of the terms (at the training rows), the intercept and the
@@ -168,8 +188,16 @@ class JointRegularizer(GAMRegularizer):
     problem jointly: the penalized weighted least squares fit of the working
     response on the terms' bases (`JointDesign`), instead of backfitting.
     Its objective, step halving and state are those of `GAMRegularizer`.
+
+    For a family whose Hessian in the linear predictor is not diagonal (Cox),
+    `information(state)` gives the score and the Hessian (an operator) of the
+    log-likelihood in the linear predictor at `state`, on the scale of the
+    objective, and the step is Newton's for the penalized objective, with
+    the full Hessian and no intercept (the smoothing parameters of the `df`
+    terms are those at the diagonal working weights).
     """
     design_: Optional[JointDesign] = None
+    information: Optional[object] = None
 
     def lams(self):
         """The terms' smoothing parameters at the current weights."""
@@ -184,9 +212,37 @@ class JointRegularizer(GAMRegularizer):
         z, w = self._working(pseudo_response, sample_weight)
         if self.design_ is None:
             self.design_ = JointDesign(self.terms)
-        gamma = self.design_.solve(z, w, self.lams())
+        if self.information is None:
+            gamma = self.design_.solve(z, w, self.lams())
+        else:
+            gamma = self._full_newton(cur_state)
         fits, intercept, coefs = self.design_.split(gamma)
         self.n_sweeps_ = 1
         self.warm_state = GAMState(fits, intercept, coefs=coefs)
         self.warm_state.gamma = gamma
         return self.warm_state
+
+    def _full_newton(self, state):
+        """
+        The Newton step from `state` with the full Hessian `H`: `gamma_0 +
+        delta`, `(X' H X + S) delta = X' score - S gamma_0` (without the
+        column of ones), `gamma_0` the coefficients of `state`. (Solved for
+        the step, whose error vanishes with it, not for `gamma`.)
+        """
+        D = self.design_
+        score, H = self.information(state)
+        if self.linear_term is not None:
+            score = score - np.asarray(self.linear_term, float)
+        X = D.X[:, 1:]
+        gamma0 = getattr(state, 'gamma', None)
+        if gamma0 is None:
+            gamma0 = D.gamma(state)
+        S = D.penalty(self.lams())[1:, 1:]
+        A = X.T @ (H @ X) + S
+        b = X.T @ score - S @ gamma0[1:]
+        try:
+            from scipy.linalg import cho_factor, cho_solve
+            delta = cho_solve(cho_factor(A), b)
+        except np.linalg.LinAlgError:
+            delta = np.linalg.lstsq(A, b, rcond=None)[0]
+        return np.concatenate([[0.], gamma0[1:] + delta])

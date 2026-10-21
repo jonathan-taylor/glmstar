@@ -51,6 +51,12 @@ class GAMControl(GLMControl):
     solver: str = 'backfit'
 
 
+def _cox_information(family, sample_weight, state):
+    """The score and the information of the Cox partial likelihood in the linear predictor."""
+    return (state.logl_score(family, None, sample_weight),
+            family.information(state, sample_weight))
+
+
 @dataclass
 class GAM(BaseEstimator):
     """
@@ -85,8 +91,10 @@ class GAM(BaseEstimator):
         times and strata): `y` is then a DataFrame of the event data (and
         the offset and weights), the fit has no intercept and maximizes the
         penalized partial likelihood, with the diagonal of its Hessian as
-        the working weights; `predict` gives the linear predictor (`'link'`)
-        or the relative risk `exp(eta)` (`'response'`).
+        the working weights of backfitting (`solver='joint'`: Newton steps
+        with the full Hessian, which also gives the covariance, as mgcv's
+        `cox.ph`); `predict` gives the linear predictor (`'link'`) or the
+        relative risk `exp(eta)` (`'response'`).
     control: GAMControl
         Parameters for the IRLS iterations and the backfitting.
     offset_id: Union[str,int]
@@ -233,7 +241,7 @@ class GAM(BaseEstimator):
             weight = np.asarray(weight, float).reshape(-1)
         self._response, self._weight = response, weight
         weight_total = weight.sum()
-        normed_weight = weight / weight_total
+        normed_weight = self._normed_weight = weight / weight_total
         self.weight_total_ = weight_total
 
         self.terms_ = [deepcopy(term).setup(x) for term, x in zip(terms,
@@ -252,6 +260,9 @@ class GAM(BaseEstimator):
                                                       bf_tol=self.control.bf_tol,
                                                       modified=self.control.bf_modified,
                                                       fit_intercept=not self._cox)
+        if self._cox and isinstance(regularizer, JointRegularizer):
+            # Newton steps with the full Hessian of the partial likelihood
+            regularizer.information = partial(_cox_information, family, normed_weight)
 
         null_state, null_deviance = family.get_null_deviance(response=response,
                                                              sample_weight=normed_weight,
@@ -336,6 +347,7 @@ class GAM(BaseEstimator):
         first used.
         """
         self._covariance_weights, self._covariance = w, None
+        self._covariance_cox_weights = self._normed_weight
 
     def _get_covariance(self):
         """
@@ -354,7 +366,15 @@ class GAM(BaseEstimator):
                                  else JointDesign(self.terms_))
             lams = [term.penalty_lam() if term.penalty_matrix() is not None else 0.
                     for term in self.terms_]
-            XWX = D.X.T @ (w[:, None] * D.X)
+            if self._cox:
+                # the full information of the partial likelihood (as mgcv's
+                # cox.ph); no intercept: its row and column are 0
+                H = self._family.information(self.state_, self._covariance_cox_weights)
+                X = D.X[:, 1:]
+                XWX = np.zeros((D.n_coef, D.n_coef))
+                XWX[1:, 1:] = X.T @ (H @ X)
+            else:
+                XWX = D.X.T @ (w[:, None] * D.X)
             A = XWX + D.penalty(lams)
             Ainv = np.linalg.pinv(A, hermitian=True)
             # on the scale of the prior weights: X' W X and S times sum(weights)
