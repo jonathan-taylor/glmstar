@@ -113,13 +113,36 @@ class JointDesign(object):
     def solve(self, z, w, lams):
         """
         The coefficients minimizing `sum(w (z - X gamma)^2) / 2 +
-        gamma' penalty(lams) gamma / 2`, by least squares on the augmented
-        design (of minimum norm, if it is rank deficient).
+        gamma' penalty(lams) gamma / 2`. By the Cholesky factorization of
+        `X' W X + penalty(lams)` when it is well conditioned (the normal
+        equations square the condition number), else by the QR decomposition
+        of the augmented design `[sqrt(W) X; E]` (`E' E = penalty(lams)`),
+        and if that is rank deficient, by its least squares solution of
+        minimum norm.
         """
+        from scipy.linalg import cho_factor, cho_solve, solve_triangular, LinAlgError
+        from scipy.linalg.lapack import dpocon
+        Xw = w[:, None] * self.X
+        A = self.X.T @ Xw + self.penalty(lams)
+        d = np.sqrt(np.diag(A))
+        if np.all(d > 0):
+            A_scaled = A / d[:, None] / d[None, :]
+            try:
+                factor = cho_factor(A_scaled, lower=False)
+            except LinAlgError:
+                pass
+            else:
+                rcond, _ = dpocon(factor[0], np.abs(A_scaled).sum(0).max())
+                if rcond > 1e-10:
+                    return cho_solve(factor, Xw.T @ z / d) / d
         sq = np.sqrt(w)
         E = self.root(lams)
         A = np.vstack([sq[:, None] * self.X, E])
         b = np.concatenate([sq * z, np.zeros(E.shape[0])])
+        Q, R = np.linalg.qr(A)
+        r = np.abs(np.diag(R))
+        if r.min() > 1e-10 * r.max():
+            return solve_triangular(R, Q.T @ b)
         return np.linalg.lstsq(A, b, rcond=None)[0]
 
     def split(self, gamma):
