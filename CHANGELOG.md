@@ -27,6 +27,11 @@
   `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`).
 ### New
 
+- **`GAM.plot()`** (and `glmnet.gam.plot_term`): the fits of a GAM's terms, one
+  panel each, as R's `plot.Gam`: a curve over the range of the column with
+  dashed bands of 2 pointwise standard errors (from the posterior covariance;
+  not for loess) and a rug of the data, or one point per level with error
+  bars for factors and random effects.
 - **`glmnet.gam`: generalized additive models**, fitted by local scoring on
   glmstar's IRLS, each working problem solved by (modified) backfitting, as
   R's `gam::gam`. Terms: smoothing splines (`s()`, by `df` or `lam`, R's
