@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-21)
 
 ### Packaging
 
@@ -39,6 +39,7 @@
   array is not writeable` in `GLMNet`, `RegGLM` and the path estimators
   (`LogNet`, `GaussNet`, `FishNet`, `MultiGaussNet`, `CoxNet`). It is still
   mapped without a copy (#145).
+
 ### Changed
 
 - **`anova` is the F-test for least squares:** for Gaussian fits with the
@@ -48,7 +49,8 @@
   degrees of freedom, divided by the largest model's dispersion, against F on
   those degrees of freedom and the largest model's residual degrees of
   freedom, as R's `anova.lm` and statsmodels' `anova_lm`. Other fits keep
-  `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`).
+  `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`) (#143).
+
 ### New
 
 - **Documentation: a page on GAMs** (`docs/gam.md`), after the GAM part of
@@ -91,7 +93,7 @@
   mgcv, lme4 (`lmer`, `glmer`) and nlme (`lme`) (#148).
 - **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
   -log(lambda), with the feature names as columns (a column per feature and
-  response for multi-response paths).
+  response for multi-response paths) (#144).
 
 ## 0.3.2 (2026-10-20)
 
