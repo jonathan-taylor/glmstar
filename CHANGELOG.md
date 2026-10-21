@@ -36,7 +36,7 @@
   Efron or Breslow ties, start times, strata). Checked against `gam::gam`,
   `mgcv` and `coxph`. New dependency: `scatter-smooth` (the smoothers).
   (Developed in ISLP; ISLP's `ISLP.gam` will build the terms from a
-  ModelSpec.)
+  ModelSpec.) (#146)
 - **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
   -log(lambda), with the feature names as columns (a column per feature and
   response for multi-response paths).
