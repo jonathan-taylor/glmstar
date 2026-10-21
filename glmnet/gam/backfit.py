@@ -19,7 +19,8 @@ from .terms import _weighted_fit
 class GAMState(object):
     """
     State of a GAM fit: the intercept and the fits of the terms at the
-    training rows (`fits`, one column per term, each of mean 0).
+    training rows (`fits`, one column per term, each of mean 0 but for the
+    terms that are not centered, random effects).
 
     Parameters
     ----------
@@ -152,16 +153,7 @@ class GAMRegularizer(object):
         weights `sample_weight`, from the fits of `cur_state`, until the fits
         change by less than `bf_tol` (relatively), or for `bf_maxit` sweeps.
         """
-        w = np.asarray(sample_weight, float)
-        z = np.asarray(pseudo_response, float)
-        if self.linear_term is not None:
-            omega = np.asarray(self.linear_term, float)
-            if np.any((w <= 0) & (omega != 0)):
-                raise ValueError('the linear term should be 0 where the weights are 0')
-            z = z - np.divide(omega, w, out=np.zeros_like(omega), where=w > 0)
-
-        for term in self.terms:
-            term.set_weights(w)
+        z, w = self._working(pseudo_response, sample_weight)
 
         fits = np.array(cur_state.fits, float)
         coefs = list(_coefs(cur_state, self.terms))
@@ -179,6 +171,22 @@ class GAMRegularizer(object):
         self.warm_state = GAMState(fits, intercept, coefs=coefs)
         return self.warm_state
 
+    def _working(self, pseudo_response, sample_weight):
+        """
+        The working response, moved by the linear term, and the weights; the
+        terms are given the weights.
+        """
+        w = np.asarray(sample_weight, float)
+        z = np.asarray(pseudo_response, float)
+        if self.linear_term is not None:
+            omega = np.asarray(self.linear_term, float)
+            if np.any((w <= 0) & (omega != 0)):
+                raise ValueError('the linear term should be 0 where the weights are 0')
+            z = z - np.divide(omega, w, out=np.zeros_like(omega), where=w > 0)
+        for term in self.terms:
+            term.set_weights(w)
+        return z, w
+
     def _backfit(self, z, w, fits, coefs):
         """Plain (Gauss-Seidel) backfitting."""
         sw = w.sum()
@@ -190,7 +198,7 @@ class GAMRegularizer(object):
             for j, term in enumerate(self.terms):
                 partial = z - intercept - (total - fits[:, j])
                 f = term.smooth(partial)
-                center = f.mean()
+                center = f.mean() if term.centered else 0.
                 f = f - center
                 coef = term.coef()
                 coefs[j] = None if coef is None else coef - center
@@ -233,6 +241,10 @@ class GAMRegularizer(object):
         # the parts beyond the linear columns, from the current fits
         nonlin = np.zeros_like(fits)
         for j in smooths:
+            if not terms[j].centered:
+                # its smoother reproduces no function: all of it is backfitted
+                nonlin[:, j] = fits[:, j]
+                continue
             X_j = None if slices[j] is None else X[:, slices[j]]
             nonlin[:, j] = fits[:, j] - _weighted_fit(X_j, fits[:, j], w)
         nonlin_total = nonlin.sum(1)
@@ -254,7 +266,7 @@ class GAMRegularizer(object):
                 beta_j = None if slices[j] is None else beta[slices[j]]
                 if beta_j is not None:
                     f += X[:, slices[j]] @ beta_j
-                center = f.mean()
+                center = f.mean() if term.centered else 0.
                 fits[:, j] = f - center
                 intercept += center
                 coefs[j] = term.combine_coef(beta_j if beta_j is not None else np.zeros(0),

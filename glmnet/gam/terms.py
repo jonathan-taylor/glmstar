@@ -23,6 +23,14 @@ projection on its columns (linear, factor) is not smoothed then. This needs a
 symmetric smoother (in the weighted inner product), for which it has the same
 fixed point as plain backfitting; loess is not, and gives no columns.
 
+For the joint (mgcv-style) solve of the working problems, and the Bayesian
+covariance of a fit, a term also gives its design operator: its basis
+(`basis(x)`, the columns of the functions it fits, at the training rows or
+at new values), the matrix of its quadratic penalty (`penalty_matrix()`,
+None if unpenalized) and its smoothing parameter at the current weights
+(`penalty_lam()`). Loess has none. A term with `centered = False` (a random
+effect, whose penalty identifies it) is not centered.
+
 `penalty(f, coef)` is the term's contribution to the objective, so that local
 scoring can check that its steps decrease it. A term whose smoothing does not
 minimize a fixed objective (loess, or a spline fitted to a fixed `df` whose
@@ -53,6 +61,12 @@ class Term(object):
     column: Union[str, int]
 
     has_objective = True
+    centered = True
+
+    @property
+    def columns(self):
+        """The columns of `X` the term uses (one, but for `re(..., by=...)`)."""
+        return self.column
 
     @property
     def name(self):
@@ -106,6 +120,21 @@ class Term(object):
         """The term's penalty at its fit `f` (at the training rows), with coefficients `coef`."""
         return 0.
 
+    def basis(self, x=None):
+        """
+        The term's basis at the training rows (`x` None) or at `x`: the
+        columns of the functions it fits (None: it has none, as loess).
+        """
+        return None
+
+    def penalty_matrix(self):
+        """The matrix of the term's quadratic penalty on its basis' coefficients (None: unpenalized)."""
+        return None
+
+    def penalty_lam(self):
+        """The term's smoothing parameter, at the current weights (after `set_weights`)."""
+        return 0.
+
     def edf(self):
         """The degrees of freedom of the term, at the current weights, without the constant."""
         raise NotImplementedError
@@ -135,6 +164,13 @@ def _weighted_fit(X, r, w):
     return rbar + Xc @ beta
 
 
+def _level_codes(levels, x):
+    """The positions of the values `x` in the sorted `levels`; -1 for values not among them."""
+    x = np.asarray(x).reshape(-1)
+    codes = np.minimum(np.searchsorted(levels, x), len(levels) - 1)
+    return np.where(levels[codes] == x, codes, -1)
+
+
 def _weighted_ls(x, r, w):
     """The weighted least squares fit of `r` on `(1, x)`: (intercept, slope)."""
     sw = w.sum()
@@ -162,6 +198,9 @@ class SlopeTerm(Term):
 
     def linear_columns(self):
         return (self.x_ - self.center_)[:, None]
+
+    def basis(self, x=None):
+        return (self.x_ if x is None else np.asarray(x, float))[:, None]
 
     nonlinear = False
 
@@ -201,6 +240,11 @@ class FactorTerm(Term):
     @property
     def nonlinear(self):
         return self.linear_columns() is None
+
+    def basis(self, x=None):
+        # the indicators of all the levels (unseen levels: 0)
+        codes = self.codes_ if x is None else _level_codes(self.levels_, x)
+        return (codes[:, None] == np.arange(len(self.levels_))[None, :]).astype(float)
 
     def smooth(self, r):
         nl = len(self.levels_)
@@ -274,6 +318,7 @@ class SplineTerm(Term):
         self._smoother.smooth(self.x_)
         self._x_coef = self._smoother.spline_coef_.copy()
         self._coef = self._nl_coef = None
+        self._basis = self._penalty = None
         return self
 
     def set_weights(self, w):
@@ -311,6 +356,47 @@ class SplineTerm(Term):
     def roughness(self, coef):
         """The integral of the squared second derivative of the spline with coefficients `coef`."""
         return self._smoother.roughness(coef)
+
+    def _unit_values(self, x, deriv=0):
+        # the splines whose coefficients are the unit vectors (the natural
+        # cubic spline basis of the coefficients `spline_coef_`), at x
+        S = self._smoother
+        saved = getattr(S, 'spline_coef_', None)
+        K = len(self.knots_)
+        values = np.empty((x.shape[0], K))
+        for k in range(K):
+            e = np.zeros(K)
+            e[k] = 1.
+            S.set_spline_coef(e)
+            values[:, k] = S.predict(x, deriv=deriv)
+        if saved is not None:
+            S.set_spline_coef(saved)
+        return values
+
+    def basis(self, x=None):
+        if x is None:
+            if getattr(self, '_basis', None) is None:
+                self._basis = self._unit_values(self.x_)
+            return self._basis
+        return self._unit_values(np.asarray(x, float))
+
+    def penalty_matrix(self):
+        """
+        The integral of the products of the basis' second derivatives: they
+        are linear between the knots (and 0 beyond), so the two point
+        Gauss-Legendre rule on each interval is exact.
+        """
+        if getattr(self, '_penalty', None) is None:
+            t = self.knots_
+            g = np.array([-1., 1.]) / np.sqrt(3)
+            mid, half = (t[1:] + t[:-1]) / 2, np.diff(t) / 2
+            xq = (mid[:, None] + half[:, None] * g[None, :]).ravel()
+            D2 = self._unit_values(xq, deriv=2)
+            self._penalty = D2.T @ (np.repeat(half, 2)[:, None] * D2)
+        return self._penalty
+
+    def penalty_lam(self):
+        return self.lam_
 
     def penalty(self, f, coef=None):
         if self.lam is None or coef is None:     # no coefficients: the zero function
@@ -407,6 +493,12 @@ class ColumnsTerm(Term):
     def linear_columns(self):
         return self.X_ - self.center_
 
+    def basis(self, x=None):
+        if x is None:
+            return self.X_
+        x = np.asarray(x, float)
+        return x.reshape((x.shape[0], -1))
+
     nonlinear = False
 
     def smooth(self, r):
@@ -426,10 +518,147 @@ class ColumnsTerm(Term):
         return (x - self.center_) @ self.coef_ + self.offset_
 
 
+@dataclass
+class RandomEffectTerm(Term):
+    """
+    A random effect of the groups of the column `column`: the term
+    `re(column)`, one effect per group (a random intercept), or with
+    `by=`, one coefficient of the column `by` per group (a random slope),
+    `f(g, v) = b_g v`. The effects are penalized by `lam / 2` times their sum
+    of squares (on the scale of the GAM's objective, the deviance over twice
+    the sum of the weights), the Gaussian prior of a mixed model; or, with
+    `df`, `lam` is chosen at each working problem's weights so that the trace
+    of the term's smoother (the effects' shrinkage factors' sum) is `df`.
+
+    The penalty identifies the effects, so the term is not centered (as
+    mgcv's `bs="re"` and lme4). Groups not seen in fitting predict 0.
+    """
+    by: Optional[Union[str, int]] = None
+    lam: Optional[float] = None
+    df: Optional[float] = None
+
+    centered = False
+    _label = 're'
+    level_names = None       # the names of the groups, when they are codes (ModelSpec)
+
+    def __post_init__(self):
+        if self.df is not None and self.lam is not None:
+            raise ValueError('give one of df and lam')
+
+    @property
+    def name(self):
+        label = getattr(self, 'label', None)
+        if label:
+            return label
+        return f're({self.column}, by={self.by})' if self.by is not None else f're({self.column})'
+
+    @property
+    def columns(self):
+        return self.column if self.by is None else [self.column, self.by]
+
+    @property
+    def has_objective(self):
+        return self.lam is not None
+
+    def _split(self, x):
+        x = np.asarray(x)
+        if self.by is None:
+            return x.reshape(-1), None
+        x = x.reshape((x.shape[0], -1))
+        return x[:, 0], x[:, 1].astype(float)
+
+    def setup(self, x):
+        g, v = self._split(x)
+        self.levels_, self.codes_ = np.unique(g, return_inverse=True)
+        self.v_ = np.ones(g.shape[0]) if v is None else v
+        self._coef = None
+        return self
+
+    def set_weights(self, w):
+        super().set_weights(w)
+        self._s = np.bincount(self.codes_, weights=self.w_ * self.v_**2, minlength=len(self.levels_))
+        if self.df is not None:
+            self.lam_ = self._lam_for_df(self.df)
+        elif self.lam is not None:
+            self.lam_ = self.lam
+        else:
+            raise ValueError(f'{self.name}: give lam or df (or estimate it, method="REML")')
+
+    def _lam_for_df(self, df):
+        from scipy.optimize import brentq
+        s = self._s[self._s > 0]
+        if not 0 < df < len(s):
+            raise ValueError(f'{self.name}: df should be in (0, {len(s)})')
+        return np.exp(brentq(lambda t: (s / (s + np.exp(t))).sum() - df, -50, 50, xtol=1e-12))
+
+    def smooth(self, r):
+        num = np.bincount(self.codes_, weights=self.w_ * self.v_ * r, minlength=len(self.levels_))
+        self._coef = num / (self._s + self.lam_)
+        return self._coef[self.codes_] * self.v_
+
+    # the smoother reproduces no function (its eigenvalues are below 1):
+    # modified backfitting smooths it whole
+    def smooth_nonlinear(self, r):
+        return self.smooth(r)
+
+    def combine_coef(self, beta, center):
+        return self._coef
+
+    def coef(self):
+        return self._coef
+
+    def penalty(self, f, coef=None):
+        if self.lam is None or coef is None:
+            return 0.
+        return self.lam * np.sum(coef**2) / 2
+
+    def edf(self):
+        return float(np.sum(self._s / (self._s + self.lam_)))
+
+    def basis(self, x=None):
+        if x is None:
+            codes, v = self.codes_, self.v_
+        else:
+            g, v = self._split(x)
+            codes = _level_codes(self.levels_, g)
+            v = np.ones(g.shape[0]) if v is None else v
+        return (codes[:, None] == np.arange(len(self.levels_))[None, :]) * v[:, None]
+
+    def penalty_matrix(self):
+        return np.identity(len(self.levels_))
+
+    def penalty_lam(self):
+        return self.lam_
+
+    def finalize(self, f, r, coef=None):
+        index = (self.levels_ if self.level_names is None else
+                 np.asarray(self.level_names)[self.levels_.astype(int)])
+        self.effects_ = pd.Series(np.zeros(len(self.levels_)) if coef is None else np.asarray(coef),
+                                  index=index, name=self.name)
+        return self
+
+    def predict(self, x):
+        g, v = self._split(x)
+        codes = _level_codes(self.levels_, g)
+        effects = np.where(codes >= 0, self.effects_.to_numpy()[np.maximum(codes, 0)], 0.)
+        return effects * (1. if v is None else v)
+
+
 def _name(label, column, **kwargs):
     # the term's name shows the arguments given (that differ from the defaults)
     args = ', '.join(f'{k}={v}' for k, v in kwargs.items() if v is not None)
     return f'{label}({column}{", " + args if args else ""})'
+
+
+def re(column, by=None, lam=None, df=None, name=None):
+    """
+    A random effect term (see `RandomEffectTerm`): a random intercept per
+    group of `column`, or with `by`, a random slope of the column `by` per
+    group.
+    """
+    term = RandomEffectTerm(column, by=by, lam=lam, df=df)
+    term.label = name or _name('re', column, by=by, lam=lam, df=df)
+    return term
 
 
 def s(column, df=None, lam=None, name=None):

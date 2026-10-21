@@ -19,6 +19,7 @@ from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .terms import Term
+from .joint import JointDesign, JointRegularizer
 
 
 @dataclass
@@ -38,10 +39,16 @@ class GAMControl(GLMControl):
         Modified backfitting (the default, as R's `gam`): each sweep fits the
         linear parts of all the terms jointly, then backfits the smooths'
         nonlinear parts. False: plain backfitting.
+    solver: str
+        How each working problem is solved: `'backfit'` (the default, as R's
+        `gam`) or `'joint'`, the penalized least squares fit on the terms'
+        bases side by side (as mgcv; for terms with a basis, not loess). They
+        have the same solution.
     """
     bf_maxit: int = 500
     bf_tol: float = 1e-10
     bf_modified: bool = True
+    solver: str = 'backfit'
 
 
 @dataclass
@@ -51,20 +58,22 @@ class GAM(BaseEstimator):
     fitted by local scoring: IRLS, each working problem solved by weighted
     backfitting of the terms (Hastie & Tibshirani, 1990).
 
-    The model is a list of terms (`glmnet.gam.s`, `lo`, `linear`, `factor`,
-    or a `ColumnsTerm` of several columns fitted as one parametric block),
-    each naming a column of `X` (ISLP's `ISLP.gam` builds them from a
-    ModelSpec).
-    The smoothing of each term is fixed: by its smoothing parameter
+    The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `linear`,
+    `factor`, or a `ColumnsTerm` of several columns fitted as one parametric
+    block), each naming a column of `X` (ISLP's `ISLP.gam` builds them from
+    a ModelSpec). The smoothing of each term is fixed: by its smoothing parameter
     `lam`, or by its degrees of freedom `df` (as R's `gam`). When every term
-    has a fixed smoothing parameter (`s(lam=...)`, `linear`, `factor`), the
-    fit minimizes
+    has a fixed smoothing parameter (`s(lam=...)`, `re(lam=...)`, `linear`,
+    `factor`), the fit minimizes
 
-        deviance / (2 sum(w)) + sum_j lam_j / 2 * int f_j''^2 + linear_term @ eta,
+        deviance / (2 sum(w)) + sum_j lam_j / 2 * pen_j(f_j) + linear_term @ eta,
 
-    with `eta` the linear predictor (without the offset) and `linear_term`
-    the optional argument of `fit`. Otherwise (`df` terms, loess) local scoring
-    stops on the change in `eta`.
+    with `pen_j` the integral of the squared second derivative for a spline,
+    the sum of the squared effects for a random effect, `eta` the linear
+    predictor (without the offset) and `linear_term` the optional argument
+    of `fit`. Otherwise (`df` terms, loess) local scoring stops on the change
+    in `eta`. The working problems are solved by backfitting (the default) or
+    jointly (`control.solver='joint'`): the same fit.
 
     Parameters
     ----------
@@ -97,7 +106,19 @@ class GAM(BaseEstimator):
         The fits of the terms at the training rows, one column per term.
     edf_: pd.Series
         Degrees of freedom of each term, without the constant: for a spline,
-        the trace of its smoother at the final weights less 1.
+        the trace of its smoother at the final weights less 1 (as R's `gam`).
+    edf_joint_: pd.Series
+        Degrees of freedom of each term in the joint fit (as mgcv's `edf`):
+        the sums over its coefficients of the diagonal of `F = (X' W X +
+        S)^{-1} X' W X`, at the final weights. None if a term has no basis.
+    Vp_, Ve_: np.ndarray
+        The Bayesian (posterior) covariance of the coefficients of the joint
+        design (`design_`), `Vp = dispersion (X' W X + S)^{-1}` (W the
+        weights of the final working problem, with the prior weights; S the
+        penalties), and the frequentist one, `Ve = Vp X' W X Vp / dispersion`
+        (mgcv's `Vp`, `Ve`). None if a term has no basis.
+    design_: JointDesign
+        The terms' bases side by side (None if a term has none).
     df_resid_: float
         Residual degrees of freedom, the number of observations (of positive
         weight) less 1 less the sum of `edf_` (as R's `gam`).
@@ -139,13 +160,14 @@ class GAM(BaseEstimator):
         for term in terms:
             if isinstance(X, pd.DataFrame):
                 # a name or a list of names (a ColumnsTerm), else positions
-                labels = term.column if isinstance(term.column, list) else [term.column]
+                column = term.columns
+                labels = column if isinstance(column, list) else [column]
                 if all(isinstance(c, str) for c in labels):
-                    cols.append(X[term.column].to_numpy())
+                    cols.append(X[column].to_numpy())
                 else:
-                    cols.append(X.iloc[:, term.column].to_numpy())
+                    cols.append(X.iloc[:, column].to_numpy())
             else:
-                cols.append(np.asarray(X)[:, term.column])
+                cols.append(np.asarray(X)[:, term.columns])
         return cols
 
     def fit(self,
@@ -214,12 +236,15 @@ class GAM(BaseEstimator):
             if linear_term.shape != (nobs,):
                 raise ValueError(f'linear_term should have shape {(nobs,)}')
 
-        regularizer = self.regularizer_ = GAMRegularizer(terms=self.terms_,
-                                                         linear_term=linear_term,
-                                                         bf_maxit=self.control.bf_maxit,
-                                                         bf_tol=self.control.bf_tol,
-                                                         modified=self.control.bf_modified,
-                                                         fit_intercept=not self._cox)
+        if self.control.solver not in ('backfit', 'joint'):
+            raise ValueError("solver should be one of 'backfit' or 'joint'")
+        Regularizer = JointRegularizer if self.control.solver == 'joint' else GAMRegularizer
+        regularizer = self.regularizer_ = Regularizer(terms=self.terms_,
+                                                      linear_term=linear_term,
+                                                      bf_maxit=self.control.bf_maxit,
+                                                      bf_tol=self.control.bf_tol,
+                                                      modified=self.control.bf_modified,
+                                                      fit_intercept=not self._cox)
 
         null_state, null_deviance = family.get_null_deviance(response=response,
                                                              sample_weight=normed_weight,
@@ -293,7 +318,32 @@ class GAM(BaseEstimator):
         self.loglike_ = self._loglike()
         self.aic_ = -2 * self.loglike_ + 2 * k
         self.bic_ = -2 * self.loglike_ + np.log(n) * k
+
+        self._set_covariance(w)
         return self
+
+    def _set_covariance(self, w):
+        """
+        The Bayesian covariance of the joint design's coefficients, at the
+        weights `w` of the final working problem (normalized) and the terms'
+        smoothing parameters there (as mgcv's `Vp`, `Ve` and `edf`).
+        """
+        self.design_ = self.Vp_ = self.Ve_ = self.edf_joint_ = None
+        if any(term.basis() is None for term in self.terms_):
+            return
+        D = self.design_ = (self.regularizer_.design_ if isinstance(self.regularizer_, JointRegularizer)
+                            and self.regularizer_.design_ is not None else JointDesign(self.terms_))
+        lams = [term.penalty_lam() if term.penalty_matrix() is not None else 0.
+                for term in self.terms_]
+        XWX = D.X.T @ (w[:, None] * D.X)
+        A = XWX + D.penalty(lams)
+        Ainv = np.linalg.pinv(A, hermitian=True)
+        # on the scale of the prior weights: X' W X and S times sum(weights)
+        self.Vp_ = self.dispersion_ * Ainv / self.weight_total_
+        self.Ve_ = self.dispersion_ * Ainv @ XWX @ Ainv / self.weight_total_
+        F = np.diag(Ainv @ XWX)
+        self.edf_joint_ = pd.Series([F[sl].sum() for sl in D.slices], index=self.edf_.index,
+                                    name='edf_joint')
 
     def _on_train_index_frame(self, value, names):
         index = getattr(self, '_train_index', None)
@@ -301,18 +351,34 @@ class GAM(BaseEstimator):
             return value
         return pd.DataFrame(value, index=index, columns=names)
 
-    def partial_effect(self, term, x):
+    def partial_effect(self, term, x, se=False):
         """
         The fitted function of a term: `term` is its index or its name (e.g.
         `'s(age, df=5)'`), and `x` its values, or a DataFrame of the data
         (with the term's columns).
+
+        With `se=True`, also its pointwise standard errors from the
+        Bayesian covariance `Vp_` (as mgcv's `predict(type="terms",
+        se.fit=TRUE)`; the curve of a centered term is centered, so they are
+        those of the centered curve): returns `(fit, se)`.
         """
         if not isinstance(term, (int, np.integer)):
             term = [t.name for t in self.terms_].index(term)
-        term = self.terms_[term]
+        j, term = term, self.terms_[term]
         if isinstance(x, pd.DataFrame):
             x = self._columns(self._design(x), [term])[0]
-        return term.predict(x)
+        fit = term.predict(x)
+        if not se:
+            return fit
+        self._check_covariance()
+        B = self.design_.block(j, x)
+        sl = self.design_.slices[j]
+        V = self.Vp_[sl, sl]
+        return fit, np.sqrt(np.maximum(np.einsum('ij,jk,ik->i', B, V, B), 0))
+
+    def _check_covariance(self):
+        if self.Vp_ is None:
+            raise ValueError('standard errors need a basis for every term (not lo())')
 
     def _linear_predictor(self, X, offset=None):
         X = self._design(X)
@@ -322,19 +388,31 @@ class GAM(BaseEstimator):
             eta = eta + offset
         return np.asarray(eta, float)
 
-    def predict(self, X, prediction_type='response', offset=None):
+    def predict(self, X, prediction_type='response', offset=None, se=False):
         """
         Predictions at `X`: of the mean (`'response'`) or of the linear
-        predictor (`'link'`).
+        predictor (`'link'`). With `se=True`, also their standard errors
+        from the Bayesian covariance `Vp_` (as mgcv's `predict(se.fit=TRUE)`;
+        for the mean, by the delta method): returns `(prediction, se)`.
         """
+        if prediction_type not in ('link', 'response'):
+            raise ValueError("prediction_type should be one of 'response' or 'link'")
         eta = self._linear_predictor(X, offset)
+        if se:
+            self._check_covariance()
+            rows = self.design_.rows(self._columns(self._design(X), self.terms_))
+            se_eta = np.sqrt(np.maximum(np.einsum('ij,jk,ik->i', rows, self.Vp_, rows), 0))
         if prediction_type == 'link':
-            return eta
-        elif prediction_type == 'response':
-            if self._cox:
-                return np.exp(eta)
-            return self._family.base.link.inverse(eta)
-        raise ValueError("prediction_type should be one of 'response' or 'link'")
+            return (eta, se_eta) if se else eta
+        if self._cox:
+            # the relative risk
+            mu = dmu = np.exp(eta)
+        else:
+            mu = self._family.base.link.inverse(eta)
+            dmu = self._family.base.link.inverse_deriv(eta) if se else None
+        if se:
+            return mu, se_eta * np.abs(dmu)
+        return mu
 
     def _cox_data(self, y, nobs):
         """
@@ -362,10 +440,17 @@ class GAM(BaseEstimator):
         return family, None, offset, weight
 
     def summary(self):
-        """The terms, their degrees of freedom and smoothing parameters."""
+        """
+        The terms, their degrees of freedom (`edf`, as R's `gam`, and
+        `edf_joint`, as mgcv's, when every term has a basis) and smoothing
+        parameters.
+        """
         lam = [getattr(term, 'lam_', np.nan) for term in self.terms_]
-        return pd.DataFrame({'edf': self.edf_.values, 'lam': lam},
-                            index=self.edf_.index)
+        table = pd.DataFrame({'edf': self.edf_.values}, index=self.edf_.index)
+        if self.edf_joint_ is not None:
+            table['edf_joint'] = self.edf_joint_.values
+        table['lam'] = lam
+        return table
 
     # as for GLM: they use only the response, weights, family and state_
     _on_train_index = GLM._on_train_index
