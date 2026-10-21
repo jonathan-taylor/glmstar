@@ -1574,7 +1574,7 @@ class CoefPath(object):
         the feature names as columns (for a multi-response path, columns
         `(feature, response)`).
         """
-        index = pd.Index(-np.log(self.lambda_values), name=r'$-\log(\lambda)$')
+        index = self._index('-lambda')
         coefs = np.asarray(self.coefs)
         if coefs.ndim > 2:
             columns = pd.MultiIndex.from_product([list(self.feature_names),
@@ -1584,6 +1584,28 @@ class CoefPath(object):
         else:
             columns = list(self.feature_names)
         return pd.DataFrame(coefs, index=index, columns=columns)
+
+    def _index(self, xvar):
+        """
+        The index of the path for `xvar`, one of 'lambda', '-lambda', 'norm', 'dev'.
+        """
+        if xvar == '-lambda':
+            index = pd.Index(-np.log(self.lambda_values))
+            index.name = r'$-\log(\lambda)$'
+        elif xvar == 'lambda':
+            index = pd.Index(np.log(self.lambda_values))
+            index.name = r'$\log(\lambda)$'
+        elif xvar == 'norm':
+            index = pd.Index(np.fabs(self.coefs).sum(1))
+            index.name = r'$\|\beta(\lambda)\|_1$'
+        elif xvar == 'dev':
+            if self.fracdev is None:
+                raise ValueError("fracdev must be set to use xvar='dev'")
+            index = pd.Index(self.fracdev)
+            index.name = 'Fraction Deviance Explained'
+        else:
+            raise ValueError("xvar should be one of 'lambda', '-lambda', 'norm', 'dev'")
+        return index
 
     def plot(self,
              xvar='-lambda',
@@ -1617,33 +1639,16 @@ class CoefPath(object):
         matplotlib.axes.Axes
             The axes object.
         """
-        if xvar == '-lambda':
-            index = pd.Index(-np.log(self.lambda_values))
-            index.name = r'$-\log(\lambda)$'
-        elif xvar == 'lambda':
-            index = pd.Index(np.log(self.lambda_values))
-            index.name = r'$\log(\lambda)$'
-        elif xvar == 'norm':
-            index = pd.Index(np.fabs(self.coefs).sum(1))
-            index.name = r'$\|\beta(\lambda)\|_1$'
-        elif xvar == 'dev':
-            if self.fracdev is None:
-                raise ValueError("fracdev must be set to use xvar='dev'")
-            index = pd.Index(self.fracdev)
-            index.name = 'Fraction Deviance Explained'
-        else:
-            raise ValueError("xvar should be one of 'lambda', '-lambda', 'norm', 'dev'")
-
-        coefs_ = self.coefs
-        if coefs_.ndim > 2:
-            # compute the l2 norm
-            coefs_ = np.sqrt((coefs_**2).sum(-1))
+        index = self._index(xvar)
+        soln_path = self.df_
+        if np.ndim(self.coefs) > 2:
+            # compute the l2 norm over the responses
+            soln_path = np.sqrt((soln_path**2).T.groupby(level='feature', sort=False).sum().T)
+            soln_path.columns.name = None
             ylabel = r'Coefficient norms ($\|\beta\|_2$)'
         else:
             ylabel = r'Coefficients ($\beta$)'
-        soln_path = pd.DataFrame(coefs_,
-                                 columns=self.feature_names,
-                                 index=index)
+        soln_path.index = index
         if drop is not None:
             soln_path = soln_path.drop(columns=drop)
         if keep is not None:

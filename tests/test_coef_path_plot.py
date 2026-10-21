@@ -94,3 +94,23 @@ def test_df_multi_response():
     D = path.df_
     assert D.shape == (path.coefs.shape[0], p * 2)
     np.testing.assert_allclose(D[('v0', 1)], path.coefs[:, 0, 1])
+
+
+@pytest.mark.parametrize('multi', [False, True])
+def test_plot_lines_are_df(multi):
+    # the curves are the columns of df_ (their l2 norms over the responses)
+    if multi:
+        Y = np.column_stack([y, rng.standard_normal(n)])
+        path = MultiGaussNet().fit(Xdf, Y).coef_path_
+        expected = np.sqrt((path.coefs**2).sum(-1))
+    else:
+        path = GaussNet().fit(Xdf, y).coef_path_
+        expected = path.coefs
+    fig, ax = plt.subplots()
+    path.plot(ax=ax, legend=True)
+    lines = ax.get_lines()[:p]
+    assert [l.get_label() for l in lines] == list(Xdf.columns)
+    for j, line in enumerate(lines):
+        np.testing.assert_allclose(line.get_xdata(), -np.log(path.lambda_values))
+        np.testing.assert_allclose(line.get_ydata(), expected[:, j])
+    plt.close(fig)
