@@ -9,7 +9,7 @@
   MinGW gcc on the PATH the extensions needed DLLs that Python doesn't find
   ("DLL load failed while importing _elnet_point"). Each wheel is tested to
   import and fit, and the tests run on Windows. Requires coxdev 0.3.1, whose
-  Windows wheels import.
+  Windows wheels import (#152).
 
 ### Fixes
 
