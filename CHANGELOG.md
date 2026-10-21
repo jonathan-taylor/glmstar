@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- **`anova` is the F-test for least squares:** for Gaussian fits with the
+  identity link, an estimated dispersion and the model-based covariance (where
+  the coefficients' statistics are t), the table has `F` and `P(>F)` columns:
+  the drop in deviance (residual sum of squares) over the drop in residual
+  degrees of freedom, divided by the largest model's dispersion, against F on
+  those degrees of freedom and the largest model's residual degrees of
+  freedom, as R's `anova.lm` and statsmodels' `anova_lm`. Other fits keep
+  `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`).
 ### New
 
 - **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
