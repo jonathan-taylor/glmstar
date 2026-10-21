@@ -139,8 +139,11 @@ class LaplaceCriterion(object):
     coefficients at each value.
     """
 
-    # the precision of the gradient, for convergence
+    # the precision of the gradient (for convergence) and of the criterion
+    # (relative), and the step of the differences of the gradient
     grad_tol = 1e-5
+    value_tol = 1e-12
+    hess_eps = 1e-5
 
     def __init__(self, gam, estimated, method='REML', dispersion=None):
         self.gam, self.method = gam, method
@@ -280,6 +283,8 @@ class LaplaceCriterion(object):
         self.n_evaluations += 1
         params = np.asarray(params, float)
         beta = self.coef(params)
+        if not self.gam.converged_:
+            return self._unconverged(params)
         value, (g_params, g_beta) = jax.value_and_grad(self.criterion, argnums=(0, 1))(params, beta)
         H = np.asarray(self._hessian(params, beta))
         lam, _ = self._split(params)
@@ -290,7 +295,22 @@ class LaplaceCriterion(object):
         dS = lam[self.est_blocks, None] * self.M[self.est_blocks]      # (K, P)
         dbeta = -np.linalg.solve(H, (dS * beta[None, :]).T)           # (P, K)
         g[:len(self.estimated)] += np.asarray(g_beta) @ dbeta
+        self._max_value = max(getattr(self, '_max_value', -np.inf), float(value))
         return float(value), g
+
+    def _unconverged(self, params):
+        """
+        The criterion where the inner fit did not converge: with smoothing
+        parameters near 0 the penalized likelihood can be maximized only at
+        very large coefficients (a smooth with as many knots as events, for
+        Cox), and the criterion at an unconverged fit is meaningless (it can
+        be very negative). A value larger than any seen, with a gradient
+        towards larger smoothing parameters, so that the search turns back.
+        """
+        worst = getattr(self, '_max_value', 0.)
+        g = np.zeros(len(params))
+        g[:len(self.estimated)] = -1e3
+        return abs(worst) + 1e6, g
 
     def start(self):
         """
@@ -328,9 +348,12 @@ class CoxLaplaceCriterion(LaplaceCriterion):
     implicit derivative is a central difference of the information operator
     (it needs the third derivatives of the partial likelihood).
     """
-    # the partial likelihood's criterion is precise to about 1e-8 (Efron's
-    # ties), its gradient to about 1e-5
+    # the partial likelihood's criterion is precise to about 1e-11
+    # (relative), its gradient (from a difference of the information) to
+    # about 1e-5
     grad_tol = 1e-4
+    value_tol = 1e-10
+    hess_eps = 1e-3
 
     def __init__(self, gam, estimated, method='REML', dispersion=None):
         self.gam, self.method = gam, method
@@ -448,6 +471,8 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         params = np.asarray(params, float)
         K = len(self.estimated)
         beta = self.coef(params)
+        if not self.gam.converged_:
+            return self._unconverged(params)
         lam, _ = self._split(params)
         s = lam @ self.M
         eta = self._eta(beta)
@@ -472,6 +497,7 @@ class CoxLaplaceCriterion(LaplaceCriterion):
             eps = 1e-4 / max(np.max(np.abs(v)), 1e-12)
             dI = (self._XIX(eta + eps * v) - self._XIX(eta - eps * v)) / (2 * eps)
             g[k] += g_beta @ dbeta[:, k] + np.sum(Hinv_sub * dI[np.ix_(idx, idx)].T) / 2
+        self._max_value = max(getattr(self, '_max_value', -np.inf), float(value))
         return value, g
 
     def start(self):
@@ -488,9 +514,12 @@ class CoxLaplaceCriterion(LaplaceCriterion):
 def _newton(crit, x, bounds, maxit=20, tol=1e-8):
     """
     Newton's method from `x` (the quasi-Newton optimum), its Hessian by
-    central differences of the exact gradient, with step halving: the
-    optimum to the precision of the gradient. Parameters on their bounds
-    (a smoothing parameter at 0 or infinity in effect) are held there.
+    central differences of the gradient (step `crit.hess_eps`), with step
+    halving: the optimum to the precision of the gradient. Near the
+    optimum a step's decrease of the criterion can be below its precision
+    (`crit.value_tol`, relative): a step that does not increase it beyond
+    that, and halves the gradient, is taken. Parameters on their bounds (a
+    smoothing parameter at 0 or infinity in effect) are held there.
     """
     lo = np.array([-np.inf if b[0] is None else b[0] for b in bounds])
     hi = np.array([np.inf if b[1] is None else b[1] for b in bounds])
@@ -499,7 +528,7 @@ def _newton(crit, x, bounds, maxit=20, tol=1e-8):
         free = ~(((x <= lo + 1e-8) & (grad > 0)) | ((x >= hi - 1e-8) & (grad < 0)))
         if np.max(np.abs(grad[free]), initial=0) < tol:
             return x, value, grad, True
-        k, eps = len(x), 1e-5
+        k, eps = len(x), crit.hess_eps
         H = np.empty((k, k))
         for i in range(k):
             e = np.zeros(k)
@@ -517,6 +546,12 @@ def _newton(crit, x, bounds, maxit=20, tol=1e-8):
             x_new = np.clip(x + t * step, lo, hi)
             v_new, g_new = crit.value_and_grad(x_new)
             if v_new <= value + 1e-12 * abs(value):
+                break
+            free_new = free & ~(((x_new <= lo + 1e-8) & (g_new > 0)) |
+                                ((x_new >= hi - 1e-8) & (g_new < 0)))
+            if (v_new <= value + crit.value_tol * abs(value) and
+                np.max(np.abs(g_new[free_new]), initial=0) <=
+                np.max(np.abs(grad[free]), initial=0) / 2):
                 break
             t /= 2
         else:
@@ -575,6 +610,7 @@ def select_smoothing(gam, dispersion=None):
         lam, phi = np.asarray(lam, float)[crit.est_blocks], float(phi)
         # the terms at the optimum
         crit.coef(x)
+        converged = converged and gam.converged_
     return SmoothingSelection(method=gam.method,
                               terms=[terms[j].name for j in estimated],
                               lam=lam / crit.weight_total,
