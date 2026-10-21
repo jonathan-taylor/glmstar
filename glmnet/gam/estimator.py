@@ -10,6 +10,7 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, clone
+from statsmodels.genmod.families import family as sm_family
 
 from glmnet._utils import _get_data, _parent_dataclass_from_child
 from glmnet.family import GLMFamilySpec
@@ -99,7 +100,9 @@ class GAM(BaseEstimator):
         Residual degrees of freedom, the number of observations (of positive
         weight) less 1 less the sum of `edf_` (as R's `gam`).
     deviance_, null_deviance_, dispersion_, loglike_, aic_: float
-        As for `GLM`; the AIC counts `1 + sum(edf_)` parameters.
+        As for `GLM`; the AIC counts `1 + sum(edf_)` parameters, plus 1 for a
+        free dispersion, as R's `gam` (for the Gamma and inverse Gaussian the
+        log-likelihood is at the dispersion deviance / sum(weights), as R's).
     n_iter_: int
         Number of IRLS iterations.
     """
@@ -272,7 +275,9 @@ class GAM(BaseEstimator):
             dispersion = 1.
         self.dispersion_ = dispersion
 
-        k, n = 1 + self.edf_.sum(), np.sum(weight > 0)
+        # as R's gam (and glm): the dispersion, when free, counts as a
+        # parameter, and the log-likelihood is at R's estimate of it
+        k, n = 1 + self.edf_.sum() + (not self._fixed_dispersion()), np.sum(weight > 0)
         self.loglike_ = self._loglike()
         self.aic_ = -2 * self.loglike_ + 2 * k
         self.bic_ = -2 * self.loglike_ + np.log(n) * k
@@ -327,4 +332,13 @@ class GAM(BaseEstimator):
     _residuals = GLM._residuals
     _on_train_index = GLM._on_train_index
     _fixed_dispersion = GLM._fixed_dispersion
-    _loglike = GLM._loglike
+
+    def _loglike(self):
+        base = self._family.base
+        if isinstance(base, (sm_family.Gamma, sm_family.InverseGaussian)):
+            # R's Gamma()$aic and inverse.gaussian()$aic: at the dispersion
+            # deviance / sum(weights), not Pearson's
+            y = np.asarray(self._response, float).reshape(-1)
+            return base.loglike(y, self.state_.mu, var_weights=self._weight,
+                                scale=self.deviance_ / self._weight.sum())
+        return GLM._loglike(self)

@@ -19,7 +19,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from ISLP.gam import GAM, GAMControl, s, factor
+from ISLP.gam import GAM, GAMControl, s, lo, linear, factor
 
 CONTROL = GAMControl(epsnr=1e-12, mxitnr=100)
 FAMILIES = {'gaussian': (sm.families.Gaussian, 'y'),
@@ -136,3 +136,160 @@ def test_many_distinct_values_gam(Rinfo, family):
     np.testing.assert_allclose(G.state_.linear_predictor, eta_R, rtol=1e-3, atol=1e-4)
     np.testing.assert_allclose(G.deviance_, rpy.r('deviance(g)')[0], rtol=1e-5)
     np.testing.assert_allclose(G.edf_.iloc[:2] - 1, np.asarray(rpy.r('g$nl.df')), atol=1e-3)
+
+
+# more comparisons with R's gam::gam (fixed degrees of freedom). R matches
+# each spline's df at the working weights to about 1e-4, so the fits agree
+# to about 1e-4 (1e-3 for the binomial's rounder curvature)
+
+GAM_CONTROL = 'gam::gam.control(epsilon=1e-12, bf.epsilon=1e-12, maxit=100, bf.maxit=500)'
+
+
+def _gam(rpy, formula, family='gaussian', extra=''):
+    rpy.r('suppressPackageStartupMessages(library(gam))')
+    rpy.r(f'g <- gam::gam({formula}, data=D, family={family}{extra}, control={GAM_CONTROL})')
+    return {k: np.asarray(rpy.r(v)) for k, v in
+            [('eta', 'g$additive.predictors'), ('deviance', 'deviance(g)'),
+             ('null', 'g$null.deviance'), ('dispersion', 'summary(g)$dispersion'),
+             ('aic', 'AIC(g)'), ('df_resid', 'g$df.residual'), ('nl_df', 'g$nl.df')]}
+
+
+def _check_gam(G, R, atol=2e-4):
+    # R's additive predictors include the offset
+    np.testing.assert_allclose(G.state_.link_parameter, R['eta'], rtol=1e-3, atol=atol)
+    np.testing.assert_allclose(G.deviance_, R['deviance'][0], rtol=1e-4)
+    np.testing.assert_allclose(G.df_resid_, R['df_resid'][0], atol=2e-3)
+    np.testing.assert_allclose(G.dispersion_, R['dispersion'][0], rtol=1e-4)
+    np.testing.assert_allclose(G.aic_, R['aic'][0], atol=5e-3)
+
+
+@pytest.fixture(scope='module')
+def kyphosis(Rinfo):
+    rpy = _R(Rinfo, pd.DataFrame({'c': ['x']}), 'gam')
+    rpy.r('data(kyphosis, package="gam")')
+    with Rinfo['np_cv_rules'].context():
+        K = rpy.r('kyphosis')
+    K = pd.DataFrame(K)
+    K['y'] = (K['Kyphosis'] == 'present').astype(float)
+    for c in ['Age', 'Number', 'Start']:
+        K[c] = K[c].astype(float)
+    return K
+
+
+def test_kyphosis_gam(Rinfo, kyphosis):
+    # the classic example of R's gam: binomial, s() with its default df=4
+    from glmnet.glm import residuals
+    rpy = Rinfo['rpy']
+    K = kyphosis
+    G = GAM(terms=[s('Age'), s('Number'), s('Start')], family=sm.families.Binomial(),
+            control=CONTROL).fit(K, K['y'])
+    rpy.r('D <- kyphosis')
+    R = _gam(rpy, 'Kyphosis ~ s(Age) + s(Number) + s(Start)', 'binomial')
+    _check_gam(G, R, atol=2e-3)
+    np.testing.assert_allclose(G.null_deviance_, R['null'][0], rtol=1e-10)
+    np.testing.assert_allclose(G.edf_.values - 1, R['nl_df'], atol=1e-3)
+
+    # predictions at new data, and the terms (R's are centered by a constant)
+    new = K.iloc[::7]
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('new', new)
+    for kind in ['link', 'response']:
+        np.testing.assert_allclose(G.predict(new, kind),
+                                   np.asarray(rpy.r(f'predict(g, newdata=new, type="{kind}")')),
+                                   atol=2e-3)
+    terms_R = np.asarray(rpy.r('predict(g, type="terms")'))
+    np.testing.assert_allclose(np.asarray(G.fits_), terms_R - terms_R.mean(0), atol=2e-3)
+    for kind in ['deviance', 'pearson', 'response']:
+        np.testing.assert_allclose(residuals(G, kind),
+                                   np.asarray(rpy.r(f'residuals(g, type="{kind}")')), atol=2e-3)
+
+
+GAM_FAMILIES = {
+    'gaussian, weights': (sm.families.Gaussian(), 'gaussian', 'y', True, False),
+    'poisson, weights and offset': (sm.families.Poisson(), 'poisson', 'yp', True, True),
+    'Gamma, log link': (sm.families.Gamma(sm.families.links.Log()), 'Gamma(link="log")', 'yg', False, False),
+    'Gamma, inverse link': (sm.families.Gamma(), 'Gamma', 'yg', False, False),
+}
+
+
+@pytest.fixture(scope='module')
+def data_gam(data):
+    D = data.copy()
+    rng = np.random.default_rng(4)
+    eta = np.sin(2 * np.pi * D['a']) + 0.25 * D['b']**2
+    D['yg'] = rng.gamma(5, np.exp(0.3 * eta) / 5)
+    D['d'] = rng.uniform(0, 1, D.shape[0])
+    D['a2'] = np.round(D['a'] + 0.05 * rng.standard_normal(D.shape[0]), 3)
+    return D
+
+
+@pytest.mark.parametrize('case', list(GAM_FAMILIES))
+def test_families_gam(Rinfo, data_gam, case):
+    family, Rfamily, yname, weights, offset = GAM_FAMILIES[case]
+    D = data_gam
+    rpy = _R(Rinfo, D, 'gam')
+    cols = [yname] + (['w'] if weights else []) + (['o'] if offset else [])
+    terms = [s('a', df=4), s('b', df=3)] + ([factor('c')] if 'inverse' not in case else [])
+    G = GAM(terms=terms, family=family, control=CONTROL, response_id=yname,
+            weight_id='w' if weights else None,
+            offset_id='o' if offset else None).fit(D, D[cols])
+    formula = (f'{yname} ~ s(a, 4) + s(b, 3)' + (' + c' if 'inverse' not in case else '') +
+               (' + offset(o)' if offset else ''))
+    R = _gam(rpy, formula, Rfamily, ', weights=w' if weights else '')
+    _check_gam(G, R)
+    np.testing.assert_allclose(G.edf_.values[:2] - 1, R['nl_df'], atol=1e-3)
+    # the null deviance: R's gam leaves out the offset, glmstar (as R's glm)
+    # fits the intercept with it
+    null = f'glm({yname} ~ 1{" + offset(o)" if offset else ""}, data=D, family={Rfamily}{", weights=w" if weights else ""})$null.deviance'
+    np.testing.assert_allclose(G.null_deviance_, rpy.r(null)[0], rtol=1e-8)
+
+
+@pytest.mark.parametrize('case', ['linear terms', 'df near 1 and large', 'concurvity'])
+def test_terms_gam(Rinfo, data_gam, case):
+    D = data_gam
+    rpy = _R(Rinfo, D, 'gam')
+    terms, formula = {
+        'linear terms': ([s('a', df=4), linear('b'), linear('d')], 'y ~ s(a, 4) + b + d'),
+        'df near 1 and large': ([s('a', df=1.2), s('b', df=10)], 'y ~ s(a, 1.2) + s(b, 10)'),
+        # a2 is a with noise: modified backfitting fits their linear parts jointly
+        'concurvity': ([s('a', df=4), s('a2', df=4)], 'y ~ s(a, 4) + s(a2, 4)'),
+    }[case]
+    G = GAM(terms=terms, control=CONTROL).fit(D, D['y'])
+    R = _gam(rpy, formula)
+    _check_gam(G, R)
+    if case == 'linear terms':
+        coef = dict(zip(rpy.r('names(coef(g))'), np.asarray(rpy.r('coef(g)'))))
+        np.testing.assert_allclose([G.terms_[1].coef_, G.terms_[2].coef_],
+                                   [coef['b'], coef['d']], rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize('degree', [1, 2])
+@pytest.mark.parametrize('span', [0.3, 0.5])
+def test_lo_is_R_loess(Rinfo, data_gam, degree, span):
+    # a single lo() term is the loess smooth (scatter_smooth's is R's loess
+    # computed exactly, surface="direct"), recentered: backfitting centers
+    # it and the intercept is the mean of y (loess reproduces constants but
+    # does not keep the mean). Its df is the trace of the smoother
+    D = data_gam
+    rpy = _R(Rinfo, D, 'stats')
+    G = GAM(terms=[lo('d', span=span, degree=degree)], control=CONTROL).fit(D, D['y'])
+    rpy.r(f'l <- loess(y ~ d, data=D, span={span}, degree={degree}, family="gaussian", '
+          'control=loess.control(surface="direct", statistics="exact"))')
+    f = np.asarray(rpy.r('fitted(l)'))
+    np.testing.assert_allclose(G.predict(D), f - f.mean() + D['y'].mean(), rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(G.edf_.iloc[0] + 1, rpy.r('l$trace.hat')[0], rtol=1e-8)
+
+
+@pytest.mark.parametrize('family', ['gaussian', 'poisson'])
+def test_lo_mixed_gam(Rinfo, data_gam, family):
+    # gam::lo is its own loess (gam's Fortran), about 0.05 from R's loess for
+    # these spans: the fits agree to that
+    D = data_gam
+    rpy = _R(Rinfo, D, 'gam')
+    klass, yname = FAMILIES[family]
+    G = GAM(terms=[lo('d', span=0.5), s('b', df=3), factor('c')], family=klass(),
+            control=CONTROL).fit(D, D[yname])
+    R = _gam(rpy, f'{yname} ~ lo(d, span=0.5) + s(b, 3) + c', family)
+    np.testing.assert_allclose(G.state_.link_parameter, R['eta'], atol=5e-2)
+    np.testing.assert_allclose(G.deviance_, R['deviance'][0], rtol=2e-3)
+    np.testing.assert_allclose(G.df_resid_, R['df_resid'][0], atol=0.5)
