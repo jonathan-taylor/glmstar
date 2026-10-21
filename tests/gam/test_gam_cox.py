@@ -232,3 +232,116 @@ def test_cox_mgcv(Rinfo, data, use_offset):
         np.testing.assert_allclose(fit - fit.mean(), fit_R - fit_R.mean(), atol=1e-7)
         np.testing.assert_allclose(se, np.asarray(terms_R[1])[:, names_R.index(name)],
                                    rtol=1e-6, atol=1e-10)
+
+
+# REML and ML (Laplace approximate marginal likelihood, as mgcv's cox.ph)
+
+def _criterion(G, method):
+    # the criterion of a fitted GAM, at its estimated terms
+    from ISLP.gam.reml import CoxLaplaceCriterion
+    estimated = [j for j, t in enumerate(G.terms_) if t.name in G.smoothing_.terms]
+    return CoxLaplaceCriterion(G, estimated, method=method)
+
+
+@pytest.mark.parametrize('method', ['REML', 'ML'])
+@pytest.mark.parametrize('ties, option', [('breslow', 'plain'), ('efron', 'all')])
+def test_cox_reml_gradient(data, method, ties, option):
+    # the gradient (through the implicit derivative of the coefficients and
+    # a difference of the information) against central differences of the
+    # criterion (refitted at each point), away from the optimum
+    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family(ties, option), method=method,
+            weight_id='w', offset_id='o').fit(data, data)
+    assert G.smoothing_.converged
+    crit = _criterion(G, method)
+    x = np.log(G.smoothing_.lam_raw) + np.array([0.7, -8.])
+    _, grad = crit.value_and_grad(x)
+    h = 1e-3
+    fd = [(crit.value_and_grad(x + h * e)[0] - crit.value_and_grad(x - h * e)[0]) / (2 * h)
+          for e in np.identity(2)]
+    np.testing.assert_allclose(grad, fd, rtol=1e-3, atol=1e-5)
+
+
+@pytest.mark.parametrize('method', ['REML', 'ML'])
+@pytest.mark.parametrize('option', list(OPTIONS))
+def test_cox_reml_fit(data, method, option):
+    # Efron ties, weights and an offset: the fit at the estimates is the fit
+    # with those smoothing parameters given, and the criterion's gradient is
+    # 0 there; ML and REML differ
+    terms = [s('x'), s('z'), factor('c')]
+    G = GAM(terms=terms, family=_family('efron', option), method=method,
+            weight_id='w', offset_id='o').fit(data, data)
+    sel = G.smoothing_
+    assert sel.converged
+    # s(z) is nearly linear: its smoothing parameter on its upper bound
+    on_bound = (np.log(sel.lam_raw) >= _criterion(G, method).start() + 25 - 1e-6) & (sel.gradient < 0)
+    assert np.all(np.abs(sel.gradient[~on_bound]) < _criterion(G, method).grad_tol)
+    lam = sel.lam
+    F = GAM(terms=[s('x', lam=lam[0]), s('z', lam=lam[1]), factor('c')],
+            family=_family('efron', option), weight_id='w', offset_id='o',
+            control=GAMControl(solver='joint', epsnr=1e-13, mxitnr=100)).fit(data, data)
+    np.testing.assert_allclose(G.fits_, F.fits_, atol=1e-5)
+    np.testing.assert_allclose(G.edf_.values, F.edf_influence_.values, rtol=2e-5)
+    assert G.dispersion_ == 1 and G.intercept_ == 0
+    np.testing.assert_allclose(G.df_resid_, data.shape[0] - G.edf_.sum())
+    other = GAM(terms=terms, family=_family('efron', option),
+                method='ML' if method == 'REML' else 'REML',
+                weight_id='w', offset_id='o').fit(data, data)
+    assert abs(other.smoothing_.lam[0] / lam[0] - 1) > 1e-3
+
+
+def test_cox_reml_mgcv(Rinfo, data, use_offset):
+    # against mgcv's cox.ph with method="REML" (Breslow ties, no case
+    # weights, our knots), with a random effect: sp (lam * n * S.scale), edf,
+    # the fit, and the score up to a constant (that of the parametrization of
+    # the unpenalized coefficients). s(z) is nearly linear: its sp is large
+    # (mgcv stops earlier), so only its edf, near 1, is compared
+    from ISLP.gam import re
+    rpy = Rinfo['rpy']
+    if not rpy.r('isTRUE(requireNamespace("mgcv", quietly=TRUE))')[0]:
+        pytest.skip('requires the R package mgcv')
+    D = data.copy()
+    rng = np.random.default_rng(7)
+    groups = [f'g{i:02d}' for i in range(12)]
+    D['g'] = rng.choice(groups, D.shape[0])
+    # a group effect b on the log hazard: an exponential time over exp(b)
+    b = D['g'].map(dict(zip(groups, rng.normal(0, 0.6, 12))))
+    D['time'] = D['time'] * np.exp(-b)
+    D['start'] = D['start'] * np.exp(-b)
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('D', D)
+    rpy.r('D$c <- factor(D$c); D$g <- factor(D$g)')
+    G = GAM(terms=[s('x'), s('z'), factor('c'), re('g')], family=_family('breslow', 'plain'),
+            method='REML', offset_id='o' if use_offset else None).fit(D, D)
+    kx, kz = G.terms_[0].knots_, G.terms_[1].knots_
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('kx', kx)
+        rpy.r.assign('kz', kz)
+    off = ' + offset(o)' if use_offset else ''
+    rpy.r(f"""m <- mgcv::gam(time ~ s(x, bs='cr', k={len(kx)}) + s(z, bs='cr', k={len(kz)}) + c
+                              + s(g, bs='re'){off}, family=mgcv::cox.ph(), weights=status,
+               data=D, knots=list(x=kx, z=kz), method='REML',
+               control=mgcv::gam.control(epsilon=1e-12, maxit=200))""")
+    n = D.shape[0]
+    scale = np.array([rpy.r(f'm$smooth[[{i}]]$S.scale')[0] for i in (1, 2, 3)])
+    sp_R = np.asarray(rpy.r('m$sp'))
+    lam = {t.name: getattr(t, 'lam', None) for t in G.terms_}
+    np.testing.assert_allclose(lam[G.terms_[0].name] * n * scale[0], sp_R[0], rtol=1e-4)
+    np.testing.assert_allclose(lam[G.terms_[3].name] * n * scale[2], sp_R[2], rtol=1e-3)
+    edf_R = np.asarray(rpy.r('sapply(m$smooth, function(sm) sum(m$edf[sm$first.para:sm$last.para]))'))
+    np.testing.assert_allclose(G.edf_.values[[0, 3]], edf_R[[0, 2]], rtol=1e-4)
+    np.testing.assert_allclose(G.edf_.values[1], edf_R[1], atol=3e-3)
+    # mgcv at our sp: the same fit, and its REML score no larger than at its own
+    sp = [float(lam[G.terms_[j].name] * n * c) for j, c in zip((0, 1, 3), scale)]
+    rpy.r(f"""m2 <- mgcv::gam(time ~ s(x, bs='cr', k={len(kx)}) + s(z, bs='cr', k={len(kz)}) + c
+                               + s(g, bs='re'){off}, family=mgcv::cox.ph(), weights=status,
+               data=D, knots=list(x=kx, z=kz), method='REML',
+               sp=c({sp[0]!r}, {sp[1]!r}, {sp[2]!r}),
+               control=mgcv::gam.control(epsilon=1e-12, maxit=200))""")
+    eta, eta_R = G.state_.link_parameter, np.asarray(rpy.r('m2$linear.predictors'))
+    # (mgcv's fit with the sp of s(z) about 1e11 is precise to about 1e-5)
+    np.testing.assert_allclose(eta - eta.mean(), eta_R - eta_R.mean(), atol=3e-5)
+    assert rpy.r('m2$gcv.ubre')[0] <= rpy.r('m$gcv.ubre')[0] + 1e-8
+    # the variance of the random effect, as gam.vcomp's
+    vc_R = np.asarray(rpy.r('v <- mgcv::gam.vcomp(m, rescale=TRUE); if (is.list(v)) v$all else v'))
+    np.testing.assert_allclose(G.variance_components_.loc[G.terms_[3].name, 'sd'], vc_R[2],
+                               rtol=1e-3)

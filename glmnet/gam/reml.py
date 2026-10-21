@@ -23,6 +23,10 @@ penalties' null space), the negative log REML is
 
 and ML integrates only the penalized coefficients: `H` restricted to them,
 and no last term.
+
+For the Cox family (as mgcv's `cox.ph`) the likelihood is the partial
+likelihood, with no intercept and no dispersion (`CoxLaplaceCriterion`, in
+numpy, from coxdev's information operator).
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -133,6 +137,9 @@ class LaplaceCriterion(object):
     up, its response and weights recorded); its local scoring gives the
     coefficients at each value.
     """
+
+    # the precision of the gradient, for convergence
+    grad_tol = 1e-5
 
     def __init__(self, gam, estimated, method='REML', dispersion=None):
         self.gam, self.method = gam, method
@@ -307,6 +314,176 @@ class LaplaceCriterion(object):
         return np.array(params, float)
 
 
+class CoxLaplaceCriterion(LaplaceCriterion):
+    """
+    The Laplace approximate REML or ML of a Cox GAM (as mgcv's `cox.ph`):
+    the penalized partial likelihood, no intercept and no dispersion,
+
+        -l_p(b) + b' S b / 2 + log|H| / 2 - log|S|_+ / 2 - M log(2 pi) / 2
+
+    with `H = X' I X + S`, `I` the information of the partial likelihood in
+    the linear predictor (coxdev's operator), on the scale of the prior
+    weights. In numpy: the derivative of `log|H|` along the coefficients'
+    implicit derivative is a central difference of the information operator
+    (it needs the third derivatives of the partial likelihood).
+    """
+    # the partial likelihood's criterion is precise to about 1e-8 (Efron's
+    # ties), its gradient to about 1e-5
+    grad_tol = 1e-4
+
+    def __init__(self, gam, estimated, method='REML', dispersion=None):
+        self.gam, self.method = gam, method
+        self.terms = gam.terms_
+        self.estimated = list(estimated)
+        self.free_dispersion, self.fixed_dispersion = False, 1.
+        self.family = gam._family
+        D = self.design = JointDesign(self.terms)
+        a = self.a = np.asarray(gam._weight, float)
+        self.weight_total = a.sum()
+        self.keep = np.ones(a.shape[0], bool)
+        offset = gam._offset
+        self.offset = np.zeros(a.shape[0]) if offset is None else np.asarray(offset, float)
+        self._coxdev = self.family._coxdev_at(gam._normed_weight)
+
+        # as LaplaceCriterion, without the column of ones (no intercept)
+        P = D.n_coef
+        T = np.identity(P)
+        blocks = []
+        for j, (sl, S) in enumerate(zip(D.slices, D.penalties)):
+            if S is None:
+                continue
+            ev, V = np.linalg.eigh((S + S.T) / 2)
+            ev = np.where(ev > ev.max() * 1e-10, ev, 0.)
+            T[sl, sl] = V
+            blocks.append((j, np.arange(P)[sl] - 1, ev))
+        self.T = T[:, 1:]
+        self.X = D.X @ self.T
+        self.blocks = blocks
+        M = np.zeros((len(blocks), P - 1))
+        for b, (j, idx, ev) in enumerate(blocks):
+            M[b, idx] = ev
+        self.M = M
+        self.rank = (M > 0).sum(1)
+        self.log_ev = np.array([np.log(ev[ev > 0]).sum() for _, _, ev in blocks])
+        self.penalized = np.nonzero(M.sum(0) > 0)[0]
+        self.null_dim = P - 1 - len(self.penalized)
+        block_of = {j: b for b, (j, _, _) in enumerate(blocks)}
+        if any(j not in block_of for j in self.estimated):
+            raise ValueError('only penalized terms have smoothing parameters to estimate')
+        self.est_blocks = np.array([block_of[j] for j in self.estimated], int)
+        self.lam_fixed = np.array([0. if j in self.estimated else
+                                   self.terms[j].penalty_lam() * self.weight_total
+                                   for j, _, _ in blocks])
+        self.n_params = len(self.estimated)
+        self._warm = None
+        self.n_evaluations = 0
+
+    def _split(self, params):
+        lam = self.lam_fixed.copy()
+        lam[self.est_blocks] = np.exp(np.asarray(params, float)[:len(self.estimated)])
+        return lam, 1.
+
+    def _eta(self, beta):
+        return self.X @ beta + self.offset
+
+    def _XIX(self, eta):
+        I = self._coxdev.information(eta, self.a)
+        return self.X.T @ (I @ self.X)
+
+    def _hessian(self, params, beta):
+        lam, _ = self._split(params)
+        return self._XIX(self._eta(beta)) + np.diag(lam @ self.M)
+
+    def _logdet_H(self, H):
+        if self.method == 'ML':
+            H = H[np.ix_(self.penalized, self.penalized)]
+        # equilibrated, its eigenvalues bounded below (far from the optimum,
+        # with a smoothing parameter near 0, H can be numerically singular)
+        d = np.sqrt(np.maximum(np.diag(H), np.finfo(float).tiny))
+        ev = np.linalg.eigvalsh(H / d[:, None] / d[None, :])
+        ev = np.maximum(ev, ev.max() * 1e-15)
+        return float(np.sum(np.log(ev)) + 2 * np.sum(np.log(d)))
+
+    def criterion(self, params, beta):
+        lam, _ = self._split(params)
+        result = self._coxdev(self._eta(beta), self.a)
+        value = (result.deviance / 2 - result.loglik_sat + np.sum(lam @ self.M * beta**2) / 2 +
+                 self._logdet_H(self._hessian(params, beta)) / 2 -
+                 (np.sum(self.rank * np.log(lam)) + np.sum(self.log_ev)) / 2)
+        if self.method == 'REML':
+            value -= self.null_dim * np.log(2 * np.pi) / 2
+        return float(value)
+
+    def coef(self, params):
+        self._set_lams(params)
+        gam = self.gam
+        control = self._inner_control()
+        state = gam._local_scoring(state=deepcopy(self._warm), control=control, warn=False)
+        converged = gam.converged_
+        if converged:
+            # one more Newton step: the coefficients to rounding (the
+            # objective, on which the fit stops, is flat at its minimum)
+            from copy import copy
+            one = copy(control)
+            one.mxitnr = 1
+            state = gam._local_scoring(state=state, control=one, warn=False)
+            self._warm = state
+        gam.converged_ = converged
+        return self.T.T @ self.design.gamma(state)
+
+    def _inner_control(self):
+        # Newton's steps (the full Hessian) converge quadratically on the
+        # objective; the linear predictor can move by rounding along nearly
+        # flat directions (a smoothing parameter near 0), so not on it
+        from copy import copy
+        control = copy(self.gam.control)
+        control.epsnr = min(control.epsnr, 1e-13)
+        control.convergence = 'objective'
+        control.mxitnr = max(control.mxitnr, 100)
+        return control
+
+    def value_and_grad(self, params):
+        self.n_evaluations += 1
+        params = np.asarray(params, float)
+        K = len(self.estimated)
+        beta = self.coef(params)
+        lam, _ = self._split(params)
+        s = lam @ self.M
+        eta = self._eta(beta)
+        result = self._coxdev(eta, self.a)
+        H = self._XIX(eta) + np.diag(s)
+        value = self.criterion(params, beta)
+        idx = self.penalized if self.method == 'ML' else np.arange(H.shape[0])
+        Hinv_sub = np.linalg.inv(H[np.ix_(idx, idx)])
+        # the derivative in beta of the penalized deviance over 2 (0 at the
+        # minimum, up to the inner fit's convergence)
+        g_beta = -self.X.T @ (-result.gradient / 2) + s * beta
+        dS = lam[self.est_blocks, None] * self.M[self.est_blocks]       # (K, P)
+        dbeta = -np.linalg.solve(H, (dS * beta[None, :]).T)            # (P, K)
+        g = np.empty(K)
+        for k in range(K):
+            # with beta held: the penalty and log|H| (and log|S|)
+            g[k] = (np.sum(dS[k] * beta**2) / 2 +
+                    np.sum(np.diag(Hinv_sub) * dS[k][idx]) / 2 -
+                    self.rank[self.est_blocks[k]] / 2)
+            # through beta: the information along X dbeta_k
+            v = self.X @ dbeta[:, k]
+            eps = 1e-4 / max(np.max(np.abs(v)), 1e-12)
+            dI = (self._XIX(eta + eps * v) - self._XIX(eta - eps * v)) / (2 * eps)
+            g[k] += g_beta @ dbeta[:, k] + np.sum(Hinv_sub * dI[np.ix_(idx, idx)].T) / 2
+        return value, g
+
+    def start(self):
+        """As `LaplaceCriterion.start`: the diagonal of the information at the offset."""
+        h = self._coxdev(self.offset, self.a).diag_hessian / 2
+        xwx = np.einsum('ij,i,ij->j', self.X, h, self.X)
+        rho = []
+        for b in self.est_blocks:
+            on = self.M[b] > 0
+            rho.append(np.log(xwx[on].mean() / self.M[b][on].mean()))
+        return np.array(rho, float)
+
+
 def _newton(crit, x, bounds, maxit=20, tol=1e-8):
     """
     Newton's method from `x` (the quasi-Newton optimum), its Hessian by
@@ -342,10 +519,11 @@ def _newton(crit, x, bounds, maxit=20, tol=1e-8):
                 break
             t /= 2
         else:
-            return x, value, grad, False
+            # no decrease: at the precision of the criterion
+            return x, value, grad, bool(np.max(np.abs(grad[free]), initial=0) < crit.grad_tol)
         x, value, grad = x_new, v_new, g_new
     free = ~(((x <= lo + 1e-8) & (grad > 0)) | ((x >= hi - 1e-8) & (grad < 0)))
-    return x, value, grad, bool(np.max(np.abs(grad[free]), initial=0) < 1e-5)
+    return x, value, grad, bool(np.max(np.abs(grad[free]), initial=0) < crit.grad_tol)
 
 
 def select_smoothing(gam, dispersion=None):
@@ -378,9 +556,14 @@ def select_smoothing(gam, dispersion=None):
     for term in terms:
         term.set_weights(normed)
 
-    jax, _ = _jax()
-    with jax.enable_x64(True):
-        crit = LaplaceCriterion(gam, estimated, method=gam.method, dispersion=dispersion)
+    if getattr(gam, '_cox', False):
+        from contextlib import nullcontext
+        context, Criterion = nullcontext(), CoxLaplaceCriterion
+    else:
+        jax, _ = _jax()
+        context, Criterion = jax.enable_x64(True), LaplaceCriterion
+    with context:
+        crit = Criterion(gam, estimated, method=gam.method, dispersion=dispersion)
         x0 = crit.start()
         K = len(estimated)
         bounds = [(r - 25, r + 25) for r in x0[:K]] + [(None, None)] * (len(x0) - K)

@@ -343,7 +343,7 @@ class GAM(BaseEstimator):
                                 else (1. if dispersion is None else dispersion))
             self._set_covariance(w)
             self.edf_ = self.edf_influence_.rename('edf')
-            self.df_resid_ = float(np.sum(weight > 0) - 1 - self.edf_.sum())
+            self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
             self.reml_score_ = self.smoothing_.score
             # the variances of the penalized terms' coefficients (random
             # effects): the dispersion over the smoothing parameter, on the

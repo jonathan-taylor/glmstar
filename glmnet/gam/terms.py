@@ -352,8 +352,17 @@ class SplineTerm(Term):
         return beta[0] * (self._x_coef - self.center_) + self._nl_coef - center
 
     def roughness(self, coef):
-        """The integral of the squared second derivative of the spline with coefficients `coef`."""
-        return self._smoother.roughness(coef)
+        """
+        The integral of the squared second derivative of the spline with
+        coefficients `coef`: from its second derivatives `g` at the knots
+        (linear between them), `sum h (g_i^2 + g_i g_{i+1} + g_{i+1}^2) / 3`,
+        a sum of non-negative terms (accurate for a nearly linear spline, of
+        which the quadratic form loses all digits to cancellation).
+        """
+        _, V2, _ = self._knot_values()
+        g = V2 @ np.asarray(coef, float)
+        lo, hi = g[:-1], g[1:]
+        return float(np.sum(np.diff(self.knots_) * (lo**2 + lo * hi + hi**2)) / 3)
 
     def _unit_values(self, x, deriv=0):
         # the splines whose coefficients are the unit vectors (the natural
