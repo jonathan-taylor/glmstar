@@ -283,6 +283,8 @@ class LaplaceCriterion(object):
         self.n_evaluations += 1
         params = np.asarray(params, float)
         beta = self.coef(params)
+        if not self.gam.converged_:
+            return self._unconverged(params)
         value, (g_params, g_beta) = jax.value_and_grad(self.criterion, argnums=(0, 1))(params, beta)
         H = np.asarray(self._hessian(params, beta))
         lam, _ = self._split(params)
@@ -293,7 +295,22 @@ class LaplaceCriterion(object):
         dS = lam[self.est_blocks, None] * self.M[self.est_blocks]      # (K, P)
         dbeta = -np.linalg.solve(H, (dS * beta[None, :]).T)           # (P, K)
         g[:len(self.estimated)] += np.asarray(g_beta) @ dbeta
+        self._max_value = max(getattr(self, '_max_value', -np.inf), float(value))
         return float(value), g
+
+    def _unconverged(self, params):
+        """
+        The criterion where the inner fit did not converge: with smoothing
+        parameters near 0 the penalized likelihood can be maximized only at
+        very large coefficients (a smooth with as many knots as events, for
+        Cox), and the criterion at an unconverged fit is meaningless (it can
+        be very negative). A value larger than any seen, with a gradient
+        towards larger smoothing parameters, so that the search turns back.
+        """
+        worst = getattr(self, '_max_value', 0.)
+        g = np.zeros(len(params))
+        g[:len(self.estimated)] = -1e3
+        return abs(worst) + 1e6, g
 
     def start(self):
         """
@@ -454,6 +471,8 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         params = np.asarray(params, float)
         K = len(self.estimated)
         beta = self.coef(params)
+        if not self.gam.converged_:
+            return self._unconverged(params)
         lam, _ = self._split(params)
         s = lam @ self.M
         eta = self._eta(beta)
@@ -478,6 +497,7 @@ class CoxLaplaceCriterion(LaplaceCriterion):
             eps = 1e-4 / max(np.max(np.abs(v)), 1e-12)
             dI = (self._XIX(eta + eps * v) - self._XIX(eta - eps * v)) / (2 * eps)
             g[k] += g_beta @ dbeta[:, k] + np.sum(Hinv_sub * dI[np.ix_(idx, idx)].T) / 2
+        self._max_value = max(getattr(self, '_max_value', -np.inf), float(value))
         return value, g
 
     def start(self):
@@ -590,6 +610,7 @@ def select_smoothing(gam, dispersion=None):
         lam, phi = np.asarray(lam, float)[crit.est_blocks], float(phi)
         # the terms at the optimum
         crit.coef(x)
+        converged = converged and gam.converged_
     return SmoothingSelection(method=gam.method,
                               terms=[terms[j].name for j in estimated],
                               lam=lam / crit.weight_total,

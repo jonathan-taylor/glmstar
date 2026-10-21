@@ -361,3 +361,39 @@ def test_cox_ml_converges_under_rounding(data, k):
     assert sel.converged
     # s(z) is nearly linear: its smoothing parameter on its upper bound
     assert abs(sel.gradient[0]) < 1e-6
+
+
+@pytest.mark.parametrize('method', ['REML', 'ML'])
+def test_cox_reml_brain_cancer(method):
+    # a spline with nearly as many knots as events (ISLP's BrainCancer: 87
+    # patients, 35 deaths): near lam = 0 the penalized partial likelihood is
+    # maximized only far out, the inner fits do not converge, and the
+    # criterion there (very negative) drew the search to lam ~ 1e-13 (edf
+    # 57). mgcv's cox.ph gives s(gtv) edf 1
+    import warnings
+    ISLP = pytest.importorskip('ISLP')
+    B = ISLP.load_data('BrainCancer').dropna()
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)
+        G = GAM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
+                family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
+                method=method).fit(B, B[['time', 'status']])
+    assert G.smoothing_.converged
+    np.testing.assert_allclose(G.edf_.iloc[0], 1, atol=1e-3)
+
+
+def test_criterion_unconverged(data):
+    # where the inner fit does not converge, the criterion is larger than
+    # any seen and its gradient points to larger smoothing parameters
+    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family('breslow', 'plain'),
+            method='REML').fit(data, data)
+    crit = _criterion(G, 'REML')
+    x = np.log(G.smoothing_.lam_raw)
+    value, _ = crit.value_and_grad(x)
+    control = crit._inner_control()
+    control.mxitnr = 1
+    crit._inner_control = lambda: control
+    crit._warm = None
+    bad, grad = crit.value_and_grad(x - 10)
+    assert not G.converged_
+    assert bad > abs(value) and np.all(grad < 0)
