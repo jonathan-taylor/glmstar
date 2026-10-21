@@ -138,7 +138,7 @@ def test_mgcv(Rinfo, data, case, method):
     new = D.iloc[::23]
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('new', new)
-    _, se = G.predict(new, 'link', offset=new['o'] if offset else None, se=True)
+    _, se = G.predict(new, 'link', offset=new['o'] if offset else None, return_std=True)
     se_R = _get(Rinfo, 'predict(m, newdata=new, se.fit=TRUE)$se.fit')
     sig2_R = _get(Rinfo, 'm$sig2')[0]
     np.testing.assert_allclose(se / np.sqrt(G.dispersion_), se_R / np.sqrt(sig2_R), rtol=2e-3)

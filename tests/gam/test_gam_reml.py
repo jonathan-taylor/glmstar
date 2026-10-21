@@ -118,7 +118,7 @@ def test_final_fit_is_the_fixed_fit(data, family, method):
                                                             bf_tol=1e-13, bf_maxit=5000)).fit(data, data[y])
         np.testing.assert_allclose(F.state_.linear_predictor, G.state_.linear_predictor,
                                    rtol=1e-7, atol=1e-8)
-        np.testing.assert_allclose(F.edf_joint_.values, G.edf_.values, rtol=1e-6)
+        np.testing.assert_allclose(F.edf_influence_.values, G.edf_.values, rtol=1e-6)
     n = data.shape[0]
     vc = G.variance_components_
     for name in lam:
@@ -175,9 +175,9 @@ def test_model_spec_reml(data):
                                T.variance_components_['variance'].values, rtol=1e-5)
     assert list(G.terms_[2].effects_.index) == GROUPS
     # standard errors at the REML dispersion
-    _, se = G.predict(data.iloc[:5], se=True)
+    _, se = G.predict(data.iloc[:5], return_std=True)
     rows = G.design_.rows(G._columns(G._design(data.iloc[:5]), G.terms_))
-    np.testing.assert_allclose(se**2, np.einsum('ij,jk,ik->i', rows, G.Vp_, rows), rtol=1e-10)
+    np.testing.assert_allclose(se**2, np.einsum('ij,jk,ik->i', rows, G.posterior_covariance_, rows), rtol=1e-10)
 
 
 def test_errors(data):
