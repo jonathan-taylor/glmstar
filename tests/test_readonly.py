@@ -16,6 +16,7 @@ import statsmodels.api as sm
 import glmnet.elnet as elnet
 from glmnet import GLMNet, LogNet, GaussNet, FishNet, MultiGaussNet, CoxNet
 from glmnet.regularized_glm import RegGLM
+from glmnet.cox import CoxFamily, CoxLM
 
 rng = np.random.default_rng(0)
 N, P = 150, 8
@@ -32,6 +33,11 @@ RESPONSES = {
     'multigaussian': np.column_stack([ETA, -ETA]) + rng.standard_normal((N, 2)),
 }
 COX_RESPONSE = pd.DataFrame({'event': np.minimum(T, C), 'status': (T <= C).astype(float)})
+# delayed entry, strata and weights
+COX_RESPONSE['start'] = COX_RESPONSE['event'] * rng.uniform(0, 0.3, N)
+COX_RESPONSE['strata'] = rng.integers(0, 3, N)
+COX_RESPONSE['w'] = rng.uniform(0.5, 2, N)
+COX_FULL = dict(start_id='start', strata_id='strata')
 
 LAM = dict(lambda_values=np.array([0.5, 0.1, 0.02]))
 CASES = {
@@ -45,6 +51,12 @@ CASES = {
     'FishNet': (lambda: FishNet(**LAM), 'poisson'),
     'MultiGaussNet': (lambda: MultiGaussNet(**LAM), 'multigaussian'),
     'CoxNet': (lambda: CoxNet(**LAM), 'cox'),
+    'CoxNet(efron, start, strata, weights)': (
+        lambda: CoxNet(family=CoxFamily(tie_breaking='efron', **COX_FULL), weight_id='w', **LAM),
+        'cox'),
+    'CoxLM': (lambda: CoxLM(family=CoxFamily()), 'cox'),
+    'CoxLM(efron, start, strata, weights)': (
+        lambda: CoxLM(family=CoxFamily(tie_breaking='efron', **COX_FULL), weight_id='w'), 'cox'),
 }
 
 
