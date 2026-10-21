@@ -22,6 +22,9 @@ as mgcv): the same fit. When every term has a basis (all but loess) the fit
 has a Bayesian covariance (`posterior_covariance_`, as mgcv's `Vp`), with
 standard errors for predictions and the terms' curves.
 
+Smoothing parameters (and random effects' variances) can also be estimated,
+by REML or ML as mgcv's (`GAM(method='REML')`, with JAX: `pip install jax`).
+
 The smoothing spline and loess terms use the `scatter_smooth` package.
 """
 from .terms import (Term,
@@ -38,4 +41,5 @@ from .terms import (Term,
                     factor)
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
+from .reml import LaplaceCriterion, SmoothingSelection
 from .estimator import GAM, GAMControl

@@ -297,8 +297,6 @@ class SplineTerm(Term):
     def __post_init__(self):
         if self.df is not None and self.lam is not None:
             raise ValueError('give one of df and lam')
-        if self.df is None and self.lam is None:
-            self.df = 4.
 
     @property
     def has_objective(self):
