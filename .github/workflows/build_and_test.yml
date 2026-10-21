@@ -74,3 +74,37 @@ jobs:
           pytest tests --test-size=small
 
 
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Parent Repo
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
+
+      - name: Configure Submodule Auth
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}@github.com/intro-stat-learning/".insteadOf "git@github.com:intro-stat-learning/"
+
+      - name: Manual Submodule Update
+        run: git submodule update --init --recursive
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # --vsenv: build with MSVC (meson may otherwise pick a MinGW gcc on the
+      # PATH, whose runtime DLLs Python doesn't find when importing)
+      - name: Install dependencies
+        run: |
+          pip install ".[dev,gam]" -Csetup-args=--vsenv -Csetup-args=-Db_vscrt=mt
+
+      - name: Test pyglmnet
+        run: |
+          pip install pytest matplotlib
+          pytest tests --test-size=small

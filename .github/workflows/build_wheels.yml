@@ -7,11 +7,15 @@ jobs:
   build-wheels:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # (the steps are written for bash, Windows' default shell is PowerShell)
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        # Add windows-latest to the build matrix
-        os: [ubuntu-latest, macos-latest] # , windows-latest]
+        # Windows: x64 only (coxdev has no ARM64 wheels)
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
 
