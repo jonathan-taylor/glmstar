@@ -181,6 +181,32 @@ class JointDesign(object):
         return fits, float(gamma[0]), coefs
 
 
+def _solve_psd(A, b):
+    """
+    The solution of `A x = b`, `A` positive semi-definite: equilibrated (its
+    diagonal scaled to 1), by Cholesky when it is well conditioned, else on
+    its eigenvectors with eigenvalues above 1e-13 of the largest (minimum
+    norm).
+    """
+    from scipy.linalg import cho_factor, cho_solve, LinAlgError
+    from scipy.linalg.lapack import dpocon
+    d = np.sqrt(np.maximum(np.diag(A), 0))
+    d = np.where(d > 0, d, 1.)
+    As = A / d[:, None] / d[None, :]
+    bs = b / d
+    try:
+        factor = cho_factor(As, lower=False)
+    except LinAlgError:
+        pass
+    else:
+        rcond, _ = dpocon(factor[0], np.abs(As).sum(0).max())
+        if rcond > 1e-12:
+            return cho_solve(factor, bs) / d
+    ev, V = np.linalg.eigh((As + As.T) / 2)
+    keep = ev > ev.max() * 1e-13
+    return (V[:, keep] @ ((V[:, keep].T @ bs) / ev[keep])) / d
+
+
 @dataclass
 class JointRegularizer(GAMRegularizer):
     """
@@ -240,9 +266,4 @@ class JointRegularizer(GAMRegularizer):
         S = D.penalty(self.lams())[1:, 1:]
         A = X.T @ (H @ X) + S
         b = X.T @ score - S @ gamma0[1:]
-        try:
-            from scipy.linalg import cho_factor, cho_solve
-            delta = cho_solve(cho_factor(A), b)
-        except np.linalg.LinAlgError:
-            delta = np.linalg.lstsq(A, b, rcond=None)[0]
-        return np.concatenate([[0.], gamma0[1:] + delta])
+        return np.concatenate([[0.], gamma0[1:] + _solve_psd(A, b)])

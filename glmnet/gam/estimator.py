@@ -18,8 +18,8 @@ from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
-from .terms import Term
 from .joint import JointDesign, JointRegularizer
+from .terms import SplineTerm, Term
 
 
 @dataclass
@@ -103,6 +103,17 @@ class GAM(BaseEstimator):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    method: str
+        How the smoothing parameters are chosen: `'fixed'` (the default, as
+        R's `gam`: each term's `lam` or `df`; `s()` without them has
+        `df=4`), or `'REML'` or `'ML'` (as mgcv's `gam(method=...)`, with
+        JAX): the smoothing parameters of `s()` and `re()` terms without
+        `lam` or `df` maximize the restricted (or full) marginal likelihood,
+        by Laplace's method, the dispersion with them. Terms with `lam` keep
+        it; terms with `df` have it matched at the prior weights, then fixed.
+        The working problems are solved jointly, and `edf_`, `df_resid_`
+        and `dispersion_` follow mgcv (its edf, its residual df, the REML
+        or ML estimate of the dispersion).
 
     Attributes
     ----------
@@ -143,6 +154,19 @@ class GAM(BaseEstimator):
         log-likelihood is at the dispersion deviance / sum(weights), as R's).
     n_iter_: int
         Number of IRLS iterations.
+    smoothing_: SmoothingSelection
+        With `method='REML'` or `'ML'`: the estimated smoothing parameters,
+        the dispersion and the criterion (`glmnet.gam.reml`).
+    reml_score_: float
+        The minimized criterion (the negative log REML or ML; as mgcv's
+        `gcv.ubre`, up to a constant for REML, which depends on the
+        parametrization of the unpenalized coefficients).
+    variance_components_: pd.DataFrame
+        With REML or ML: the variances (and standard deviations) of the
+        penalized terms' coefficients as random effects, the dispersion over
+        their smoothing parameters (on the prior weights' scale), and the
+        dispersion (`scale`), as mgcv's `gam.vcomp` and lme4's `VarCorr`
+        for random effects.
     """
     terms: list = field(default_factory=list)
     family: object = field(default_factory=GLMFamilySpec)
@@ -150,6 +174,7 @@ class GAM(BaseEstimator):
     offset_id: Union[str, int] = None
     weight_id: Union[str, int] = None
     response_id: Union[str, int] = None
+    method: str = 'fixed'
 
     fit_intercept = True
 
@@ -161,7 +186,8 @@ class GAM(BaseEstimator):
         terms = list(self.terms)
         for term in terms:
             if not isinstance(term, Term):
-                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), linear(), factor())')
+                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), re(), linear(), '
+                                 'factor())')
         return terms, X
 
     def _design(self, X):
@@ -244,8 +270,9 @@ class GAM(BaseEstimator):
         normed_weight = self._normed_weight = weight / weight_total
         self.weight_total_ = weight_total
 
-        self.terms_ = [deepcopy(term).setup(x) for term, x in zip(terms,
-                                                                 self._columns(X, terms))]
+        self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
+        for term, x in zip(self.terms_, self._columns(X, terms)):
+            term.setup(x)
         if linear_term is not None:
             linear_term = np.asarray(linear_term, float).reshape(-1)
             if linear_term.shape != (nobs,):
@@ -253,7 +280,9 @@ class GAM(BaseEstimator):
 
         if self.control.solver not in ('backfit', 'joint'):
             raise ValueError("solver should be one of 'backfit' or 'joint'")
-        Regularizer = JointRegularizer if self.control.solver == 'joint' else GAMRegularizer
+        # REML and ML: the joint solve, its design needed for the criterion
+        Regularizer = (JointRegularizer if self.control.solver == 'joint' or self.method != 'fixed'
+                       else GAMRegularizer)
         regularizer = self.regularizer_ = Regularizer(terms=self.terms_,
                                                       linear_term=linear_term,
                                                       bf_maxit=self.control.bf_maxit,
@@ -276,29 +305,14 @@ class GAM(BaseEstimator):
         self.null_deviance_ = weight_total * null_deviance
         null_intercept = 0. if self._cox else float(null_state.coef[0])
 
-        def obj_function(state):
-            return (family.deviance(response, state.mu, normed_weight) / 2 +
-                    regularizer.objective(state))
+        self._offset, self._normed_weight = offset, normed_weight
+        self._null_state = GAMState(np.zeros((nobs, len(self.terms_))), null_intercept)
 
-        state = GAMState(np.zeros((nobs, len(self.terms_))), null_intercept)
-        state.update(None, family, offset, obj_function)
+        if self.method != 'fixed':
+            from .reml import select_smoothing
+            self.smoothing_ = select_smoothing(self, dispersion)
 
-        info = {}
-        converged, boundary, state, _ = IRLS(regularizer,
-                                             family,
-                                             None,
-                                             response,
-                                             offset,
-                                             normed_weight,
-                                             state,
-                                             obj_function,
-                                             self.control,
-                                             info=info)
-        self.n_iter_ = info['n_iter']
-        if not converged:
-            import warnings
-            warnings.warn(f'GAM: local scoring did not converge in mxitnr={self.control.mxitnr} '
-                          'iterations; increase control.mxitnr')
+        state = self._local_scoring()
 
         # the terms at the weights of the final working problem
         z, w = family.get_response_and_weights(state, response, offset, normed_weight)
@@ -322,12 +336,34 @@ class GAM(BaseEstimator):
         self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
 
         self._estimated_dispersion = dispersion is None and not self._fixed_dispersion()
-        if self._estimated_dispersion:
+        if self.method != 'fixed':
+            # mgcv's conventions: its edf and residual df, the REML (or ML)
+            # estimate of the dispersion
+            self.dispersion_ = (self.smoothing_.dispersion if self._estimated_dispersion
+                                else (1. if dispersion is None else dispersion))
+            self._set_covariance(w)
+            self.edf_ = self.edf_influence_.rename('edf')
+            self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
+            self.reml_score_ = self.smoothing_.score
+            # the variances of the penalized terms' coefficients (random
+            # effects): the dispersion over the smoothing parameter, on the
+            # scale of the prior weights
+            names, variances = [], []
+            for term in self.terms_:
+                if term.penalty_matrix() is not None:
+                    names.append(term.name)
+                    variances.append(self.dispersion_ / (term.penalty_lam() * weight_total))
+            names.append('scale')
+            variances.append(self.dispersion_)
+            self.variance_components_ = pd.DataFrame({'variance': variances,
+                                                      'sd': np.sqrt(variances)}, index=names)
+        elif self._estimated_dispersion:
             dispersion = (np.sum(self._residuals('pearson')**2) / self.df_resid_
                           if self.df_resid_ > 0 else np.nan)
         elif dispersion is None:
             dispersion = 1.
-        self.dispersion_ = dispersion
+        if self.method == 'fixed':
+            self.dispersion_ = dispersion
 
         # as R's gam (and glm): the dispersion, when free, counts as a
         # parameter, and the log-likelihood is at R's estimate of it
@@ -337,8 +373,60 @@ class GAM(BaseEstimator):
         self.aic_ = -2 * self.loglike_ + 2 * k
         self.bic_ = -2 * self.loglike_ + np.log(n) * k
 
-        self._set_covariance(w)
+        if self.method == 'fixed':
+            self._set_covariance(w)
         return self
+
+    def _resolve_terms(self, terms):
+        """
+        The smoothing of the terms for the method: `s()` with neither `df`
+        nor `lam` has `df=4` with `method='fixed'` (as R's `gam`), and its
+        smoothing parameter estimated with `'REML'` or `'ML'`, as `re()`
+        without them.
+        """
+        if self.method not in ('fixed', 'REML', 'ML'):
+            raise ValueError("method should be one of 'fixed', 'REML' or 'ML'")
+        for term in terms:
+            if (isinstance(term, SplineTerm) and self.method == 'fixed' and
+                term.df is None and term.lam is None):
+                term.df = 4.
+        return terms
+
+    def _local_scoring(self, state=None, control=None, warn=True):
+        """
+        Local scoring (IRLS) from `state` (by default the intercept-only
+        fit), with the terms' current smoothing: the fitted state (whether it
+        converged in `converged_`).
+        """
+        family, response = self._family, self._response
+        offset, normed_weight = self._offset, self._normed_weight
+        regularizer, control = self.regularizer_, control or self.control
+
+        def obj_function(state):
+            return (family.deviance(response, state.mu, normed_weight) / 2 +
+                    regularizer.objective(state))
+
+        if state is None:
+            state = deepcopy(self._null_state)
+        state.update(None, family, offset, obj_function)
+        info = {}
+        converged, boundary, state, _ = IRLS(regularizer,
+                                             family,
+                                             None,
+                                             response,
+                                             offset,
+                                             normed_weight,
+                                             state,
+                                             obj_function,
+                                             control,
+                                             info=info)
+        self.n_iter_ = info['n_iter']
+        self.converged_ = converged
+        if not converged and warn:
+            import warnings
+            warnings.warn(f'GAM: local scoring did not converge in mxitnr={control.mxitnr} '
+                          'iterations; increase control.mxitnr')
+        return state
 
     def _set_covariance(self, w):
         """

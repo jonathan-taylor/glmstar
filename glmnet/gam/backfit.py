@@ -176,7 +176,9 @@ class GAMRegularizer(object):
         The working response, moved by the linear term, and the weights; the
         terms are given the weights.
         """
-        w = np.asarray(sample_weight, float)
+        # (rounding can leave a weight just below 0: the diagonal of the
+        # Hessian of Efron's partial likelihood with start times)
+        w = np.maximum(np.asarray(sample_weight, float), 0)
         z = np.asarray(pseudo_response, float)
         if self.linear_term is not None:
             omega = np.asarray(self.linear_term, float)

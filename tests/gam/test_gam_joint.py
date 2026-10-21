@@ -106,6 +106,13 @@ def test_spline_operators(x):
     np.testing.assert_allclose(B.sum(1), 1, atol=1e-12)       # a partition of unity
     Omega = term.penalty_matrix()
     np.testing.assert_allclose(coef @ Omega @ coef, term.roughness(coef), rtol=1e-9)
+    np.testing.assert_allclose(term.roughness(coef), term._smoother.roughness(coef), rtol=1e-9)
+    # a nearly linear spline: the roughness is that of its small curvature
+    # (the quadratic forms lose it to cancellation)
+    V = term._knot_values()[0]
+    lin = np.linalg.solve(V, 2 + 3 * term.knots_ + 1e-6 * np.sin(term.knots_))
+    r = term.roughness(lin)
+    assert 0 <= r < 1e-9
     new = np.linspace(-1, 4, 41)              # beyond the knots: linear
     np.testing.assert_allclose(term.basis(new) @ coef, term.predict(new), rtol=1e-8, atol=1e-10)
     # the basis (from its values at the knots) is the smoother's splines
