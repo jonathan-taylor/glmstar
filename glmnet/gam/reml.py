@@ -359,11 +359,12 @@ class CoxLaplaceCriterion(LaplaceCriterion):
     implicit derivative is a central difference of the information operator
     (it needs the third derivatives of the partial likelihood).
     """
-    # the partial likelihood's criterion is precise to about 1e-11
-    # (relative), its gradient (from a difference of the information) to
-    # about 1e-5
+    # the partial likelihood's criterion is precise to about 1e-9 (relative:
+    # the inner fit, warm started, depends a little on the search's path,
+    # about 3e-10 at the optimum in the tests), its gradient (from a
+    # difference of the information) to about 1e-5
     grad_tol = 1e-4
-    value_tol = 1e-10
+    value_tol = 1e-9
     hess_eps = 1e-3
 
     def __init__(self, gam, estimated, method='REML', dispersion=None):
