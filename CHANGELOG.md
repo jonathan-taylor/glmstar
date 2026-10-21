@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
+  -log(lambda), with the feature names as columns (a column per feature and
+  response for multi-response paths).
+
 ## 0.3.2 (2026-10-20)
 
 ### New

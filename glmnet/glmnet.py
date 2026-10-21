@@ -1556,12 +1556,34 @@ class CoefPath(object):
         Names of the features (columns).
     fracdev : np.ndarray, optional
         Fraction of deviance explained at each lambda value.
+    df_ : pd.DataFrame
+        The coefficients as a data frame, one row per lambda value indexed
+        by -log(lambda), one column per feature (for a multi-response path,
+        a column per feature and response).
     """
     coefs: np.ndarray
     intercepts: np.ndarray
     lambda_values: np.ndarray
     feature_names: list | np.ndarray
     fracdev: np.ndarray | None = None
+
+    @property
+    def df_(self):
+        """
+        The coefficient path as a data frame indexed by -log(lambda), with
+        the feature names as columns (for a multi-response path, columns
+        `(feature, response)`).
+        """
+        index = pd.Index(-np.log(self.lambda_values), name=r'$-\log(\lambda)$')
+        coefs = np.asarray(self.coefs)
+        if coefs.ndim > 2:
+            columns = pd.MultiIndex.from_product([list(self.feature_names),
+                                                  range(coefs.shape[2])],
+                                                 names=['feature', 'response'])
+            coefs = coefs.reshape(coefs.shape[0], -1)
+        else:
+            columns = list(self.feature_names)
+        return pd.DataFrame(coefs, index=index, columns=columns)
 
     def plot(self,
              xvar='-lambda',

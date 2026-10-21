@@ -76,3 +76,21 @@ def test_label_multiresponse():
     for name, text in labels.items():
         np.testing.assert_allclose(text.xy[1], norms[-1, int(name[1:])])
     plt.close(fig)
+
+
+def test_df():
+    fit = GaussNet().fit(Xdf, y)
+    path = fit.coef_path_
+    D = path.df_
+    assert list(D.columns) == list(Xdf.columns)
+    np.testing.assert_allclose(D.index, -np.log(path.lambda_values))
+    assert D.index.name == r'$-\log(\lambda)$'
+    np.testing.assert_allclose(D.values, path.coefs)
+
+
+def test_df_multi_response():
+    Y = np.column_stack([y, rng.standard_normal(n)])
+    path = MultiGaussNet().fit(Xdf, Y).coef_path_
+    D = path.df_
+    assert D.shape == (path.coefs.shape[0], p * 2)
+    np.testing.assert_allclose(D[('v0', 1)], path.coefs[:, 0, 1])
