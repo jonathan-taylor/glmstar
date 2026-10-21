@@ -14,7 +14,7 @@
   passed from R by reticulate or a memory-mapped array, raised `ValueError:
   array is not writeable` in `GLMNet`, `RegGLM` and the path estimators
   (`LogNet`, `GaussNet`, `FishNet`, `MultiGaussNet`, `CoxNet`). It is still
-  mapped without a copy.
+  mapped without a copy (#145).
 
 ## 0.3.2 (2026-10-20)
 
