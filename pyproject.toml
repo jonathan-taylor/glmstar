@@ -93,6 +93,17 @@ dev = [
     {include-group = "test"},
 ]
 
+[tool.cibuildwheel]
+# no 32-bit builds (no numpy/scipy wheels)
+skip = ["*-win32", "*-manylinux_i686", "*-musllinux_i686"]
+
+[tool.cibuildwheel.windows]
+# build with MSVC: meson may otherwise pick a MinGW gcc on the PATH, whose
+# runtime DLLs the wheel doesn't ship (Python doesn't search the PATH for an
+# extension's DLLs); and check that the extensions load
+config-settings = {setup-args = "--vsenv"}
+test-command = "python -c \"import glmnet, glmnet.elnet; from glmnet import GLM, GLMNet; import numpy as np; X = np.random.default_rng(0).standard_normal((50, 3)); GLMNet().fit(X, X @ [1., 0., -1.])\""
+
 [tool.uv]
 # meson-python editable installs rebuild the C++ extensions on import, which
 # requires the build tools to live in the project environment rather than an
