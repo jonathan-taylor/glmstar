@@ -1,6 +1,13 @@
 """
 Local scoring for GAMs: the state of a fit, and the regularizer whose Newton
 step backfits the terms to the working response of IRLS (`glmnet.irls`).
+
+References
+----------
+- Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
+  Chapman & Hall.
+- Buja, A., Hastie, T. and Tibshirani, R. (1989). Linear smoothers and
+  additive models. *The Annals of Statistics* 17(2), 453–510.
 """
 from dataclasses import dataclass, field
 import logging

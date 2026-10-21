@@ -42,7 +42,9 @@ jobs: # This workflow contains a single
           sudo apt-get update && sudo apt-get install -y libtirpc-dev
           sudo apt-get install -y r-base
           pip install .[doc]
-          pip install .
+          pip install .[gam]
+          # the data of the GAM page (ISLP's load_data, without its dependencies)
+          pip install --no-deps ISLP
 
       # The narrative docs: Jupyter Book 2, notebooks executed.
       # BASE_URL: the site is served from https://<owner>.github.io/glmstar/
