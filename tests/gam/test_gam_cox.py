@@ -345,3 +345,19 @@ def test_cox_reml_mgcv(Rinfo, data, use_offset):
     vc_R = np.asarray(rpy.r('v <- mgcv::gam.vcomp(m, rescale=TRUE); if (is.list(v)) v$all else v'))
     np.testing.assert_allclose(G.variance_components_.loc[G.terms_[3].name, 'sd'], vc_R[2],
                                rtol=1e-3)
+
+
+@pytest.mark.parametrize('k', range(4))
+def test_cox_ml_converges_under_rounding(data, k):
+    # the Cox criterion is precise to about 1e-10 (relative): near the
+    # optimum a Newton step's decrease is below that, and perturbations of
+    # the data at the level of rounding used to stop the search short
+    D = data.copy()
+    D['w'] = D['w'] * (1 + 1e-13 * k)
+    D['o'] = D['o'] + 1e-13 * k
+    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family('efron', 'all'), method='ML',
+            weight_id='w', offset_id='o').fit(D, D)
+    sel = G.smoothing_
+    assert sel.converged
+    # s(z) is nearly linear: its smoothing parameter on its upper bound
+    assert abs(sel.gradient[0]) < 1e-6

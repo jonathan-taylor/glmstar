@@ -465,3 +465,35 @@ def test_intercept_only(sparse):
         np.testing.assert_allclose(g.aic_, s.aic)
         assert g.df_resid_ == n - 1
     np.testing.assert_allclose(g.predict(D), s.predict(np.ones((n, 1))))
+
+
+@pytest.mark.parametrize('family', [sm.families.Gaussian(), sm.families.Gamma(sm.families.links.Log()),
+                                    sm.families.InverseGaussian(sm.families.links.Log()),
+                                    sm.families.Poisson(), sm.families.Binomial()],
+                         ids=['gaussian', 'gamma', 'inverse_gaussian', 'poisson', 'binomial'])
+def test_loglike_zero_weights(family):
+    # observations of weight 0 are not observations: the log-likelihood and
+    # AIC are those of the fit without them (finite, no warning)
+    rng = np.random.default_rng(3)
+    n = 120
+    X = rng.standard_normal((n, 2))
+    eta = 0.3 + X @ np.array([0.4, -0.3])
+    if isinstance(family, sm.families.Binomial):
+        y = rng.binomial(1, 1 / (1 + np.exp(-eta))).astype(float)
+    elif isinstance(family, sm.families.Poisson):
+        y = rng.poisson(np.exp(eta)).astype(float)
+    elif isinstance(family, sm.families.Gaussian):
+        y = eta + rng.standard_normal(n)
+    else:
+        y = np.exp(eta) * rng.gamma(4, 1 / 4, n)
+    w = rng.uniform(0.5, 2, n)
+    w[:15] = 0
+    D = pd.DataFrame({'y': y, 'w': w})
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', RuntimeWarning)
+        G = GLM(family=family, response_id='y', weight_id='w').fit(X, D)
+    keep = w > 0
+    H = GLM(family=family, response_id='y', weight_id='w').fit(X[keep], D[keep])
+    assert np.isfinite(G.loglike_)
+    np.testing.assert_allclose(G.loglike_, H.loglike_, rtol=1e-8)
+    np.testing.assert_allclose(G.aic_, H.aic_, rtol=1e-8)
