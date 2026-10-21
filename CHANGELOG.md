@@ -10,7 +10,7 @@
   intercept-only model (Cox: the null model). It is excluded silently, as a
   lone `intercept` column. It warned "excluding the constant column(s)
   ['zero']" at every null model of the search (the ISLP Ch06 lab). Other
-  constant columns still warn.
+  constant columns still warn (#155).
 
 ## 0.4.0 (2026-10-21)
 
