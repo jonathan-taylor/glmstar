@@ -257,6 +257,8 @@ class LaplaceCriterion(object):
         control = copy(self.gam.control)
         control.epsnr = min(control.epsnr, 1e-10)
         control.convergence = 'eta'
+        # (Fisher scoring converges linearly for non-canonical links)
+        control.mxitnr = max(control.mxitnr, 500)
         return control
 
     def value_and_grad(self, params):
@@ -368,6 +370,8 @@ def select_smoothing(gam, dispersion=None):
     # placeholders, set at each evaluation
     for j in estimated:
         terms[j].lam = 1.
+    for term in terms:
+        term.set_weights(normed)
 
     jax, _ = _jax()
     with jax.enable_x64(True):
