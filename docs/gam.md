@@ -1,0 +1,306 @@
+---
+jupytext:
+  formats: ipynb,md:myst
+  text_representation:
+    extension: .md
+    format_name: myst
+    format_version: 0.13
+    jupytext_version: 1.17.2
+kernelspec:
+  display_name: Python 3 (ipykernel)
+  language: python
+  name: python3
+---
+
+# Generalized additive models
+
+A *generalized additive model* (GAM) replaces the linear predictor of a
+GLM by a sum of smooth functions of the predictors,
+
+$$g\big(E[y \mid x]\big) = \beta_0 + f_1(x_1) + f_2(x_2) + \dots + f_p(x_p),$$
+
+each $f_j$ a smoothing spline, a loess curve, a linear function, a factor's
+effects, or a random effect. `glmnet.gam` fits GAMs in two ways that give
+the same fit:
+
+- **local scoring with backfitting** (Hastie and Tibshirani, 1986, 1990),
+  as R's `gam::gam`: IRLS, each working problem solved by smoothing the
+  partial residuals of each term in turn;
+- **penalized regression** on the terms' bases (Wood, 2017), as R's
+  `mgcv::gam`: each working problem one penalized least squares fit. This
+  gives the Bayesian covariance of the fit, and the smoothing parameters
+  can be estimated by REML or ML (Wood, 2011).
+
+It is built on glmstar's IRLS, so the families are those of `GLM`
+(statsmodels'), with weights and offsets, and the Cox model.
+
+This page follows the GAM part of the ISLR lab on nonlinear modeling
+(chapter 7), on its `Wage` data from the `ISLP` package.
+
+```{code-cell} ipython3
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from ISLP import load_data
+
+from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor
+
+Wage = load_data('Wage')
+Wage[['wage', 'year', 'age', 'education']].head()
+```
+
+## A GAM by local scoring
+
+The model of the lab: `wage` as a smooth function of `year` with 4 degrees
+of freedom, of `age` with 5, and an effect for each level of `education`.
+Each term names a column of the data frame.
+
+```{code-cell} ipython3
+gam = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')])
+gam.fit(Wage, Wage['wage'])
+gam.summary()
+```
+
+`edf` is each term's degrees of freedom, the trace of its smoother at the
+final weights; for a spline it is the `df` it was given (the constant is
+the intercept's). `lam` is the smoothing parameter that gives it. With
+`edf_influence`, mgcv's degrees of freedom of the penalized fit, it is close
+to `edf`.
+
+`GAM.plot` draws each term's fit, centered, with dashed bands of 2
+pointwise standard errors and a rug of the data, as R's `plot.Gam`:
+
+```{code-cell} ipython3
+axes = gam.plot()
+axes[0].figure.tight_layout()
+```
+
+Wages rise with `year`, and with `age` until about 40, and fall after 60;
+holding the others fixed, each level of education adds to the wage.
+
+The fitted terms are `fits_`, one column per term, and the intercept is
+`intercept_`: their sum is the linear predictor.
+
+```{code-cell} ipython3
+np.allclose(gam.intercept_ + gam.fits_.sum(axis=1), gam.predict(Wage))
+```
+
+## The smoothing of a term
+
+A spline's smoothing is given either by its degrees of freedom `df`,
+matched at each working problem's weights as R's `gam`, or by its
+smoothing parameter `lam`, the weight of its roughness penalty
+$\frac{\lambda}{2}\int f''(x)^2\,dx$ in the objective (the deviance over
+twice the sum of the weights). With `lam` the GAM minimizes that objective.
+
+```{code-cell} ipython3
+for lam in [1e-4, 1e-2, 1]:
+    fit = GAM(terms=[s('year', df=4), s('age', lam=lam), factor('education')]).fit(Wage, Wage['wage'])
+    print(f'lam = {lam:g}: the spline in age has {fit.edf_.iloc[1]:.2f} degrees of freedom')
+```
+
+`lo()` is a loess term (Cleveland, Grosse and Shyu, 1992), with its span
+and degree:
+
+```{code-cell} ipython3
+gam_lo = GAM(terms=[s('year', df=4), lo('age', span=0.7), factor('education')])
+gam_lo.fit(Wage, Wage['wage'])
+gam_lo.summary()
+```
+
+Loess has no basis, so this fit has no standard errors: its plot has no
+bands.
+
+```{code-cell} ipython3
+axes = gam_lo.plot(terms=['lo(age, span=0.7)'])
+```
+
+### Backfitting and the joint solve
+
+By default each working problem is solved by *modified backfitting* (Buja,
+Hastie and Tibshirani, 1989): the linear parts of all the terms are fitted
+together, then the smooths' nonlinear parts are backfitted.
+`GAMControl(solver='joint')` instead solves it as one penalized least
+squares fit on the terms' bases, side by side, as mgcv. For terms with a
+basis (all but loess) the two give the same fit:
+
+```{code-cell} ipython3
+joint = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')],
+            control=GAMControl(solver='joint')).fit(Wage, Wage['wage'])
+np.abs(joint.fits_ - gam.fits_).max().max()
+```
+
+## Standard errors and predictions
+
+When every term has a basis, the fit has mgcv's Bayesian covariance of the
+coefficients of the terms' bases, `posterior_covariance_` (Wahba, 1983;
+Nychka, 1988; their intervals' coverage is discussed by Marra and Wood,
+2012). It gives standard errors of predictions and of the terms' curves:
+
+```{code-cell} ipython3
+new = pd.DataFrame({'year': [2005, 2005, 2005],
+                    'age': [25, 45, 65],
+                    'education': ['4. College Grad'] * 3})
+fit, std = gam.predict(new, return_std=True)
+pd.DataFrame({'age': new['age'], 'wage': fit, 'std err': std})
+```
+
+The partial effect of a term at new values, with its standard errors, is
+`partial_effect`; this is what `plot` draws.
+
+```{code-cell} ipython3
+ages = np.linspace(20, 70, 6)
+curve, std = gam.partial_effect('s(age, df=5)', ages, return_std=True)
+pd.DataFrame({'age': ages, 's(age)': curve, 'std err': std})
+```
+
+## A logistic GAM
+
+The lab also models the probability that a worker earns more than 250
+(thousand dollars a year). No worker without a high school diploma does, so
+the effect of that level would be infinite: as in the lab, those workers
+are left out.
+
+```{code-cell} ipython3
+high = Wage[Wage['education'] != '1. < HS Grad'].copy()
+high['high'] = (high['wage'] > 250).astype(float)
+gam_b = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')],
+            family=sm.families.Binomial())
+gam_b.fit(high, high['high'])
+axes = gam_b.plot()
+axes[0].figure.tight_layout()
+```
+
+The curves are on the scale of the linear predictor, the log odds. The
+probabilities, with standard errors by the delta method:
+
+```{code-cell} ipython3
+new = pd.DataFrame({'year': 2008, 'age': [30, 45, 60], 'education': '5. Advanced Degree'})
+prob, std = gam_b.predict(new, return_std=True)
+pd.DataFrame({'age': new['age'], 'P(wage > 250)': prob, 'std err': std})
+```
+
+## Smoothing parameters by REML
+
+Rather than choosing each term's degrees of freedom, they can be estimated.
+A spline's penalty is that of a Gaussian prior on its coefficients, and
+`method='REML'` (or `'ML'`) chooses the smoothing parameters, with the
+dispersion, to maximize the restricted (or full) marginal likelihood, with
+the coefficients integrated out by Laplace's method, as mgcv (Wood, 2011).
+`s()` without `df` or `lam` is then estimated. (This uses JAX, the extra
+`pip install glmstar[gam]`.)
+
+```{code-cell} ipython3
+gam_reml = GAM(terms=[s('year'), s('age'), factor('education')], method='REML')
+gam_reml.fit(Wage, Wage['wage'])
+gam_reml.summary()
+```
+
+REML gives `year` little more than a line, and `age` about 5 degrees of
+freedom; `edf_` is now mgcv's. The smoothing parameters, and the criterion
+at its minimum:
+
+```{code-cell} ipython3
+gam_reml.smoothing_.lam, gam_reml.reml_score_
+```
+
+```{code-cell} ipython3
+axes = gam_reml.plot()
+axes[0].figure.tight_layout()
+```
+
+## Random effects
+
+A random effect is a term like the smooths: `re(group)` gives each group
+its own intercept, penalized by its sum of squares, as the Gaussian prior
+of a mixed model; `re(group, by=x)` its own slope in `x`. Its variance is
+the dispersion over its smoothing parameter, and REML estimates it as the
+REML of the mixed model (for the Gaussian, exactly).
+
+Here marital status is a random effect, its levels' effects shrunk
+towards 0, next to the fixed effect of education:
+
+```{code-cell} ipython3
+gam_re = GAM(terms=[s('year'), s('age'), factor('education'), re('maritl')], method='REML')
+gam_re.fit(Wage, Wage['wage'])
+gam_re.variance_components_
+```
+
+The fixed effects of a factor are centered, the random effects are not,
+so compare each level with the married workers:
+
+```{code-cell} ipython3
+gam_fe = GAM(terms=[s('year'), s('age'), factor('education'), factor('maritl')],
+             method='REML').fit(Wage, Wage['wage'])
+random, fixed = gam_re.terms_[3].effects_, gam_fe.terms_[3].effects_
+pd.DataFrame({'workers': Wage['maritl'].value_counts().sort_index(),
+              'random effect': random - random['2. Married'],
+              'fixed effect': fixed - fixed['2. Married']})
+```
+
+Each random effect is shrunk towards 0, the more the smaller its group:
+the 19 widowed workers' effect moves the most, from $-14.0$ to $-10.8$
+(relative to the married workers, whose own effect is shrunk little).
+
+## A Cox model
+
+With glmstar's `CoxFamily`, the GAM is a proportional hazards model with
+smooth terms, fitted by maximizing the penalized partial likelihood (with
+Efron's or Breslow's ties, start times and strata). The response is a data
+frame with the times and the status. On the `BrainCancer` data, the hazard
+of death as a smooth function of the gross tumor volume `gtv`, with the
+Karnofsky index `ki` linear and an effect for the diagnosis, the smoothing
+parameter by REML, as mgcv's `cox.ph` (Wood, Pya and Säfken, 2016):
+
+```{code-cell} ipython3
+from glmnet.cox import CoxFamily
+
+Brain = load_data('BrainCancer').dropna()
+cox = GAM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
+          family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
+          method='REML')
+cox.fit(Brain, Brain[['time', 'status']])
+cox.summary()
+```
+
+```{code-cell} ipython3
+axes = cox.plot()
+axes[0].figure.tight_layout()
+```
+
+REML finds no evidence of a nonlinear effect of the tumor volume: its
+spline is a line, 1 degree of freedom (as mgcv's `cox.ph` gives). The
+curves are on the scale of the log hazard; `predict` gives the linear
+predictor (`'link'`) or the relative risk (`'response'`).
+
+## References
+
+- Buja, A., Hastie, T. and Tibshirani, R. (1989). Linear smoothers and
+  additive models. *The Annals of Statistics* 17(2), 453–510.
+- Cleveland, W. S., Grosse, E. and Shyu, W. M. (1992). Local regression
+  models. In J. M. Chambers and T. J. Hastie (eds.), *Statistical Models in
+  S*, chapter 8. Wadsworth & Brooks/Cole.
+- Hastie, T. and Tibshirani, R. (1986). Generalized additive models.
+  *Statistical Science* 1(3), 297–318.
+- Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
+  Chapman & Hall.
+- James, G., Witten, D., Hastie, T., Tibshirani, R. and Taylor, J. (2023).
+  *An Introduction to Statistical Learning, with Applications in Python*.
+  Springer.
+- Marra, G. and Wood, S. N. (2012). Coverage properties of confidence
+  intervals for generalized additive model components. *Scandinavian
+  Journal of Statistics* 39(1), 53–74.
+- Nychka, D. (1988). Bayesian confidence intervals for smoothing splines.
+  *Journal of the American Statistical Association* 83(404), 1134–1143.
+- Wahba, G. (1983). Bayesian "confidence intervals" for the cross-validated
+  smoothing spline. *Journal of the Royal Statistical Society, Series B*
+  45(1), 133–150.
+- Wood, S. N. (2011). Fast stable restricted maximum likelihood and marginal
+  likelihood estimation of semiparametric generalized linear models.
+  *Journal of the Royal Statistical Society, Series B* 73(1), 3–36.
+- Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
+  (2nd ed.). Chapman & Hall/CRC.
+- Wood, S. N., Pya, N. and Säfken, B. (2016). Smoothing parameter and model
+  selection for general smooth models. *Journal of the American Statistical
+  Association* 111(516), 1548–1563.

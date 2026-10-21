@@ -42,6 +42,12 @@
   `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`).
 ### New
 
+- **Documentation: a page on GAMs** (`docs/gam.md`), after the GAM part of
+  ISLR's lab on nonlinear modeling: the Wage GAM and its plot, smoothing by
+  `df` or `lam`, loess, backfitting and the joint solve, standard errors, a
+  logistic GAM, REML, random effects and a Cox GAM (BrainCancer); and
+  references (Hastie and Tibshirani; Buja, Hastie and Tibshirani; Wood; ...)
+  in `glmnet.gam`'s docstrings.
 - **`GAM.plot()`** (and `glmnet.gam.plot_term`): the fits of a GAM's terms, one
   panel each, as R's `plot.Gam`: a curve over the range of the column with
   dashed bands of 2 pointwise standard errors (from the posterior covariance;
