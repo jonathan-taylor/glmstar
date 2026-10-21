@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 import scipy.sparse
 import statsmodels.api as sm
-from scipy.stats import chi2
+from scipy.stats import chi2, f as fdist
 
 from glmnet import GLM
 from glmnet.glm import (GLMControl, BinomialGLM, anova, confidence_interval,
@@ -137,8 +137,46 @@ def test_anova(name):
     dev = s_small.deviance - s_big.deviance
     np.testing.assert_allclose(table['df_resid'], [n - 2, n - 5])
     np.testing.assert_allclose(table['dev_diff'].iloc[1], dev, rtol=1e-6)
-    np.testing.assert_allclose(table['chi2'].iloc[1], dev / s_big.scale, rtol=1e-6)
-    np.testing.assert_allclose(table['P(>chi2)'].iloc[1], chi2.sf(dev / s_big.scale, 3), rtol=1e-5)
+    if name == 'gaussian':
+        # least squares: the F-test (anova_lm), not chi-squared
+        assert 'chi2' not in table
+        F = dev / 3 / s_big.scale
+        np.testing.assert_allclose(table['F'].iloc[1], F, rtol=1e-6)
+        np.testing.assert_allclose(table['P(>F)'].iloc[1], fdist.sf(F, 3, n - 5), rtol=1e-5)
+    else:
+        assert 'F' not in table
+        np.testing.assert_allclose(table['chi2'].iloc[1], dev / s_big.scale, rtol=1e-6)
+        np.testing.assert_allclose(table['P(>chi2)'].iloc[1], chi2.sf(dev / s_big.scale, 3), rtol=1e-5)
+
+
+def test_anova_least_squares():
+    # three nested least squares fits: statsmodels' anova_lm (F against the
+    # largest model's residual mean square)
+    from statsmodels.stats.anova import anova_lm
+    y = 0.3 + 0.5 * X[:, 0] - 0.4 * X[:, 1] + rng.standard_normal(n)
+    fits = [GLM(exclude=exclude).fit(X, y) for exclude in ([1, 2, 3], [2, 3], [])]
+    table = anova(*fits)
+    ols = [sm.OLS(y, sm.add_constant(X[:, :k])).fit() for k in (1, 2, 4)]
+    expected = anova_lm(*ols)
+    np.testing.assert_allclose(table['deviance'], expected['ssr'], rtol=1e-10)
+    np.testing.assert_allclose(table['df_diff'].iloc[1:], expected['df_diff'].iloc[1:])
+    np.testing.assert_allclose(table['F'].iloc[1:], expected['F'].iloc[1:], rtol=1e-8)
+    # the p-values on the largest model's residual df, as R's anova.lm
+    # (statsmodels uses each row's own df_resid, which agrees for the last row)
+    np.testing.assert_allclose(table['P(>F)'].iloc[1:],
+                               fdist.sf(table['F'].iloc[1:], table['df_diff'].iloc[1:], n - 5),
+                               rtol=1e-10)
+    np.testing.assert_allclose(table['P(>F)'].iloc[-1], expected['Pr(>F)'].iloc[-1], rtol=1e-8)
+    # a given dispersion, the sandwich covariance or a non-identity link: chi-squared
+    for kwargs, fit_kwargs in [({}, {'dispersion': 1.}), ({'sandwich': True}, {}),
+                               ({'family': sm.families.Gaussian(link=sm.families.links.Log())}, {})]:
+        yk = np.exp(0.1 * y) if 'family' in kwargs else y
+        small, big = (GLM(exclude=exclude, **kwargs).fit(X, yk, **fit_kwargs)
+                      for exclude in ([1, 2, 3], []))
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)   # sandwich
+            table = anova(small, big)
+        assert 'chi2' in table and 'F' not in table
 
 
 def test_gaussian_dispersion_is_estimated():
