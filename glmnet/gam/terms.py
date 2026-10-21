@@ -375,11 +375,23 @@ class SplineTerm(Term):
 
     def _knot_values(self):
         # the basis' values and second derivatives at the knots, and its
-        # slopes at the boundary knots: they determine it everywhere
+        # slopes at the boundary knots: they determine it everywhere. The
+        # second derivatives of a natural cubic spline are those of its
+        # values at the knots (Green & Silverman, 1994, section 2.1)
         if getattr(self, '_at_knots', None) is None:
+            from scipy.linalg import solve_banded
             t = self.knots_
-            self._at_knots = (self._unit_values(t), self._unit_values(t, deriv=2),
-                              self._unit_values(t[[0, -1]], deriv=1))
+            V = self._unit_values(t)
+            h = np.diff(t)
+            QtV = V[:-2] / h[:-1, None] - V[1:-1] * (1 / h[:-1] + 1 / h[1:])[:, None] + V[2:] / h[1:, None]
+            R = np.zeros((3, len(t) - 2))
+            R[1] = (h[:-1] + h[1:]) / 3
+            R[0, 1:] = R[2, :-1] = h[1:-1] / 6
+            V2 = np.zeros_like(V)
+            V2[1:-1] = solve_banded((1, 1), R, QtV)
+            V1 = np.array([(V[1] - V[0]) / h[0] - h[0] * V2[1] / 6,
+                           (V[-1] - V[-2]) / h[-1] + h[-1] * V2[-2] / 6])
+            self._at_knots = (V, V2, V1)
         return self._at_knots
 
     def _basis_values(self, x):
