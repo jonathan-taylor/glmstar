@@ -248,8 +248,6 @@ class GAM(BaseEstimator):
         # the terms at the weights of the final working problem
         z, w = family.get_response_and_weights(state, response, offset, normed_weight)
         total = state.fits.sum(1)
-        # (the df first: a loess term's df smooths unit vectors, which would
-        # overwrite its final fit)
         coefs = state.coefs if state.coefs is not None else [None] * len(self.terms_)
         edf = []
         for j, term in enumerate(self.terms_):

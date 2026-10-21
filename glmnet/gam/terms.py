@@ -335,8 +335,7 @@ class LoessTerm(Term):
     """
     A loess smooth of the column (local polynomial regression, from
     `scatter_smooth`): the term `lo(column, span=0.5, degree=1)`. It minimizes
-    no objective. Its degrees of freedom, the trace of the smoother less 1,
-    are computed by smoothing the unit vectors, one smooth per observation.
+    no objective. Its degrees of freedom are the trace of the smoother less 1.
     """
     span: float = 0.5
     degree: int = 1
@@ -363,14 +362,8 @@ class LoessTerm(Term):
     # longer give the loess smooth); it is backfitted whole
 
     def edf(self):
-        # the trace of the smoother, by smoothing the unit vectors
-        n = self.x_.shape[0]
-        trace = 0.
-        for i in range(n):
-            e = np.zeros(n)
-            e[i] = 1.
-            trace += self.smooth(e)[i]
-        return trace - 1
+        # the trace of the smoother (its leverages, at the current weights)
+        return self._smoother.compute_df() - 1
 
     def finalize(self, f, r, coef=None):
         # the fit is the smooth of r plus a function the smoother reproduces:

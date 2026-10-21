@@ -12,7 +12,7 @@ from scatter_smooth import SplineSmoother
 
 from glmnet import GLM
 from ISLP.gam import GAM, GAMControl, s, lo, linear, factor
-from ISLP.gam.terms import SplineTerm
+from ISLP.gam.terms import SplineTerm, LoessTerm
 
 TIGHT = GAMControl(epsnr=1e-12, mxitnr=100)
 
@@ -225,3 +225,20 @@ def test_residuals_function(data):
     np.testing.assert_allclose(residuals(G), data['yb'] - mu, rtol=1e-10)
     np.testing.assert_allclose(residuals(G, 'pearson'),
                                (data['yb'] - mu) / np.sqrt(mu * (1 - mu)), rtol=1e-8)
+
+
+@pytest.mark.parametrize('degree', [1, 2])
+@pytest.mark.parametrize('weights', ['unit', 'random', 'zeros'])
+def test_loess_edf_is_trace(degree, weights):
+    # the edf of lo() (from the loess leverages) is the trace of the
+    # smoother, by smoothing the unit vectors, less 1
+    rng = np.random.default_rng(3)
+    n = 150
+    x = np.round(rng.uniform(0, 10, n), 1)        # with ties
+    w = {'unit': np.ones(n), 'random': rng.uniform(0.2, 3, n),
+         'zeros': np.r_[np.zeros(10), np.ones(n - 10)]}[weights]
+    term = LoessTerm('x', span=0.6, degree=degree)
+    term.setup(x)
+    term.set_weights(w)
+    trace = sum(term.smooth(np.identity(n)[i])[i] for i in range(n))
+    np.testing.assert_allclose(term.edf(), trace - 1, rtol=1e-10)
