@@ -242,3 +242,7 @@ def test_loess_edf_is_trace(degree, weights):
     term.set_weights(w)
     trace = sum(term.smooth(np.identity(n)[i])[i] for i in range(n))
     np.testing.assert_allclose(term.edf(), trace - 1, rtol=1e-10)
+    # evaluated once per distinct value: the smooth at every row
+    r = rng.standard_normal(n)
+    term._smoother.smooth(r)
+    np.testing.assert_allclose(term.smooth(r), term._smoother.predict(x), rtol=1e-12, atol=1e-14)

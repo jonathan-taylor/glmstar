@@ -346,16 +346,21 @@ class LoessTerm(Term):
     def setup(self, x):
         ss = _scatter_smooth()
         self.x_ = np.asarray(x, float)
+        # the smooth is evaluated once per distinct value
+        self._x_unique, self._x_inverse = np.unique(self.x_, return_inverse=True)
         self._smoother = ss.LoessSmoother(self.x_, span=self.span, degree=self.degree)
         return self
+
+    def _smooth_at_train(self, r):
+        self._smoother.smooth(r)
+        return self._smoother.predict(self._x_unique)[self._x_inverse]
 
     def set_weights(self, w):
         super().set_weights(w)
         self._smoother.update_weights(self.w_)
 
     def smooth(self, r):
-        self._smoother.smooth(r)
-        return self._smoother.predict(self.x_)
+        return self._smooth_at_train(r)
 
     # no linear_columns: loess is not a symmetric smoother, so splitting off
     # its linear part would change the fit (a single lo() term would no
@@ -368,8 +373,7 @@ class LoessTerm(Term):
     def finalize(self, f, r, coef=None):
         # the fit is the smooth of r plus a function the smoother reproduces:
         # a constant (backfitting), or a line (modified backfitting)
-        self._smoother.smooth(r)
-        d = f - self._smoother.predict(self.x_)
+        d = f - self._smooth_at_train(r)
         if self.degree < 1:
             self.line_ = (d.mean(), 0.)
         else:
