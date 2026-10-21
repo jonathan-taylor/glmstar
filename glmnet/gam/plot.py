@@ -1,0 +1,173 @@
+"""
+Plots of the fitted terms of a GAM, as R's `plot.Gam` (and mgcv's
+`plot.gam`): each term's centered fit against its column, with pointwise
+standard error bands from the Bayesian covariance when it is available (all
+terms but loess), and a rug of the training data.
+"""
+import numpy as np
+
+from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm
+
+
+def _term_index(gam, term):
+    if isinstance(term, (int, np.integer)):
+        return int(term)
+    names = [t.name for t in gam.terms_]
+    if term not in names:
+        raise ValueError(f'{term!r} is not a term of the GAM: {names}')
+    return names.index(term)
+
+
+def _has_covariance(gam):
+    return gam.posterior_covariance_ is not None
+
+
+def plottable(term):
+    """Can `plot_term` draw the term (all but blocks of several columns)?"""
+    if isinstance(term, ColumnsTerm):
+        return term.X_.shape[1] == 1
+    return True
+
+
+def plot_term(gam,
+              term,
+              ax=None,
+              se=True,
+              rug=True,
+              n_grid=100,
+              multiplier=2.,
+              color='C0',
+              se_color='C3'):
+    """
+    Plot the fit of a term of a fitted GAM against its column, as R's
+    `plot.Gam(fit, se=TRUE)`.
+
+    A term of a numeric column (a spline, loess, a linear term) is drawn as
+    its curve over the range of the column (`n_grid` points); a factor or a
+    random effect as one point per level (per group; for `re(g, by=x)` the
+    groups' slopes). The fits are centered, as the GAM's terms.
+
+    Parameters
+    ----------
+    gam: GAM
+        A fitted GAM.
+    term: int or str
+        The term: its index or its name (e.g. `'s(age, df=5)'`).
+    ax: matplotlib Axes, optional
+        Where to draw (by default a new figure's).
+    se: bool
+        Draw the pointwise bands `fit +/- multiplier * std` (dashed, as R's)
+        from the posterior covariance, when it is available (every term has a
+        basis: not with loess terms).
+    rug: bool
+        Mark the training values of the column along the x axis.
+    n_grid: int
+        Number of points of a curve.
+    multiplier: float
+        Of the standard errors (2, as R's `plot.Gam`).
+    color, se_color:
+        Colors of the fit and of the bands.
+
+    Returns
+    -------
+    ax: matplotlib Axes
+    """
+    import matplotlib.pyplot as plt
+
+    j = _term_index(gam, term)
+    term = gam.terms_[j]
+    if not plottable(term):
+        raise ValueError(f'{term.name} is a block of several columns: it has no curve to plot')
+    if ax is None:
+        _, ax = plt.subplots()
+    se = se and _has_covariance(gam)
+    column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
+
+    if isinstance(term, (FactorTerm, RandomEffectTerm)):
+        levels = np.asarray(term.levels_)
+        if isinstance(term, RandomEffectTerm) and term.by is not None:
+            x = np.column_stack([levels, np.ones(len(levels))])
+        else:
+            x = levels
+        if se:
+            fit, std = gam.partial_effect(j, x, return_std=True)
+        else:
+            fit, std = gam.partial_effect(j, x), None
+        labels = levels
+        if isinstance(term, RandomEffectTerm) and term.level_names is not None:
+            labels = np.asarray(term.level_names)[levels.astype(int)]
+        pos = np.arange(len(levels))
+        if std is not None:
+            ax.errorbar(pos, fit, yerr=multiplier * std, fmt='o', color=color,
+                        ecolor=se_color, capsize=3)
+        else:
+            ax.plot(pos, fit, 'o', color=color)
+        ax.set_xticks(pos)
+        labels = [str(l) for l in labels]
+        # (slanted, when they would overlap)
+        crowded = len(pos) > 6 or sum(len(l) for l in labels) > 30
+        ax.set_xticklabels(labels, rotation=30 if crowded else 0,
+                           ha='right' if crowded else 'center')
+        ax.axhline(0, color='k', lw=0.5, alpha=0.5)
+        xlabel = term.column
+    else:
+        if isinstance(term, ColumnsTerm):
+            values = term.X_[:, 0]
+        else:
+            values = term.x_
+        grid = np.linspace(values.min(), values.max(), n_grid)
+        x = grid[:, None] if isinstance(term, ColumnsTerm) else grid
+        if se:
+            fit, std = gam.partial_effect(j, x, return_std=True)
+        else:
+            fit, std = gam.partial_effect(j, x), None
+        ax.plot(grid, fit, color=color, lw=2)
+        if std is not None:
+            for sign in (-1, 1):
+                ax.plot(grid, fit + sign * multiplier * std, color=se_color, ls='--', lw=1.5)
+        if rug:
+            ax.plot(np.unique(values), np.zeros(len(np.unique(values))), '|', color='k',
+                    alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
+        xlabel = column
+    ax.set_xlabel(str(xlabel))
+    ax.set_ylabel(term.name)
+    return ax
+
+
+def plot_terms(gam,
+               terms=None,
+               axes=None,
+               ncols=3,
+               figsize=None,
+               **kwargs):
+    """
+    Plot the fits of the terms of a fitted GAM, one panel each (by default
+    every term that has a curve, `plottable`), as R's `plot.Gam`. The other
+    arguments are those of `plot_term`.
+
+    Returns
+    -------
+    axes: np.ndarray of matplotlib Axes, one per plotted term
+    """
+    import matplotlib.pyplot as plt
+
+    if terms is None:
+        terms = [j for j, t in enumerate(gam.terms_) if plottable(t)]
+    else:
+        terms = [_term_index(gam, t) for t in terms]
+    if axes is None:
+        ncols = min(ncols, len(terms))
+        nrows = int(np.ceil(len(terms) / ncols))
+        fig, axes = plt.subplots(nrows, ncols, squeeze=False,
+                                 figsize=figsize or (4.5 * ncols, 3.5 * nrows))
+        axes = axes.ravel()
+        for ax in axes[len(terms):]:
+            ax.set_visible(False)
+        axes = axes[:len(terms)]
+    else:
+        axes = np.asarray(axes).ravel()
+        if axes.shape[0] < len(terms):
+            raise ValueError(f'{len(terms)} terms to plot, {axes.shape[0]} axes given')
+    for ax, j in zip(axes, terms):
+        plot_term(gam, j, ax=ax, **kwargs)
+    return axes

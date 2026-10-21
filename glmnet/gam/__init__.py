@@ -44,3 +44,4 @@ from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection
 from .estimator import GAM, GAMControl
+from .plot import plot_term, plot_terms
