@@ -73,7 +73,7 @@ def test_fitted_values_and_partial_effects(data):
                                    rtol=1e-8, atol=1e-10)
     # df matched at the final weights
     np.testing.assert_allclose(G.edf_['s(a, df=5)'], 5, rtol=1e-5)
-    assert list(G.summary().columns) == ['edf', 'edf_joint', 'lam']
+    assert list(G.summary().columns) == ['edf', 'edf_influence', 'lam']
 
 
 def test_linear_term(data):

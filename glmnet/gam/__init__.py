@@ -19,8 +19,8 @@ to ordinary columns.)
 Each working problem of local scoring is solved by backfitting the terms (as
 R's `gam`, the default) or jointly on their bases (`GAMControl(solver='joint')`,
 as mgcv): the same fit. When every term has a basis (all but loess) the fit
-has a Bayesian covariance (`Vp_`, as mgcv's), with standard errors for
-predictions and the terms' curves.
+has a Bayesian covariance (`posterior_covariance_`, as mgcv's `Vp`), with
+standard errors for predictions and the terms' curves.
 
 The smoothing spline and loess terms use the `scatter_smooth` package.
 """

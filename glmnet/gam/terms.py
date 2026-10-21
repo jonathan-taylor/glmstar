@@ -318,7 +318,7 @@ class SplineTerm(Term):
         self._smoother.smooth(self.x_)
         self._x_coef = self._smoother.spline_coef_.copy()
         self._coef = self._nl_coef = None
-        self._basis = self._penalty = None
+        self._basis = self._penalty = self._at_knots = None
         return self
 
     def set_weights(self, w):
@@ -373,26 +373,52 @@ class SplineTerm(Term):
             S.set_spline_coef(saved)
         return values
 
+    def _knot_values(self):
+        # the basis' values and second derivatives at the knots, and its
+        # slopes at the boundary knots: they determine it everywhere
+        if getattr(self, '_at_knots', None) is None:
+            t = self.knots_
+            self._at_knots = (self._unit_values(t), self._unit_values(t, deriv=2),
+                              self._unit_values(t[[0, -1]], deriv=1))
+        return self._at_knots
+
+    def _basis_values(self, x):
+        # a cubic between the knots, from its values and second derivatives
+        # at the ends of the interval; linear beyond the boundary knots
+        t = self.knots_
+        V, V2, V1 = self._knot_values()
+        i = np.clip(np.searchsorted(t, x, side='right') - 1, 0, len(t) - 2)
+        h = t[i + 1] - t[i]
+        b = (x - t[i]) / h
+        a = 1 - b
+        c = (a**3 - a) * h**2 / 6
+        d = (b**3 - b) * h**2 / 6
+        values = (a[:, None] * V[i] + b[:, None] * V[i + 1] +
+                  c[:, None] * V2[i] + d[:, None] * V2[i + 1])
+        for end, side in [(0, x < t[0]), (-1, x > t[-1])]:
+            if np.any(side):
+                values[side] = V[end] + (x[side] - t[end])[:, None] * V1[end]
+        return values
+
     def basis(self, x=None):
         if x is None:
             if getattr(self, '_basis', None) is None:
-                self._basis = self._unit_values(self.x_)
+                self._basis = self._basis_values(self.x_)
             return self._basis
-        return self._unit_values(np.asarray(x, float))
+        return self._basis_values(np.asarray(x, float))
 
     def penalty_matrix(self):
         """
         The integral of the products of the basis' second derivatives: they
-        are linear between the knots (and 0 beyond), so the two point
-        Gauss-Legendre rule on each interval is exact.
+        are linear between the knots (and 0 beyond), so it is exact from
+        their values at the knots.
         """
         if getattr(self, '_penalty', None) is None:
-            t = self.knots_
-            g = np.array([-1., 1.]) / np.sqrt(3)
-            mid, half = (t[1:] + t[:-1]) / 2, np.diff(t) / 2
-            xq = (mid[:, None] + half[:, None] * g[None, :]).ravel()
-            D2 = self._unit_values(xq, deriv=2)
-            self._penalty = D2.T @ (np.repeat(half, 2)[:, None] * D2)
+            _, V2, _ = self._knot_values()
+            h = np.diff(self.knots_)[:, None] / 6
+            lo, hi = V2[:-1], V2[1:]
+            cross = lo.T @ (h * hi)
+            self._penalty = 2 * (lo.T @ (h * lo) + hi.T @ (h * hi)) + cross + cross.T
         return self._penalty
 
     def penalty_lam(self):

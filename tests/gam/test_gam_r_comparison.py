@@ -336,7 +336,7 @@ def test_covariance_mgcv(Rinfo, data, family):
     np.testing.assert_allclose(G.state_.link_parameter, np.asarray(rpy.r('m$linear.predictors')),
                                rtol=1e-8, atol=1e-8)
     edf_R = np.asarray(rpy.r('sapply(m$smooth, function(sm) sum(m$edf[sm$first.para:sm$last.para]))'))
-    np.testing.assert_allclose(G.edf_joint_.values[[0, 1, 3]], edf_R, rtol=1e-8)
+    np.testing.assert_allclose(G.edf_influence_.values[[0, 1, 3]], edf_R, rtol=1e-8)
 
     new = D.iloc[::9]
     with Rinfo['np_cv_rules'].context():
@@ -344,7 +344,7 @@ def test_covariance_mgcv(Rinfo, data, family):
     phi, phi_R = G.dispersion_, rpy.r('m$sig2')[0]
     offset = new['o'] if use_offset else None
     for kind in ['link', 'response']:
-        fit, se = G.predict(new, kind, offset=offset, se=True)
+        fit, se = G.predict(new, kind, offset=offset, return_std=True)
         pred_R = rpy.r(f'predict(m, newdata=new, se.fit=TRUE, type="{kind}")')
         np.testing.assert_allclose(fit, np.asarray(pred_R[0]), rtol=1e-8, atol=1e-8)
         np.testing.assert_allclose(se / np.sqrt(phi), np.asarray(pred_R[1]) / np.sqrt(phi_R),
@@ -352,12 +352,12 @@ def test_covariance_mgcv(Rinfo, data, family):
     terms_R = rpy.r('predict(m, newdata=new, type="terms", se.fit=TRUE)')
     names_R = list(rpy.r('colnames(predict(m, newdata=new, type="terms"))'))
     for j, name in [(0, 's(a)'), (1, 's(b)'), (3, 's(g)')]:
-        _, se = G.partial_effect(j, new[G.terms_[j].columns], se=True)
+        _, se = G.partial_effect(j, new[G.terms_[j].columns], return_std=True)
         np.testing.assert_allclose(se / np.sqrt(phi),
                                    np.asarray(terms_R[1])[:, names_R.index(name)] / np.sqrt(phi_R),
                                    rtol=1e-7, atol=1e-10)
     # Ve: through the design rows (mgcv's lpmatrix)
     rows = G.design_.rows(G._columns(new, G.terms_))
     Xp, Ve_R = np.asarray(rpy.r('predict(m, newdata=new, type="lpmatrix")')), np.asarray(rpy.r('m$Ve'))
-    np.testing.assert_allclose(np.einsum('ij,jk,ik->i', rows, G.Ve_, rows) / phi,
+    np.testing.assert_allclose(np.einsum('ij,jk,ik->i', rows, G.frequentist_covariance_, rows) / phi,
                                np.einsum('ij,jk,ik->i', Xp, Ve_R, Xp) / phi_R, rtol=1e-7, atol=1e-12)

@@ -62,8 +62,8 @@ def test_joint_is_backfit(data, family, terms):
         np.testing.assert_allclose(G.state_.link_parameter, J.state_.link_parameter,
                                    rtol=1e-8, atol=1e-9)
         np.testing.assert_allclose(G.edf_, J.edf_, rtol=1e-7, atol=1e-8)
-        np.testing.assert_allclose(G.edf_joint_, J.edf_joint_, rtol=1e-7, atol=1e-8)
-        np.testing.assert_allclose(G.Vp_, J.Vp_, rtol=1e-6, atol=1e-10)
+        np.testing.assert_allclose(G.edf_influence_, J.edf_influence_, rtol=1e-7, atol=1e-8)
+        np.testing.assert_allclose(G.posterior_covariance_, J.posterior_covariance_, rtol=1e-6, atol=1e-10)
     # predictions at the training data are the fit (offset added back)
     np.testing.assert_allclose(J.predict(data, 'link', offset=data['o']),
                                J.state_.link_parameter, rtol=1e-10, atol=1e-10)
@@ -99,8 +99,12 @@ def test_spline_operators(x):
     np.testing.assert_allclose(B.sum(1), 1, atol=1e-12)       # a partition of unity
     Omega = term.penalty_matrix()
     np.testing.assert_allclose(coef @ Omega @ coef, term.roughness(coef), rtol=1e-9)
-    new = np.linspace(0, 3, 17)
+    new = np.linspace(-1, 4, 41)              # beyond the knots: linear
     np.testing.assert_allclose(term.basis(new) @ coef, term.predict(new), rtol=1e-8, atol=1e-10)
+    # the basis (from its values at the knots) is the smoother's splines
+    # whose coefficients are the unit vectors
+    np.testing.assert_allclose(term.basis(new), term._unit_values(new), atol=1e-12)
+    np.testing.assert_allclose(B, term._unit_values(term.x_), atol=1e-12)
 
 
 def test_random_effect_term(data):
@@ -136,26 +140,43 @@ def test_parametric_covariance_is_least_squares(data):
     X = sm.add_constant(pd.get_dummies(data[['a', 'b', 'c']], drop_first=True).astype(float))
     ols = sm.OLS(data['y'], X).fit()
     np.testing.assert_allclose(G.dispersion_, ols.scale, rtol=1e-10)
-    pred, se = G.predict(data.iloc[:20], 'link', se=True)
+    pred, se = G.predict(data.iloc[:20], 'link', return_std=True)
     sf = ols.get_prediction(X.iloc[:20]).se_mean
     np.testing.assert_allclose(se, sf, rtol=1e-8)
-    np.testing.assert_allclose(G.edf_joint_.values, [1, 1, 2], rtol=1e-10)
+    np.testing.assert_allclose(G.edf_influence_.values, [1, 1, 2], rtol=1e-10)
 
 
 def test_standard_errors_and_errors(data):
     G = GAM(terms=[s('a', df=4), factor('c')], family=sm.families.Binomial(),
             control=GAMControl(**TIGHT)).fit(data, data['yb'])
-    mu, se = G.predict(data.iloc[:5], se=True)
-    eta, se_eta = G.predict(data.iloc[:5], 'link', se=True)
+    mu, se = G.predict(data.iloc[:5], return_std=True)
+    eta, se_eta = G.predict(data.iloc[:5], 'link', return_std=True)
     np.testing.assert_allclose(se, se_eta * mu * (1 - mu), rtol=1e-10)
-    fit, se = G.partial_effect('s(a, df=4)', data['a'].iloc[:5], se=True)
+    fit, se = G.partial_effect('s(a, df=4)', data['a'].iloc[:5], return_std=True)
     assert np.all(se > 0)
     # loess: no basis, no joint solve or standard errors
     with pytest.raises(ValueError, match='has no basis'):
         GAM(terms=[lo('a')], control=GAMControl(solver='joint')).fit(data, data['y'])
     G = GAM(terms=[lo('a'), s('b', df=3)]).fit(data, data['y'])
-    assert G.Vp_ is None and G.edf_joint_ is None
+    assert G.posterior_covariance_ is None and G.edf_influence_ is None
     with pytest.raises(ValueError, match='standard errors need'):
-        G.predict(data, se=True)
+        G.predict(data, return_std=True)
     with pytest.raises(ValueError, match="solver should be"):
         GAM(terms=[s('a')], control=GAMControl(solver='qr')).fit(data, data['y'])
+
+
+def test_covariance_when_used(data):
+    # the covariance is computed when first used, then kept
+    G = GAM(terms=[s('a', df=4), s('b', lam=0.1), factor('c')],
+            control=GAMControl(**TIGHT)).fit(data, data['y'])
+    assert G._covariance is None
+    V = G.posterior_covariance_
+    assert G._covariance is not None and G.posterior_covariance_ is V
+    assert G.frequentist_covariance_.shape == V.shape == (G.design_.X.shape[1],) * 2
+    # the same as computed from the start, by a refit
+    H = GAM(terms=[s('a', df=4), s('b', lam=0.1), factor('c')],
+            control=GAMControl(**TIGHT)).fit(data, data['y'])
+    _, std = H.predict(data.iloc[:10], return_std=True)
+    np.testing.assert_allclose(std, G.predict(data.iloc[:10], return_std=True)[1], rtol=1e-12)
+    np.testing.assert_allclose(H.edf_influence_, G.edf_influence_, rtol=1e-12)
+    assert list(G.summary().columns) == ['edf', 'edf_influence', 'lam']
