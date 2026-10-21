@@ -246,3 +246,33 @@ def test_loess_edf_is_trace(degree, weights):
     r = rng.standard_normal(n)
     term._smoother.smooth(r)
     np.testing.assert_allclose(term.smooth(r), term._smoother.predict(x), rtol=1e-12, atol=1e-14)
+
+
+@pytest.mark.parametrize('family', [sm.families.Gaussian(), sm.families.Gamma(sm.families.links.Log())],
+                         ids=['gaussian', 'gamma'])
+def test_loglike_zero_weights(family):
+    # as GLM's: the log-likelihood and AIC without the observations of weight
+    # 0 (finite, no warning)
+    import warnings
+    rng = np.random.default_rng(4)
+    n = 200
+    D = pd.DataFrame({'a': rng.uniform(0, 1, n)})
+    eta = 0.5 + np.sin(2 * np.pi * D['a'])
+    D['y'] = (eta + rng.standard_normal(n) if isinstance(family, sm.families.Gaussian)
+              else np.exp(eta) * rng.gamma(4, 1 / 4, n))
+    D['w'] = rng.uniform(0.5, 2, n)
+    D.loc[:19, 'w'] = 0
+    terms = [s('a', lam=1e-3)]
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', RuntimeWarning)
+        G = GAM(terms=terms, family=family, response_id='y', weight_id='w').fit(D, D)
+    assert np.isfinite(G.loglike_)
+    # the same loglike as from the positive-weight observations at G's fit
+    keep = D['w'] > 0
+    y, mu, w = D['y'][keep].values, G.state_.mu[keep.values], D['w'][keep].values
+    if isinstance(family, sm.families.Gaussian):
+        scale = G.deviance_ / keep.sum()
+    else:
+        scale = G.deviance_ / D['w'].sum()
+    np.testing.assert_allclose(G.loglike_, family.loglike(y, mu, var_weights=w, scale=scale),
+                               rtol=1e-10)

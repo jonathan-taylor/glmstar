@@ -1173,9 +1173,13 @@ class GLM(GLMBase):
             scale = self.deviance_ / np.sum(self._weight > 0)
         else:
             scale = self.dispersion_
-        return self._family.base.loglike(y,
-                                         self.state_.mu,
-                                         var_weights=self._weight,
+        # over the observations of positive weight (a weight 0 would give the
+        # Gaussian's, Gamma's and inverse Gaussian's -inf, as R's logLik):
+        # those of the fit without the others
+        keep = self._weight > 0
+        return self._family.base.loglike(y[keep],
+                                         np.asarray(self.state_.mu)[keep],
+                                         var_weights=self._weight[keep],
                                          scale=scale)
 
     def _get_information(self):
