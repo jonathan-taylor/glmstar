@@ -588,6 +588,15 @@ class GAM(BaseEstimator):
                   else np.asarray(y[self.weight_id], float).reshape(-1))
         return family, None, offset, weight
 
+    def plot(self, terms=None, axes=None, **kwargs):
+        """
+        Plot the fits of the terms (by default every term with a curve), one
+        panel each, with standard error bands and rugs, as R's `plot.Gam`:
+        see `glmnet.gam.plot.plot_terms` and `plot_term`. Returns the axes.
+        """
+        from .plot import plot_terms
+        return plot_terms(self, terms=terms, axes=axes, **kwargs)
+
     def summary(self):
         """
         The terms, their degrees of freedom (`edf`, as R's `gam`, and
