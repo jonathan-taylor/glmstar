@@ -17,7 +17,7 @@ from .backfit import GAMRegularizer, GAMState
 
 class JointDesign(object):
     """
-    The design of the terms (`ISLP.gam.terms`, set up on the training data):
+    The design of the terms (`glmnet.gam.terms`, set up on the training data):
     the column of ones, then a block of columns per term. A term's block is
     its basis `B`:
 
