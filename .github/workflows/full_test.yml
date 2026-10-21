@@ -35,17 +35,20 @@ jobs:
     - name: Install R packages
       uses: r-lib/actions/setup-r-dependencies@v2
       with:
-        # glmnet, and for glmnet.gam's comparisons gam, mgcv and survival
+        # glmnet, and for glmnet.gam's comparisons gam, mgcv, survival, lme4
+        # and nlme
         packages: |
           glmnet
           gam
           mgcv
           survival
+          lme4
+          nlme
 
     - name: Install Python dependencies
       run: |
         pip install -r requirements.txt
-        pip install .
+        pip install .[gam]
 
     - name: Install rpy2
       run: |

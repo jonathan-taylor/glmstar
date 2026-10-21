@@ -18,9 +18,8 @@ from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
-from .terms import Term
 from .joint import JointDesign, JointRegularizer
-from .terms import SplineTerm
+from .terms import SplineTerm, Term
 
 
 @dataclass
@@ -157,7 +156,7 @@ class GAM(BaseEstimator):
         Number of IRLS iterations.
     smoothing_: SmoothingSelection
         With `method='REML'` or `'ML'`: the estimated smoothing parameters,
-        the dispersion and the criterion (`ISLP.gam.reml`).
+        the dispersion and the criterion (`glmnet.gam.reml`).
     reml_score_: float
         The minimized criterion (the negative log REML or ML; as mgcv's
         `gcv.ubre`, up to a constant for REML, which depends on the
@@ -187,7 +186,8 @@ class GAM(BaseEstimator):
         terms = list(self.terms)
         for term in terms:
             if not isinstance(term, Term):
-                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), linear(), factor())')
+                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), re(), linear(), '
+                                 'factor())')
         return terms, X
 
     def _design(self, X):

@@ -11,7 +11,7 @@ variance is the dispersion over its smoothing parameter.
 The inner fit, the penalized likelihood at given smoothing parameters, is
 `GAM`'s local scoring with the joint solve; the criterion and its gradient,
 through the implicit derivative of the fitted coefficients, are computed by
-JAX (an optional dependency: `pip install jax`).
+JAX (an optional dependency: `pip install glmstar[gam]`, or `pip install jax`).
 
 On the scale of the prior weights (`D` the deviance, `S` the penalty matrix,
 `sum_j lam_j S_j`, `H = X' W X + S` the Hessian of the penalized deviance
@@ -44,7 +44,8 @@ def _jax():
         import jax
         import jax.numpy as jnp
     except ImportError as e:
-        raise ImportError('method="REML" and method="ML" use JAX: pip install jax') from e
+        raise ImportError('method="REML" and method="ML" use JAX: '
+                          'pip install jax (or glmstar[gam])') from e
     return jax, jnp
 
 

@@ -35,6 +35,10 @@ classifiers = ["Development Status :: 3 - Alpha",
 license = "BSD-3-Clause"
 
 [project.optional-dependencies]
+# glmnet.gam: smoothing parameters by REML or ML (but for the Cox family)
+gam = [
+    "jax"
+]
 dev = [
     "pytest",
     "scipy",

@@ -707,7 +707,10 @@ def re(column, by=None, lam=None, df=None, name=None):
 
 
 def s(column, df=None, lam=None, name=None):
-    """A smoothing spline term (see `SplineTerm`); `df=4` by default."""
+    """
+    A smoothing spline term (see `SplineTerm`): `df=4` by default (with
+    `method='fixed'`; estimated with `'REML'` or `'ML'`).
+    """
     term = SplineTerm(column, df=df, lam=lam)
     term.label = name or _name('s', column, df=df, lam=lam)
     return term

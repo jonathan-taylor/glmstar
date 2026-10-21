@@ -11,9 +11,8 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from ISLP.models import ModelSpec as MS
-from ISLP.gam import GAM, GAMControl, s, lo, re, linear, factor
-from ISLP.gam.reml import LaplaceCriterion
+from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor
+from glmnet.gam.reml import LaplaceCriterion
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 GROUPS = [f'g{i:02d}' for i in range(20)]
@@ -164,16 +163,13 @@ def test_df_and_lam_terms_are_fixed(data):
     np.testing.assert_allclose(G.terms_[0].lam, P.terms_[0].lam_, rtol=1e-6)
 
 
-def test_model_spec_reml(data):
-    data = data.astype({'c': 'category'})
-    spec = MS([s('a'), 'c', re('g'), re('g', by='v')])
-    G = GAM(model_spec=spec, method='REML', control=GAMControl(**TIGHT)).fit(data, data['y'])
-    T = GAM(terms=[s('a'), factor('c'), re('g'), re('g', by='v')], method='REML',
+def test_random_effects_reml(data):
+    # a random intercept and slope by REML: the effects named by the groups,
+    # the standard errors from the posterior covariance at REML's dispersion
+    G = GAM(terms=[s('a'), factor('c'), re('g'), re('g', by='v')], method='REML',
             control=GAMControl(**TIGHT)).fit(data, data['y'])
-    np.testing.assert_allclose(G.predict(data), T.predict(data), rtol=1e-6, atol=1e-7)
-    np.testing.assert_allclose(G.variance_components_['variance'].values,
-                               T.variance_components_['variance'].values, rtol=1e-5)
     assert list(G.terms_[2].effects_.index) == GROUPS
+    assert list(G.variance_components_.index) == ['s(a)', 're(g)', 're(g, by=v)', 'scale']
     # standard errors at the REML dispersion
     _, se = G.predict(data.iloc[:5], return_std=True)
     rows = G.design_.rows(G._columns(G._design(data.iloc[:5]), G.terms_))

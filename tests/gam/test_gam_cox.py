@@ -238,7 +238,7 @@ def test_cox_mgcv(Rinfo, data, use_offset):
 
 def _criterion(G, method):
     # the criterion of a fitted GAM, at its estimated terms
-    from ISLP.gam.reml import CoxLaplaceCriterion
+    from glmnet.gam.reml import CoxLaplaceCriterion
     estimated = [j for j, t in enumerate(G.terms_) if t.name in G.smoothing_.terms]
     return CoxLaplaceCriterion(G, estimated, method=method)
 
@@ -295,7 +295,7 @@ def test_cox_reml_mgcv(Rinfo, data, use_offset):
     # the fit, and the score up to a constant (that of the parametrization of
     # the unpenalized coefficients). s(z) is nearly linear: its sp is large
     # (mgcv stops earlier), so only its edf, near 1, is compared
-    from ISLP.gam import re
+    from glmnet.gam import re
     rpy = Rinfo['rpy']
     if not rpy.r('isTRUE(requireNamespace("mgcv", quietly=TRUE))')[0]:
         pytest.skip('requires the R package mgcv')

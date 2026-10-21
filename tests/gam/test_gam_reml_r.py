@@ -17,8 +17,8 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from ISLP.gam import GAM, GAMControl, s, re, linear, factor
-from ISLP.gam.reml import LaplaceCriterion
+from glmnet.gam import GAM, GAMControl, s, re, linear, factor
+from glmnet.gam.reml import LaplaceCriterion
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 GROUPS = [f'g{i:02d}' for i in range(20)]
@@ -257,14 +257,12 @@ def test_glmer_poisson(Rinfo, data, nAGQ):
 
 
 @pytest.mark.parametrize('method', ['REML', 'ML'])
-def test_mgcv_wage_model_spec(Rinfo, method):
-    # real data through a ModelSpec: wage ~ s(year) + s(age) + education, the
+def test_mgcv_wage(Rinfo, method):
+    # real data (ISLP's Wage): wage ~ s(year) + s(age) + education, the
     # splines' knots ours (age's thinned, as R's smooth.spline) given to mgcv
-    from ISLP import load_data
-    from ISLP.models import ModelSpec as MS, contrast
-    from ISLP.gam import s as s_feature
-    Wage = load_data('Wage')
-    G = GAM(model_spec=MS([s_feature('year'), s_feature('age'), contrast('education', method='drop')]),
+    ISLP = pytest.importorskip('ISLP')
+    Wage = ISLP.load_data('Wage')
+    G = GAM(terms=[s('year'), s('age'), factor('education')],
             method=method, control=GAMControl(**TIGHT)).fit(Wage, Wage['wage'])
     knots = {t.name: t.knots_ for t in G.terms_[:2]}
     W = Wage[['wage', 'year', 'age']].assign(education=Wage['education'].astype(str))
