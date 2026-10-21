@@ -645,7 +645,10 @@ class GAM(BaseEstimator):
         if isinstance(base, (sm_family.Gamma, sm_family.InverseGaussian)):
             # R's Gamma()$aic and inverse.gaussian()$aic: at the dispersion
             # deviance / sum(weights), not Pearson's
+            # (over the observations of positive weight, as GLM's)
             y = np.asarray(self._response, float).reshape(-1)
-            return base.loglike(y, self.state_.mu, var_weights=self._weight,
+            keep = self._weight > 0
+            return base.loglike(y[keep], np.asarray(self.state_.mu)[keep],
+                                var_weights=self._weight[keep],
                                 scale=self.deviance_ / self._weight.sum())
         return GLM._loglike(self)

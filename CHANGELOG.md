@@ -4,6 +4,21 @@
 
 ### Fixes
 
+- **Log-likelihood with zero weights:** `GLM.loglike_` (and the AIC and BIC),
+  and `glmnet.gam`'s, are over the observations of positive weight: those of
+  the fit without the others. A weight of 0 gave the Gaussian's, Gamma's and
+  inverse Gaussian's `-inf` (as R's `logLik`), with a divide-by-zero warning (#149).
+- **`glmnet.gam` REML/ML for the Cox family converged short** at times: near
+  the optimum a Newton step lowers the criterion by less than its precision.
+  Such a step is now taken when it halves the gradient, and the differences
+  of the gradient have a step suited to its precision (#149).
+- **`glmnet.gam` REML/ML: unconverged inner fits.** Near a smoothing
+  parameter of 0 the penalized likelihood can have its maximum far out (a
+  Cox spline with nearly as many knots as events), the inner fits do not
+  converge, and the criterion at them, meaningless and very negative, drew
+  the search (BrainCancer's `s(gtv)` got 57 degrees of freedom; mgcv gives
+  1). There the criterion is now larger than any seen, with its gradient
+  towards larger smoothing parameters (#149).
 - **The C++ solvers accept read-only arrays** for the inputs they only read:
   the data, indices and pointers of a sparse (CSC) `X`; the dense `X`,
   weights, limits, centers and scales of the point solver behind `GLMNet` and
