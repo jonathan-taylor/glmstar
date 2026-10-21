@@ -6,6 +6,19 @@ backfitting the terms (for terms with a basis and a quadratic penalty), so
 `GAMControl(solver='joint')` fits the same GAM, `df` terms included (their
 smoothing parameters are matched at each working problem's weights, as R's
 `gam`). The design also gives the Bayesian covariance of the fit.
+
+References
+----------
+- Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
+  (2nd ed.). Chapman & Hall/CRC.
+- Wahba, G. (1983). Bayesian "confidence intervals" for the cross-validated
+  smoothing spline. *Journal of the Royal Statistical Society, Series B*
+  45(1), 133–150.
+- Nychka, D. (1988). Bayesian confidence intervals for smoothing splines.
+  *Journal of the American Statistical Association* 83(404), 1134–1143.
+- Marra, G. and Wood, S. N. (2012). Coverage properties of confidence
+  intervals for generalized additive model components. *Scandinavian
+  Journal of Statistics* 39(1), 53–74.
 """
 from dataclasses import dataclass, field
 from typing import Optional

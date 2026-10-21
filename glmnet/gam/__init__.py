@@ -27,6 +27,36 @@ by REML or ML as mgcv's (`GAM(method='REML')`, with JAX: `pip install
 glmstar[gam]`; not needed for the Cox family, glmstar's `CoxFamily`).
 
 The smoothing spline and loess terms use the `scatter_smooth` package.
+
+References
+----------
+- Hastie, T. and Tibshirani, R. (1986). Generalized additive models.
+  *Statistical Science* 1(3), 297–318.
+- Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
+  Chapman & Hall.
+- Buja, A., Hastie, T. and Tibshirani, R. (1989). Linear smoothers and
+  additive models. *The Annals of Statistics* 17(2), 453–510.
+- Green, P. J. and Silverman, B. W. (1994). *Nonparametric Regression and
+  Generalized Linear Models: A Roughness Penalty Approach*. Chapman & Hall.
+- Cleveland, W. S., Grosse, E. and Shyu, W. M. (1992). Local regression
+  models. In J. M. Chambers and T. J. Hastie (eds.), *Statistical Models in
+  S*, chapter 8. Wadsworth & Brooks/Cole.
+- Wood, S. N. (2011). Fast stable restricted maximum likelihood and
+  marginal likelihood estimation of semiparametric generalized linear
+  models. *Journal of the Royal Statistical Society, Series B* 73(1), 3–36.
+- Wood, S. N., Pya, N. and Säfken, B. (2016). Smoothing parameter and
+  model selection for general smooth models. *Journal of the American
+  Statistical Association* 111(516), 1548–1563.
+- Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
+  (2nd ed.). Chapman & Hall/CRC.
+- Wahba, G. (1983). Bayesian "confidence intervals" for the cross-validated
+  smoothing spline. *Journal of the Royal Statistical Society, Series B*
+  45(1), 133–150.
+- Nychka, D. (1988). Bayesian confidence intervals for smoothing splines.
+  *Journal of the American Statistical Association* 83(404), 1134–1143.
+- Marra, G. and Wood, S. N. (2012). Coverage properties of confidence
+  intervals for generalized additive model components. *Scandinavian
+  Journal of Statistics* 39(1), 53–74.
 """
 from .terms import (Term,
                     SplineTerm,

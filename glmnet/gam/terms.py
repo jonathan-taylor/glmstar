@@ -35,6 +35,20 @@ effect, whose penalty identifies it) is not centered.
 scoring can check that its steps decrease it. A term whose smoothing does not
 minimize a fixed objective (loess, or a spline fitted to a fixed `df` whose
 smoothing parameter changes with the weights) has `has_objective = False`.
+
+References
+----------
+- Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
+  Chapman & Hall.
+- Buja, A., Hastie, T. and Tibshirani, R. (1989). Linear smoothers and
+  additive models. *The Annals of Statistics* 17(2), 453–510.
+- Green, P. J. and Silverman, B. W. (1994). *Nonparametric Regression and
+  Generalized Linear Models: A Roughness Penalty Approach*. Chapman & Hall.
+- Cleveland, W. S., Grosse, E. and Shyu, W. M. (1992). Local regression
+  models. In J. M. Chambers and T. J. Hastie (eds.), *Statistical Models in
+  S*, chapter 8. Wadsworth & Brooks/Cole.
+- Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
+  (2nd ed.). Chapman & Hall/CRC.
 """
 from dataclasses import dataclass, field
 from typing import Optional, Union

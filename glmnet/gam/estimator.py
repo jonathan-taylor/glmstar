@@ -1,6 +1,18 @@
 """
 Generalized additive models fitted by local scoring (Hastie & Tibshirani):
 IRLS, whose working problems are solved by backfitting the terms.
+
+References
+----------
+- Hastie, T. and Tibshirani, R. (1986). Generalized additive models.
+  *Statistical Science* 1(3), 297–318.
+- Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
+  Chapman & Hall.
+- Wood, S. N. (2011). Fast stable restricted maximum likelihood and
+  marginal likelihood estimation of semiparametric generalized linear
+  models. *Journal of the Royal Statistical Society, Series B* 73(1), 3–36.
+- Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
+  (2nd ed.). Chapman & Hall/CRC.
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -62,7 +74,10 @@ class GAM(BaseEstimator):
     """
     Generalized additive model, `g(E[y]) = intercept + sum_j f_j(x_j)`,
     fitted by local scoring: IRLS, each working problem solved by weighted
-    backfitting of the terms (Hastie & Tibshirani, 1990).
+    backfitting of the terms (Hastie & Tibshirani, 1986, 1990); or, with
+    `GAMControl(solver='joint')`, jointly on the terms' bases, and with
+    `method='REML'` or `'ML'` with the smoothing parameters estimated, as
+    mgcv (Wood, 2011, 2017). See the References of `glmnet.gam`.
 
     The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `linear`,
     `factor`, or a `ColumnsTerm` of several columns fitted as one parametric

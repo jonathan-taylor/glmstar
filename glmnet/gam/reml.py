@@ -27,6 +27,17 @@ and no last term.
 For the Cox family (as mgcv's `cox.ph`) the likelihood is the partial
 likelihood, with no intercept and no dispersion (`CoxLaplaceCriterion`, in
 numpy, from coxdev's information operator).
+
+References
+----------
+- Wood, S. N. (2011). Fast stable restricted maximum likelihood and
+  marginal likelihood estimation of semiparametric generalized linear
+  models. *Journal of the Royal Statistical Society, Series B* 73(1), 3–36.
+- Wood, S. N., Pya, N. and Säfken, B. (2016). Smoothing parameter and
+  model selection for general smooth models. *Journal of the American
+  Statistical Association* 111(516), 1548–1563.
+- Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
+  (2nd ed.). Chapman & Hall/CRC.
 """
 from copy import deepcopy
 from dataclasses import dataclass, field
