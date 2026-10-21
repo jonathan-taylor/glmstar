@@ -47,7 +47,7 @@
   `df` or `lam`, loess, backfitting and the joint solve, standard errors, a
   logistic GAM, REML, random effects and a Cox GAM (BrainCancer); and
   references (Hastie and Tibshirani; Buja, Hastie and Tibshirani; Wood; ...)
-  in `glmnet.gam`'s docstrings.
+  in `glmnet.gam`'s docstrings (#151).
 - **`GAM.plot()`** (and `glmnet.gam.plot_term`): the fits of a GAM's terms, one
   panel each, as R's `plot.Gam`: a curve over the range of the column with
   dashed bands of 2 pointwise standard errors (from the posterior covariance;
