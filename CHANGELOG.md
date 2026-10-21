@@ -12,7 +12,7 @@
   taken: the step was refused, and the search stopped with a gradient of
   1e-4. The Cox criterion's precision is now 1e-9 (the gradient, accurate,
   must still halve). Rounding-level perturbations of the data reproduced it
-  on macOS (2 of 16 REML fits); all converge now.
+  on macOS (2 of 16 REML fits); all converge now (#156).
 
 ## 0.4.0 (2026-10-21)
 
