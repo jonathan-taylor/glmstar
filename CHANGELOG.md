@@ -37,6 +37,16 @@
   `mgcv` and `coxph`. New dependency: `scatter-smooth` (the smoothers).
   (Developed in ISLP; ISLP's `ISLP.gam` will build the terms from a
   ModelSpec.) (#146)
+- **`glmnet.gam`: the joint (mgcv-style) solve, random effects and
+  standard errors.** `GAMControl(solver='joint')` solves each working problem
+  as one penalized least squares fit on the terms' bases (the same fit as
+  backfitting; for Cox, Newton steps with the full Hessian of the partial
+  likelihood). `re(group)` and `re(group, by=x)` are random intercepts and
+  slopes, so mixed models are GAMs. With a basis for every term, the fit has
+  mgcv's Bayesian covariance (`posterior_covariance_`, `frequentist_covariance_`,
+  `edf_influence_`) and standard errors: `predict(..., return_std=True)`,
+  `partial_effect(..., return_std=True)`. Checked against mgcv (`sp` fixed)
+  and `coxph` (#147).
 - **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
   -log(lambda), with the feature names as columns (a column per feature and
   response for multi-response paths).
