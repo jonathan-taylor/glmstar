@@ -50,21 +50,21 @@ py::dict coxnet_exp(
     int ni,
     int no,
     Eigen::MatrixXd x,
-    const Eigen::Ref<Eigen::VectorXd> start,   // start times (zeros for right-censored)
-    const Eigen::Ref<Eigen::VectorXd> stop,    // stop/event times
-    const Eigen::Ref<Eigen::VectorXi> status,  // event indicator (1=event, 0=censored)
-    const Eigen::Ref<Eigen::VectorXi> strata,  // strata labels (empty = single stratum)
+    const Eigen::Ref<const Eigen::VectorXd> start,   // start times (zeros for right-censored)
+    const Eigen::Ref<const Eigen::VectorXd> stop,    // stop/event times
+    const Eigen::Ref<const Eigen::VectorXi> status,  // event indicator (1=event, 0=censored)
+    const Eigen::Ref<const Eigen::VectorXi> strata,  // strata labels (empty = single stratum)
     bool efron,                                // true for Efron, false for Breslow
     Eigen::VectorXd g,                         // offset
-    const Eigen::Ref<Eigen::VectorXd> w,
-    const Eigen::Ref<Eigen::VectorXi> jd,
-    const Eigen::Ref<Eigen::VectorXd> vp,
+    const Eigen::Ref<const Eigen::VectorXd> w,
+    const Eigen::Ref<const Eigen::VectorXi> jd,
+    const Eigen::Ref<const Eigen::VectorXd> vp,
     Eigen::MatrixXd cl,
     int ne,
     int nx,
     int nlam,
     double flmin,
-    const Eigen::Ref<Eigen::VectorXd> ulam,
+    const Eigen::Ref<const Eigen::VectorXd> ulam,
     double thr,
     int isd,
     int maxit,
@@ -136,21 +136,21 @@ py::dict spcoxnet_exp(
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
-    const Eigen::Ref<Eigen::VectorXd> start,
-    const Eigen::Ref<Eigen::VectorXd> stop,
-    const Eigen::Ref<Eigen::VectorXi> status,
-    const Eigen::Ref<Eigen::VectorXi> strata,
+    const Eigen::Ref<const Eigen::VectorXd> start,
+    const Eigen::Ref<const Eigen::VectorXd> stop,
+    const Eigen::Ref<const Eigen::VectorXi> status,
+    const Eigen::Ref<const Eigen::VectorXi> strata,
     bool efron,
     Eigen::VectorXd g,
-    const Eigen::Ref<Eigen::VectorXd> w,
-    const Eigen::Ref<Eigen::VectorXi> jd,
-    const Eigen::Ref<Eigen::VectorXd> vp,
+    const Eigen::Ref<const Eigen::VectorXd> w,
+    const Eigen::Ref<const Eigen::VectorXi> jd,
+    const Eigen::Ref<const Eigen::VectorXd> vp,
     Eigen::MatrixXd cl,
     int ne,
     int nx,
     int nlam,
     double flmin,
-    const Eigen::Ref<Eigen::VectorXd> ulam,
+    const Eigen::Ref<const Eigen::VectorXd> ulam,
     double thr,
     int isd,
     int maxit,
@@ -182,21 +182,11 @@ py::dict spcoxnet_exp(
   InternalParams params = make_params(fdev, eps, big, mnlam, devmax, pmin,
                                       exmx, itrace, prec, mxit, epsnr, mxitnr);
 
-    // Map the scipy csc_matrix x  to Eigen
-    // This prevents copying. However, note the lack of 'const' use, but we take care not to change data
-    Eigen::Map<Eigen::VectorXd> x_data_map(x_data_array.mutable_data(),
-					   x_data_array.size());
-    Eigen::Map<Eigen::VectorXi> x_indices_map(x_indices_array.mutable_data(),
-					      x_indices_array.size());
-    Eigen::Map<Eigen::VectorXi> x_indptr_map(x_indptr_array.mutable_data(),
-					     x_indptr_array.size());
-    // Create MappedSparseMatrix from the mapped arrays
-    Eigen::MappedSparseMatrix<double, Eigen::ColMajor> eigen_x(no,
-							       ni,
-							       x_data_array.size(),
-							       x_indptr_map.data(),
-							       x_indices_map.data(),
-							       x_data_map.data());
+    // Map the scipy csc_matrix x to Eigen without copying. x is only read,
+    // so read-only arrays (e.g. a dgCMatrix passed from R by reticulate) work.
+    Eigen::Map<const Eigen::SparseMatrix<double, Eigen::ColMajor, int>> eigen_x(
+        no, ni, x_data_array.size(),
+        x_indptr_array.data(), x_indices_array.data(), x_data_array.data());
 
     CoxSurvivalData<double, int> surv(start, stop, status, strata, efron);
 

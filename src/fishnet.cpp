@@ -16,16 +16,16 @@ py::dict fishnet_exp(
     int no,
     Eigen::Ref<Eigen::MatrixXd> x,          // TODO: map?
     Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
-    const Eigen::Ref<Eigen::VectorXd> w,
+    const Eigen::Ref<const Eigen::VectorXd> w,
     Eigen::Ref<Eigen::VectorXd> g,          // TODO: map? 
-    const Eigen::Ref<Eigen::VectorXi> jd,
-    const Eigen::Ref<Eigen::VectorXd> vp,
+    const Eigen::Ref<const Eigen::VectorXi> jd,
+    const Eigen::Ref<const Eigen::VectorXd> vp,
     Eigen::MatrixXd cl,         // TODO: map?
     int ne,
     int nx,
     int nlam,
     double flmin,
-    const Eigen::Ref<Eigen::VectorXd> ulam,
+    const Eigen::Ref<const Eigen::VectorXd> ulam,
     double thr,
     int isd,
     int intr,
@@ -109,16 +109,16 @@ py::dict spfishnet_exp(
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
     Eigen::Ref<Eigen::VectorXd> y,          // TODO: map?
-    const Eigen::Ref<Eigen::VectorXd> w,
+    const Eigen::Ref<const Eigen::VectorXd> w,
     Eigen::Ref<Eigen::VectorXd> g,          // TODO: map? 
-    const Eigen::Ref<Eigen::VectorXi> jd,
-    const Eigen::Ref<Eigen::VectorXd> vp,
+    const Eigen::Ref<const Eigen::VectorXi> jd,
+    const Eigen::Ref<const Eigen::VectorXd> vp,
     Eigen::MatrixXd cl,         // TODO: map?
     int ne,
     int nx,
     int nlam,
     double flmin,
-    const Eigen::Ref<Eigen::VectorXd> ulam,
+    const Eigen::Ref<const Eigen::VectorXd> ulam,
     double thr,
     int isd,
     int intr,
@@ -164,21 +164,11 @@ py::dict spfishnet_exp(
   params.epsnr = epsnr;
   params.mxitnr = mxitnr;
 
-    // Map the scipy csc_matrix x  to Eigen
-    // This prevents copying. However, note the lack of 'const' use, but we take care not to change data
-    Eigen::Map<Eigen::VectorXd> x_data_map(x_data_array.mutable_data(),
-					   x_data_array.size());
-    Eigen::Map<Eigen::VectorXi> x_indices_map(x_indices_array.mutable_data(),
-					      x_indices_array.size());
-    Eigen::Map<Eigen::VectorXi> x_indptr_map(x_indptr_array.mutable_data(),
-					     x_indptr_array.size());
-    // Create MappedSparseMatrix from the mapped arrays
-    Eigen::MappedSparseMatrix<double, Eigen::ColMajor> eigen_x(no,
-							       ni,
-							       x_data_array.size(), 
-							       x_indptr_map.data(),
-							       x_indices_map.data(),
-							       x_data_map.data());
+    // Map the scipy csc_matrix x to Eigen without copying. x is only read,
+    // so read-only arrays (e.g. a dgCMatrix passed from R by reticulate) work.
+    Eigen::Map<const Eigen::SparseMatrix<double, Eigen::ColMajor, int>> eigen_x(
+        no, ni, x_data_array.size(),
+        x_indptr_array.data(), x_indices_array.data(), x_data_array.data());
 
     using elnet_driver_t = ElnetDriver<util::glm_type::poisson>;
     elnet_driver_t driver;

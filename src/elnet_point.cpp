@@ -16,14 +16,14 @@ py::dict elnet_point_exp(
 		 int m,
 		 int no,
 		 int ni,
-		 const Eigen::Ref<Eigen::MatrixXd> x,
+		 const Eigen::Ref<const Eigen::MatrixXd> x,
 		 Eigen::Ref<Eigen::VectorXd> r,
 		 Eigen::Ref<Eigen::VectorXd> xv,
-		 const Eigen::Ref<Eigen::VectorXd> v,
+		 const Eigen::Ref<const Eigen::VectorXd> v,
 		 int intr,
-		 const Eigen::Ref<Eigen::VectorXi> ju,
-		 const Eigen::Ref<Eigen::VectorXd> vp,
-		 const Eigen::Ref<Eigen::MatrixXd> cl,
+		 const Eigen::Ref<const Eigen::VectorXi> ju,
+		 const Eigen::Ref<const Eigen::VectorXd> vp,
+		 const Eigen::Ref<const Eigen::MatrixXd> cl,
 		 int nx,
 		 double thr,
 		 int maxit,
@@ -96,15 +96,15 @@ py::dict spelnet_point_exp(
     py::array_t<double, py::array::c_style | py::array::forcecast> x_data_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indices_array,
     py::array_t<int, py::array::c_style | py::array::forcecast> x_indptr_array,
-    const Eigen::Ref<Eigen::VectorXd> xm,
-    const Eigen::Ref<Eigen::VectorXd> xs,
+    const Eigen::Ref<const Eigen::VectorXd> xm,
+    const Eigen::Ref<const Eigen::VectorXd> xs,
     Eigen::Ref<Eigen::VectorXd> r,
     Eigen::Ref<Eigen::VectorXd> xv,
-    const Eigen::Ref<Eigen::VectorXd> v,
+    const Eigen::Ref<const Eigen::VectorXd> v,
     int intr,
-    const Eigen::Ref<Eigen::VectorXi> ju,
-    const Eigen::Ref<Eigen::VectorXd> vp,
-    const Eigen::Ref<Eigen::MatrixXd> cl,
+    const Eigen::Ref<const Eigen::VectorXi> ju,
+    const Eigen::Ref<const Eigen::VectorXd> vp,
+    const Eigen::Ref<const Eigen::MatrixXd> cl,
     int nx,
     double thr,
     int maxit,
@@ -124,15 +124,11 @@ py::dict spelnet_point_exp(
     )
 {
 
-  // Map the scipy csc_matrix x  to Eigen
-  // This prevents copying. However, note the lack of 'const' use, but we take care not to change data
-  Eigen::Map<Eigen::VectorXd> x_data_map(x_data_array.mutable_data(), x_data_array.size());
-  Eigen::Map<Eigen::VectorXi> x_indices_map(x_indices_array.mutable_data(), x_indices_array.size());
-  Eigen::Map<Eigen::VectorXi> x_indptr_map(x_indptr_array.mutable_data(), x_indptr_array.size());
-  // Create MappedSparseMatrix from the mapped arrays
-  Eigen::MappedSparseMatrix<double, Eigen::ColMajor> eigen_x(no, ni, x_data_array.size(), 
-							     x_indptr_map.data(), x_indices_map.data(),
-							     x_data_map.data());
+  // Map the scipy csc_matrix x to Eigen without copying. x is only read,
+  // so read-only arrays (e.g. a dgCMatrix passed from R by reticulate) work.
+  Eigen::Map<const Eigen::SparseMatrix<double, Eigen::ColMajor, int>> eigen_x(
+      no, ni, x_data_array.size(),
+      x_indptr_array.data(), x_indices_array.data(), x_data_array.data());
 
     using internal_t = SpElnetPointInternal<
         util::glm_type::gaussian,
