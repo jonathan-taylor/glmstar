@@ -101,7 +101,7 @@ class GAMRegularizer(object):
     Parameters
     ----------
     terms : list
-        Terms of the GAM (`ISLP.gam.terms`), set up on the training data.
+        Terms of the GAM (`glmnet.gam.terms`), set up on the training data.
     linear_term : np.ndarray, optional
         Linear term in the linear predictor, one entry per observation.
     bf_maxit : int

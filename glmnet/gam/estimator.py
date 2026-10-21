@@ -9,7 +9,7 @@ from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator
 from statsmodels.genmod.families import family as sm_family
 
 from glmnet._utils import _get_data, _parent_dataclass_from_child
@@ -18,6 +18,7 @@ from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
+from .terms import Term
 
 
 @dataclass
@@ -50,10 +51,10 @@ class GAM(BaseEstimator):
     fitted by local scoring: IRLS, each working problem solved by weighted
     backfitting of the terms (Hastie & Tibshirani, 1990).
 
-    The model is given either by a ModelSpec (`model_spec`), whose smooth
-    features (`ISLP.gam.s`, `lo`) are smoothed and whose other terms are
-    fitted as one parametric block each, or by a list of terms
-    (`ISLP.gam.s`, `lo`, `linear`, `factor`), each naming a column of `X`.
+    The model is a list of terms (`glmnet.gam.s`, `lo`, `linear`, `factor`,
+    or a `ColumnsTerm` of several columns fitted as one parametric block),
+    each naming a column of `X` (ISLP's `ISLP.gam` builds them from a
+    ModelSpec).
     The smoothing of each term is fixed: by its smoothing parameter
     `lam`, or by its degrees of freedom `df` (as R's `gam`). When every term
     has a fixed smoothing parameter (`s(lam=...)`, `linear`, `factor`), the
@@ -68,7 +69,7 @@ class GAM(BaseEstimator):
     Parameters
     ----------
     terms: list
-        Terms of the model (if no `model_spec`).
+        Terms of the model.
     family: sm_family.Family or glmnet.cox.CoxFamily
         Family (statsmodels) of the response. Default Gaussian. Or the Cox
         model's (glmstar's `CoxFamily`, with Efron or Breslow ties, start
@@ -85,17 +86,11 @@ class GAM(BaseEstimator):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
-    model_spec: ModelSpec
-        The model (instead of `terms`): e.g.
-        `MS([s('year', df=4), s('age', df=5), 'education'])`. It is fitted
-        (a clone) on the `X` of `fit`, and transforms the `X` of `predict`.
 
     Attributes
     ----------
     terms_: list
-        The fitted terms (copies of `terms`, or built from `model_spec`).
-    model_spec_: ModelSpec
-        The fitted clone of `model_spec`, if given.
+        The fitted terms (copies of `terms`).
     intercept_: float
         Intercept: the fits of the terms have mean 0 over the training rows.
     fits_: pd.DataFrame or np.ndarray
@@ -119,14 +114,23 @@ class GAM(BaseEstimator):
     offset_id: Union[str, int] = None
     weight_id: Union[str, int] = None
     response_id: Union[str, int] = None
-    model_spec: object = None
 
     fit_intercept = True
 
+    # hooks for a subclass that builds the terms and the columns they name
+    # from a model specification (ISLP's GAM, from a ModelSpec)
+
+    def _model_terms(self, X):
+        """The terms of the model and the data whose columns they name."""
+        terms = list(self.terms)
+        for term in terms:
+            if not isinstance(term, Term):
+                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), linear(), factor())')
+        return terms, X
+
     def _design(self, X):
-        """`X`, or its design from the fitted `model_spec_`."""
-        spec = getattr(self, 'model_spec_', None)
-        return X if spec is None else spec.transform(X)
+        """The data whose columns the fitted terms name (`X`)."""
+        return X
 
     @staticmethod
     def _columns(X, terms):
@@ -172,17 +176,7 @@ class GAM(BaseEstimator):
         -------
         self
         """
-        from .model_spec import as_term, terms_from_spec
-        if self.model_spec is not None:
-            if self.terms:
-                raise ValueError('give one of terms and model_spec')
-            self.model_spec_ = clone(self.model_spec).fit(X)
-            X = self.model_spec_.transform(X)
-            columns = X.columns if isinstance(X, pd.DataFrame) else np.arange(X.shape[1])
-            terms = terms_from_spec(self.model_spec_, columns)
-        else:
-            self.model_spec_ = None
-            terms = [as_term(term) for term in self.terms]
+        terms, X = self._model_terms(X)
         if not terms:
             raise ValueError('a GAM needs at least one term')
         if self.control is None:
@@ -310,13 +304,13 @@ class GAM(BaseEstimator):
     def partial_effect(self, term, x):
         """
         The fitted function of a term: `term` is its index or its name (e.g.
-        `'s(age, df=5)'`), and `x` its values, or, with a `model_spec`, a
-        DataFrame of the data (whose design gives the term's columns).
+        `'s(age, df=5)'`), and `x` its values, or a DataFrame of the data
+        (with the term's columns).
         """
         if not isinstance(term, (int, np.integer)):
             term = [t.name for t in self.terms_].index(term)
         term = self.terms_[term]
-        if self.model_spec_ is not None and isinstance(x, pd.DataFrame):
+        if isinstance(x, pd.DataFrame):
             x = self._columns(self._design(x), [term])[0]
         return term.predict(x)
 

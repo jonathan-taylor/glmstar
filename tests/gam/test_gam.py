@@ -1,5 +1,5 @@
 """
-`ISLP.gam`: GAMs fitted by local scoring (IRLS + backfitting).
+`glmnet.gam`: GAMs fitted by local scoring (IRLS + backfitting).
 """
 import numpy as np
 import pandas as pd
@@ -11,8 +11,8 @@ pytest.importorskip('scatter_smooth')
 from scatter_smooth import SplineSmoother
 
 from glmnet import GLM
-from ISLP.gam import GAM, GAMControl, s, lo, linear, factor
-from ISLP.gam.terms import SplineTerm, LoessTerm
+from glmnet.gam import GAM, GAMControl, s, lo, linear, factor
+from glmnet.gam.terms import SplineTerm, LoessTerm
 
 TIGHT = GAMControl(epsnr=1e-12, mxitnr=100)
 

@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip('scatter_smooth')
 
 from glmnet.cox import CoxFamily, CoxLM
-from ISLP.gam import GAM, GAMControl, s, linear, factor
+from glmnet.gam import GAM, GAMControl, s, linear, factor
 
 # the parametric fits converge on the objective; with df terms (matched at
 # each step's weights) local scoring stops on the change in eta
@@ -62,14 +62,14 @@ def _centered(eta):
 @pytest.mark.parametrize('ties', ['efron', 'breslow'])
 @pytest.mark.parametrize('option', list(OPTIONS))
 @pytest.mark.parametrize('weights', [False, True])
-@pytest.mark.parametrize('offset', [False, True])
-def test_parametric_is_coxlm(data, ties, option, weights, offset):
+@pytest.mark.parametrize('with_offset', [False, True])
+def test_parametric_is_coxlm(data, ties, option, weights, with_offset):
     # linear terms and a factor: the Cox model (CoxLM, glmstar's), up to the
     # constant of the linear predictor
-    G = _gam(data, [linear('x'), linear('z'), factor('c')], ties, option, weights, offset)
+    G = _gam(data, [linear('x'), linear('z'), factor('c')], ties, option, weights, with_offset)
     X = pd.get_dummies(data[['x', 'z', 'c']], columns=['c'], drop_first=True, dtype=float)
     L = CoxLM(family=_family(ties, option), weight_id='w' if weights else None,
-              offset_id='o' if offset else None).fit(X, data)
+              offset_id='o' if with_offset else None).fit(X, data)
     eta_L = X.to_numpy() @ L.coef_
     np.testing.assert_allclose(_centered(G.predict(data, 'link')), _centered(eta_L),
                                atol=1e-8)

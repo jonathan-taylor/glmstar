@@ -27,6 +27,16 @@
   `chi2` and `P(>chi2)` (R's `anova(test="Chisq")`).
 ### New
 
+- **`glmnet.gam`: generalized additive models**, fitted by local scoring on
+  glmstar's IRLS, each working problem solved by (modified) backfitting, as
+  R's `gam::gam`. Terms: smoothing splines (`s()`, by `df` or `lam`, R's
+  knots, from `scatter_smooth`), loess (`lo()`), linear terms, factors and
+  blocks of columns, each naming a column of `X`. Families: those of `GLM`
+  (statsmodels'), with weights and offsets, and the Cox model (`CoxFamily`:
+  Efron or Breslow ties, start times, strata). Checked against `gam::gam`,
+  `mgcv` and `coxph`. New dependency: `scatter-smooth` (the smoothers).
+  (Developed in ISLP; ISLP's `ISLP.gam` will build the terms from a
+  ModelSpec.)
 - **`CoefPath.df_`:** the coefficient path as a data frame, indexed by
   -log(lambda), with the feature names as columns (a column per feature and
   response for multi-response paths).

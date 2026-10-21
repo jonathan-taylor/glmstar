@@ -1,5 +1,5 @@
 """
-`ISLP.gam.GAM` against R:
+`glmnet.gam.GAM` against R:
 
 - fixed smoothing parameters (`s(x, lam=...)`) against `mgcv::gam` with
   `bs='cr'` and the knots at the distinct values (the same natural cubic
@@ -19,7 +19,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from ISLP.gam import GAM, GAMControl, s, lo, linear, factor
+from glmnet.gam import GAM, GAMControl, s, lo, linear, factor
 
 CONTROL = GAMControl(epsnr=1e-12, mxitnr=100)
 FAMILIES = {'gaussian': (sm.families.Gaussian, 'y'),

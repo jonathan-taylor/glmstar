@@ -39,7 +39,7 @@ def _scatter_smooth():
     try:
         import scatter_smooth
     except ImportError as e:
-        raise ImportError('the smoothing spline and loess terms of ISLP.gam use the '
+        raise ImportError('the smoothing spline and loess terms of glmnet.gam use the '
                           'scatter_smooth package: pip install scatter-smooth') from e
     return scatter_smooth
 
@@ -426,14 +426,25 @@ class ColumnsTerm(Term):
         return (x - self.center_) @ self.coef_ + self.offset_
 
 
-def s(column, df=None, lam=None):
+def _name(label, column, **kwargs):
+    # the term's name shows the arguments given (that differ from the defaults)
+    args = ', '.join(f'{k}={v}' for k, v in kwargs.items() if v is not None)
+    return f'{label}({column}{", " + args if args else ""})'
+
+
+def s(column, df=None, lam=None, name=None):
     """A smoothing spline term (see `SplineTerm`); `df=4` by default."""
-    return SplineTerm(column, df=df, lam=lam)
+    term = SplineTerm(column, df=df, lam=lam)
+    term.label = name or _name('s', column, df=df, lam=lam)
+    return term
 
 
-def lo(column, span=0.5, degree=1):
+def lo(column, span=0.5, degree=1, name=None):
     """A loess term (see `LoessTerm`)."""
-    return LoessTerm(column, span=span, degree=degree)
+    term = LoessTerm(column, span=span, degree=degree)
+    term.label = name or _name('lo', column, span=None if span == 0.5 else span,
+                               degree=None if degree == 1 else degree)
+    return term
 
 
 def linear(column):

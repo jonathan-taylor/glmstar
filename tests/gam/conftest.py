@@ -1,13 +1,9 @@
 """
 Fixtures for the GAM tests: R through rpy2 (for the comparisons with mgcv and
-gam; the tests skip without it), and `use_offset` parametrized.
+gam; the tests skip without it). (`use_offset` is parametrized by
+tests/conftest.py.)
 """
 import pytest
-
-
-def pytest_generate_tests(metafunc):
-    if 'use_offset' in metafunc.fixturenames:
-        metafunc.parametrize('use_offset', [True, False])
 
 
 @pytest.fixture(scope='session')
