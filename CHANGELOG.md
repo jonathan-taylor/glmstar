@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Packaging
+
+- **Windows wheels** (x64, built with MSVC, the C++ runtime linked
+  statically). glmstar had none: pip built it from the sdist, and with a
+  MinGW gcc on the PATH the extensions needed DLLs that Python doesn't find
+  ("DLL load failed while importing _elnet_point"). Each wheel is tested to
+  import and fit, and the tests run on Windows. Requires coxdev 0.3.1, whose
+  Windows wheels import.
+
 ### Fixes
 
 - **Log-likelihood with zero weights:** `GLM.loglike_` (and the AIC and BIC),

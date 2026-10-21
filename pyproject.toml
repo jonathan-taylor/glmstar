@@ -20,7 +20,8 @@ dependencies = [
     "scikit-learn>=1.2",
     "joblib",
     "statsmodels>=0.13",
-    "coxdev>=0.3.0",
+    # 0.3.1: its Windows wheels import (0.3.0's needed MinGW DLLs)
+    "coxdev>=0.3.1",
     # glmnet.gam: the smoothing spline and loess terms
     "scatter-smooth>=0.3.0",
     "tqdm",
@@ -100,12 +101,10 @@ skip = ["*-win32", "*-manylinux_i686", "*-musllinux_i686"]
 [tool.cibuildwheel.windows]
 # build with MSVC: meson may otherwise pick a MinGW gcc on the PATH, whose
 # runtime DLLs the wheel doesn't ship (Python doesn't search the PATH for an
-# extension's DLLs); and check that the extensions load
-config-settings = {setup-args = "--vsenv"}
-# TEMPORARY: coxdev 0.3.0's Windows wheels need MinGW DLLs they don't ship;
-# until coxdev 0.3.1, test against coxdev from its branch with the fix
-# (jonathan-taylor/coxdev#59), built with MSVC
-before-test = "pip install --force-reinstall --no-deps \"coxdev @ git+https://github.com/jonathan-taylor/coxdev@windows-msvc\" -Csetup-args=--vsenv"
+# extension's DLLs). The C++ runtime linked statically (b_vscrt=mt): Python
+# ships vcruntime140.dll but not msvcp140.dll, which machines without the
+# Visual C++ redistributable lack. And check that the extensions load
+config-settings = {setup-args = ["--vsenv", "-Db_vscrt=mt"]}
 test-command = "python -c \"import glmnet, glmnet.elnet; from glmnet import GLM, GLMNet; import numpy as np; X = np.random.default_rng(0).standard_normal((50, 3)); GLMNet().fit(X, X @ [1., 0., -1.])\""
 
 [tool.uv]
