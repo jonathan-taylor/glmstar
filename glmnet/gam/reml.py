@@ -21,10 +21,11 @@ through the implicit derivative of the fitted coefficients, are computed by
 JAX (an optional dependency: `pip install glmstar[gam]`, or `pip install jax`).
 
 On the scale of the prior weights (`D` the deviance, `S` the penalty matrix,
-`sum_j lam_j S_j`, `H = X' W X + S` the Hessian of the penalized deviance
-over 2 at its minimum, with `W` the observed information weights, `phi` the
-dispersion, `l_s` the saturated log-likelihood, `M` the dimension of the
-penalties' null space), the negative log REML is
+`sum_k lam_k S_k` over the terms' penalties, several for some terms,
+`H = X' W X + S` the Hessian of the penalized deviance over 2 at its
+minimum, with `W` the observed information weights, `phi` the dispersion,
+`l_s` the saturated log-likelihood, `M` the dimension of the penalties'
+null space), the negative log REML is
 
     (D + b' S b) / (2 phi) - l_s(phi) + log|H| / 2 - log|S|_+ / 2 - M log(2 pi phi) / 2
 
@@ -191,41 +192,8 @@ class LaplaceCriterion(object):
         self.offset = np.zeros(keep.sum()) if offset is None else np.asarray(offset, float)[keep]
         self.weight_total = a.sum()
 
-        # reparametrize each penalized block by the eigenvectors of its
-        # penalty: the penalty is then diagonal, its zero eigenvalues those
-        # of the null space (unpenalized)
-        P = D.n_coef
-        T = np.identity(P)
-        blocks = []               # (term index, coordinates, eigenvalues)
-        for j, (sl, S) in enumerate(zip(D.slices, D.penalties)):
-            if S is None:
-                continue
-            ev, V = np.linalg.eigh((S + S.T) / 2)
-            ev = np.where(ev > ev.max() * 1e-10, ev, 0.)
-            T[sl, sl] = V
-            blocks.append((j, np.arange(P)[sl], ev))
-        self.T = T
-        self.X = (D.X @ T)[keep]
-        self.blocks = blocks
-        # the eigenvalues of the blocks' penalties in the coordinates, and
-        # which are those of the estimated terms
-        M = np.zeros((len(blocks), P))
-        for b, (j, idx, ev) in enumerate(blocks):
-            M[b, idx] = ev
-        self.M = M
-        self.rank = (M > 0).sum(1)
-        self.log_ev = np.array([np.log(ev[ev > 0]).sum() for _, _, ev in blocks])
-        self.penalized = np.nonzero(M.sum(0) > 0)[0]
-        self.null_dim = P - len(self.penalized)
-        block_of = {j: b for b, (j, _, _) in enumerate(blocks)}
-        if any(j not in block_of for j in self.estimated):
-            raise ValueError('only penalized terms have smoothing parameters to estimate')
-        self.est_blocks = np.array([block_of[j] for j in self.estimated], int)
-        # the fixed smoothing parameters (on the prior weights' scale)
-        self.lam_fixed = np.array([0. if j in self.estimated else
-                                   self.terms[j].penalty_lam() * self.weight_total
-                                   for j, _, _ in blocks])
-        self.n_params = len(self.estimated) + self.free_dispersion
+        self._set_structure(D, keep)
+        self.n_params = self.n_rho + self.free_dispersion
         self._warm = None
         self.n_evaluations = 0
 
@@ -236,37 +204,192 @@ class LaplaceCriterion(object):
         unit = lambda eta, y: dev(y, linkinv(eta))
         self._h = jax.vmap(jax.grad(jax.grad(unit)), in_axes=(0, 0))
 
+    def _set_structure(self, D, keep, intercept=True):
+        """
+        The coordinates of the criterion and its penalties. Each penalized
+        block is rotated to the eigenvectors of its term's total penalty
+        (the sum of its penalties): the null space (unpenalized) is then a
+        set of coordinates, the range the others. In them, a term's single
+        penalty is diagonal (its eigenvalues: `M`); the penalties of a term
+        with several are dense on its range coordinates (`multi`), and
+        `log|S|_+` of the term is that of their weighted sum there.
+
+        The penalties (all the terms' together, in order) are indexed by
+        `k`: `penalty_terms[k]` is the term of the penalty `k`, and
+        `est_index` the estimated ones (all those of the estimated terms).
+        """
+        P = D.n_coef
+        T = np.identity(P)
+        self.penalty_terms, self.penalty_names = [], []
+        single, multi, multi_terms = [], [], []
+        range_coords = []
+        for j, (sl, Ss) in enumerate(zip(D.slices, D.penalty_sets)):
+            if not Ss:
+                continue
+            total = sum(Ss)
+            ev, V = np.linalg.eigh((total + total.T) / 2)
+            on = ev > ev.max() * 1e-10
+            T[sl, sl] = V
+            idx = np.arange(P)[sl][on]
+            range_coords.append(idx)
+            if len(Ss) == 1:
+                single.append((len(self.penalty_terms), idx, ev[on]))
+                self.penalty_terms.append(j)
+                self.penalty_names.append(self.terms[j].name)
+            else:
+                ks = []
+                for m, S in enumerate(Ss):
+                    U = V[:, on].T @ S @ V[:, on]
+                    multi.append((len(self.penalty_terms), idx, (U + U.T) / 2))
+                    ks.append(len(self.penalty_terms))
+                    self.penalty_terms.append(j)
+                    self.penalty_names.append(f'{self.terms[j].name}[{m}]')
+                multi_terms.append(ks)
+        n_pen = len(self.penalty_terms)
+        if not intercept:
+            T = T[:, 1:]
+            single = [(k, idx - 1, ev) for k, idx, ev in single]
+            multi = [(k, idx - 1, U) for k, idx, U in multi]
+            range_coords = [idx - 1 for idx in range_coords]
+            P -= 1
+        self.T = T
+        self.X = (D.X @ T)[keep]
+        # the single penalties: their eigenvalues in the coordinates
+        self.single = np.array([k for k, _, _ in single], int)
+        self.M = np.zeros((len(single), P))
+        for b, (_, idx, ev) in enumerate(single):
+            self.M[b, idx] = ev
+        self.rank = np.array([len(ev) for _, _, ev in single], int)
+        self.log_ev = np.array([np.log(ev).sum() for _, _, ev in single])
+        self.multi, self.multi_terms = multi, multi_terms
+        self._multi_of = {k: i for i, (k, _, _) in enumerate(multi)}
+        self.penalized = (np.unique(np.concatenate(range_coords)) if range_coords
+                          else np.zeros(0, int))
+        self.null_dim = P - len(self.penalized)
+
+        estimated = set(self.estimated)
+        if not estimated <= set(self.penalty_terms):
+            raise ValueError('only penalized terms have smoothing parameters to estimate')
+        self.est_index = np.array([k for k in range(n_pen) if self.penalty_terms[k] in estimated], int)
+        self.n_rho = len(self.est_index)
+        # the fixed smoothing parameters (on the prior weights' scale)
+        lam_fixed = np.zeros(n_pen)
+        for j in sorted(set(self.penalty_terms) - estimated):
+            ks = [k for k in range(n_pen) if self.penalty_terms[k] == j]
+            lam_fixed[ks] = np.asarray(self.terms[j].penalty_lams(), float) * self.weight_total
+        self.lam_fixed = lam_fixed
+
+    def _penalty_matrix(self, lam, np_=None):
+        """The penalty matrix in the coordinates (jnp, or numpy with `np_=np`)."""
+        xp = self._jnp if np_ is None else np_
+        S = xp.diag(lam[self.single] @ self.M) if len(self.single) else xp.zeros((self.M.shape[1],) * 2)
+        for k, idx, U in self.multi:
+            if xp is np:
+                S[np.ix_(idx, idx)] += lam[k] * U
+            else:
+                S = S.at[xp.ix_(idx, idx)].add(lam[k] * U)
+        return S
+
+    def _logdet_S(self, lam):
+        jnp = self._jnp
+        value = jnp.sum(self.rank * jnp.log(lam[self.single])) + jnp.sum(self.log_ev)
+        for ks in self.multi_terms:
+            value = value + jnp.linalg.slogdet(sum(lam[k] * self.multi[self._multi_of[k]][2]
+                                                   for k in ks))[1]
+        return value
+
+    def _dS_beta(self, lam, beta):
+        """The derivatives of the penalty's gradient `S beta` in the estimated `rho_k`: (K, P)."""
+        out = np.zeros((self.n_rho, beta.shape[0]))
+        where = {k: i for i, k in enumerate(self.single)}
+        for i, k in enumerate(self.est_index):
+            if k in where:
+                out[i] = lam[k] * self.M[where[k]] * beta
+            else:
+                _, idx, U = self.multi[self._multi_of[k]]
+                out[i, idx] = lam[k] * U @ beta[idx]
+        return out
+
+    def _rotate(self, H, lam, np_=None):
+        """
+        `H` (jnp, or numpy with `np_=np`) in coordinates where the penalties
+        of each term with several are diagonal at `lam`: its range
+        coordinates rotated to the eigenvectors of their weighted sum (as
+        Wood's (2011) stable reparametrization; the criterion does not
+        change, so the rotation is held fixed for its derivatives). With a
+        dominant penalty, the scale of each direction is then on the
+        diagonal, and equilibration conditions `H`. The rotations are
+        returned, `(coordinates, eigenvectors)` per term.
+        """
+        xp = self._jnp if np_ is None else np_
+        rotations = []
+        for ks in self.multi_terms:
+            idx = self.multi[self._multi_of[ks[0]]][1]
+            A = sum(lam[k] * self.multi[self._multi_of[k]][2] for k in ks)
+            if xp is np:
+                V = np.linalg.eigh(A)[1]
+                H = H.copy()
+                H[:, idx] = H[:, idx] @ V
+                H[idx, :] = V.T @ H[idx, :]
+            else:
+                V = self._jax.lax.stop_gradient(xp.linalg.eigh(A)[1])
+                H = H.at[:, idx].set(H[:, idx] @ V)
+                H = H.at[idx, :].set(V.T @ H[idx, :])
+            rotations.append((idx, V))
+        return H, rotations
+
+    def _solve_H(self, H, lam, b):
+        """`H^{-1} b` (numpy), in the rotated coordinates of `_rotate`, equilibrated."""
+        H, rotations = self._rotate(np.asarray(H), np.asarray(lam), np_=np)
+        b = np.array(b, float)
+        for idx, V in rotations:
+            b[idx] = V.T @ b[idx]
+        d = 1 / np.sqrt(np.abs(np.diag(H)))
+        x = d[:, None] * np.linalg.solve(d[:, None] * H * d[None, :], d[:, None] * b)
+        for idx, V in rotations:
+            x[idx] = V @ x[idx]
+        return x
+
+    def _penalty_diag(self, k):
+        """The diagonal of the penalty `k` on its coordinates (for the starting values)."""
+        where = {k_: i for i, k_ in enumerate(self.single)}
+        if k in where:
+            on = self.M[where[k]] > 0
+            return np.nonzero(on)[0], self.M[where[k]][on]
+        _, idx, U = self.multi[self._multi_of[k]]
+        return idx, np.diag(U)
+
     # the smoothing parameters and dispersion from the parameters
 
     def _split(self, params):
         jnp = self._jnp
-        rho = params[:len(self.estimated)]
-        lam = jnp.asarray(self.lam_fixed).at[self.est_blocks].set(jnp.exp(rho))
+        rho = params[:self.n_rho]
+        lam = jnp.asarray(self.lam_fixed).at[self.est_index].set(jnp.exp(rho))
         phi = jnp.exp(params[-1]) if self.free_dispersion else self.fixed_dispersion
         return lam, phi
 
     def _hessian(self, params, beta):
         jnp = self._jnp
         lam, _ = self._split(params)
-        s = lam @ self.M
         eta = self.X @ beta + self.offset
         h = 0.5 * self._h(eta, self.y) * self.a
-        return self.X.T @ (h[:, None] * self.X) + jnp.diag(s)
+        return self.X.T @ (h[:, None] * self.X) + self._penalty_matrix(lam)
 
     def criterion(self, params, beta):
         """The criterion at `params`, with the coefficients `beta` (in the criterion's coordinates)."""
         jnp = self._jnp
         lam, phi = self._split(params)
-        s = lam @ self.M
         eta = self.X @ beta + self.offset
         mu = self.linkinv(eta)
-        Dp = jnp.sum(self.a * self.dev(self.y, mu)) + jnp.sum(s * beta**2)
-        H = self._hessian(params, beta)
+        Dp = jnp.sum(self.a * self.dev(self.y, mu)) + beta @ self._penalty_matrix(lam) @ beta
+        H, _ = self._rotate(self._hessian(params, beta), lam)
         if self.method == 'ML':
             idx = self.penalized
             H = H[jnp.ix_(idx, idx)]
-        logdet_H = jnp.linalg.slogdet(H)[1]
-        logdet_S = jnp.sum(self.rank * jnp.log(lam)) + jnp.sum(self.log_ev)
+        # equilibrated: with a large smoothing parameter H is ill conditioned
+        d = 1 / jnp.sqrt(jnp.abs(jnp.diag(H)))
+        logdet_H = jnp.linalg.slogdet(d[:, None] * H * d[None, :])[1] - 2 * jnp.sum(jnp.log(d))
+        logdet_S = self._logdet_S(lam)
         value = Dp / (2 * phi) - self.ls(self.y, self.a, phi) + logdet_H / 2 - logdet_S / 2
         if self.method == 'REML':
             value = value - self.null_dim * jnp.log(2 * np.pi * phi) / 2
@@ -275,9 +398,9 @@ class LaplaceCriterion(object):
     def _set_lams(self, params):
         lam, _ = self._split(params)
         lam = np.asarray(lam)
-        for b in self.est_blocks:
-            j = self.blocks[b][0]
-            self.terms[j].lam = float(lam[b]) / self.weight_total
+        terms = np.asarray(self.penalty_terms)
+        for j in sorted(set(terms[self.est_index])):
+            self.terms[j].set_penalty_lams(lam[terms == j] / self.weight_total)
 
     def coef(self, params):
         """
@@ -318,9 +441,8 @@ class LaplaceCriterion(object):
         g = np.array(g_params, float)
         # d beta / d rho_k = -H^{-1} (lam_k S_k beta): the minimum's equations
         # differentiated
-        dS = lam[self.est_blocks, None] * self.M[self.est_blocks]      # (K, P)
-        dbeta = -np.linalg.solve(H, (dS * beta[None, :]).T)           # (P, K)
-        g[:len(self.estimated)] += np.asarray(g_beta) @ dbeta
+        dbeta = -self._solve_H(H, lam, self._dS_beta(lam, np.asarray(beta)).T)  # (P, K)
+        g[:self.n_rho] += np.asarray(g_beta) @ dbeta
         self._max_value = max(getattr(self, '_max_value', -np.inf), float(value))
         return float(value), g
 
@@ -335,7 +457,7 @@ class LaplaceCriterion(object):
         """
         worst = getattr(self, '_max_value', 0.)
         g = np.zeros(len(params))
-        g[:len(self.estimated)] = -1e3
+        g[:self.n_rho] = -1e3
         return abs(worst) + 1e6, g
 
     def start(self):
@@ -350,9 +472,9 @@ class LaplaceCriterion(object):
         h = 0.5 * np.asarray(self._h(jnp.asarray(eta0), jnp.asarray(self.y))) * self.a
         xwx = np.einsum('ij,i,ij->j', self.X, h, self.X)
         rho = []
-        for b in self.est_blocks:
-            on = self.M[b] > 0
-            rho.append(np.log(xwx[on].mean() / self.M[b][on].mean()))
+        for k in self.est_index:
+            idx, d = self._penalty_diag(k)
+            rho.append(np.log(xwx[idx].mean() / max(d.mean(), np.finfo(float).tiny)))
         params = list(rho)
         if self.free_dispersion:
             mu0 = np.asarray(self.linkinv(jnp.asarray(eta0)))
@@ -397,41 +519,19 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         self._coxdev = self.family._coxdev_at(gam._normed_weight)
 
         # as LaplaceCriterion, without the column of ones (no intercept)
-        P = D.n_coef
-        T = np.identity(P)
-        blocks = []
-        for j, (sl, S) in enumerate(zip(D.slices, D.penalties)):
-            if S is None:
-                continue
-            ev, V = np.linalg.eigh((S + S.T) / 2)
-            ev = np.where(ev > ev.max() * 1e-10, ev, 0.)
-            T[sl, sl] = V
-            blocks.append((j, np.arange(P)[sl] - 1, ev))
-        self.T = T[:, 1:]
-        self.X = D.X @ self.T
-        self.blocks = blocks
-        M = np.zeros((len(blocks), P - 1))
-        for b, (j, idx, ev) in enumerate(blocks):
-            M[b, idx] = ev
-        self.M = M
-        self.rank = (M > 0).sum(1)
-        self.log_ev = np.array([np.log(ev[ev > 0]).sum() for _, _, ev in blocks])
-        self.penalized = np.nonzero(M.sum(0) > 0)[0]
-        self.null_dim = P - 1 - len(self.penalized)
-        block_of = {j: b for b, (j, _, _) in enumerate(blocks)}
-        if any(j not in block_of for j in self.estimated):
-            raise ValueError('only penalized terms have smoothing parameters to estimate')
-        self.est_blocks = np.array([block_of[j] for j in self.estimated], int)
-        self.lam_fixed = np.array([0. if j in self.estimated else
-                                   self.terms[j].penalty_lam() * self.weight_total
-                                   for j, _, _ in blocks])
-        self.n_params = len(self.estimated)
+        self._set_structure(D, self.keep, intercept=False)
+        if self.multi:
+            raise NotImplementedError('REML and ML for the Cox family: terms with several '
+                                      'penalties are not supported yet')
+        # (every penalty is a single one: the rows of M are the penalties)
+        self.est_blocks = self.est_index
+        self.n_params = self.n_rho
         self._warm = None
         self.n_evaluations = 0
 
     def _split(self, params):
         lam = self.lam_fixed.copy()
-        lam[self.est_blocks] = np.exp(np.asarray(params, float)[:len(self.estimated)])
+        lam[self.est_blocks] = np.exp(np.asarray(params, float)[:self.n_rho])
         return lam, 1.
 
     def _eta(self, beta):
@@ -496,7 +596,7 @@ class CoxLaplaceCriterion(LaplaceCriterion):
     def value_and_grad(self, params):
         self.n_evaluations += 1
         params = np.asarray(params, float)
-        K = len(self.estimated)
+        K = self.n_rho
         beta = self.coef(params)
         if not self.gam.converged_:
             return self._unconverged(params)
@@ -615,7 +715,7 @@ def select_smoothing(gam, dispersion=None):
                          '(every penalized term has lam or df)')
     # placeholders, set at each evaluation
     for j in estimated:
-        terms[j].lam = 1.
+        terms[j].set_penalty_lams(np.ones(len(terms[j].penalty_matrices())))
     for term in terms:
         term.set_weights(normed)
 
@@ -628,18 +728,18 @@ def select_smoothing(gam, dispersion=None):
     with context:
         crit = Criterion(gam, estimated, method=gam.method, dispersion=dispersion)
         x0 = crit.start()
-        K = len(estimated)
+        K = crit.n_rho
         bounds = [(r - 25, r + 25) for r in x0[:K]] + [(None, None)] * (len(x0) - K)
         result = minimize(crit.value_and_grad, x0, jac=True, method='L-BFGS-B', bounds=bounds,
                           options=dict(maxiter=500, ftol=1e-14, gtol=1e-8))
         x, value, grad, converged = _newton(crit, result.x, bounds)
         lam, phi = crit._split(x)
-        lam, phi = np.asarray(lam, float)[crit.est_blocks], float(phi)
+        lam, phi = np.asarray(lam, float)[crit.est_index], float(phi)
         # the terms at the optimum
         crit.coef(x)
         converged = converged and gam.converged_
     return SmoothingSelection(method=gam.method,
-                              terms=[terms[j].name for j in estimated],
+                              terms=[crit.penalty_names[k] for k in crit.est_index],
                               lam=lam / crit.weight_total,
                               lam_raw=lam,
                               dispersion=phi,

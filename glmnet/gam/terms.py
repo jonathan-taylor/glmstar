@@ -149,6 +149,24 @@ class Term(object):
         """The term's smoothing parameter, at the current weights (after `set_weights`)."""
         return 0.
 
+    # several penalties: `sum_m lam_m c' S_m c / 2`. A term with one penalty
+    # (the default) gives it as a list of one; a term with several gives
+    # their sum (at smoothing parameters 1) as `penalty_matrix()`, its
+    # structure, and has no single `penalty_lam()`
+
+    def penalty_matrices(self):
+        """The matrices `S_m` of the term's penalties (empty: unpenalized)."""
+        S = self.penalty_matrix()
+        return [] if S is None else [S]
+
+    def penalty_lams(self):
+        """The smoothing parameters of the penalties, at the current weights."""
+        return [self.penalty_lam()] if self.penalty_matrix() is not None else []
+
+    def set_penalty_lams(self, lams):
+        """Fix the smoothing parameters, one per penalty (as REML and ML do)."""
+        self.lam = float(lams[0])
+
     def edf(self):
         """The degrees of freedom of the term, at the current weights, without the constant."""
         raise NotImplementedError
@@ -594,6 +612,104 @@ class ColumnsTerm(Term):
 
 
 @dataclass
+class PenalizedColumnsTerm(Term):
+    """
+    A block of columns of `X` (`column` a list of them) entering linearly,
+    with quadratic penalties `sum_m lam[m] c' S_m c / 2` on their
+    coefficients `c` (`penalties` the matrices `S_m`, on the scale of the
+    GAM's objective), as mgcv's `paraPen`. With `lam` None the smoothing
+    parameters are estimated (`method='REML'` or `'ML'`).
+
+    The term is not centered: the penalties, or the columns (without the
+    constant in their span), identify it. Its smoother is the penalized
+    weighted least squares fit on the columns.
+    """
+    penalties: list = field(default_factory=list)
+    lam: Optional[list] = None
+    label: Optional[str] = None
+
+    centered = False
+    _label = 'penalized_columns'
+
+    @property
+    def has_objective(self):
+        return self.lam is not None
+
+    def setup(self, x):
+        x = np.asarray(x, float)
+        self.X_ = x.reshape((x.shape[0], -1))
+        K = self.X_.shape[1]
+        self.penalties = [np.asarray(S, float) for S in self.penalties]
+        if not self.penalties or any(S.shape != (K, K) for S in self.penalties):
+            raise ValueError(f'{self.name}: give one or more penalties of shape ({K}, {K})')
+        if self.lam is not None and len(self.lam) != len(self.penalties):
+            raise ValueError(f'{self.name}: give one lam per penalty')
+        self._coef = None
+        return self
+
+    def set_weights(self, w):
+        super().set_weights(w)
+        if self.lam is None:
+            raise ValueError(f'{self.name}: give lam (or estimate it, method="REML")')
+        self.lam_ = [float(l) for l in self.lam]
+        self._xwx = self.X_.T @ (self.w_[:, None] * self.X_)
+        self._A = self._xwx + sum(l * S for l, S in zip(self.lam_, self.penalties))
+
+    def smooth(self, r):
+        self._coef = np.linalg.lstsq(self._A, self.X_.T @ (self.w_ * r), rcond=None)[0]
+        return self.X_ @ self._coef
+
+    # the smoother reproduces only the penalties' null space, which the
+    # constant need not be in: modified backfitting smooths it whole
+    def smooth_nonlinear(self, r):
+        return self.smooth(r)
+
+    def combine_coef(self, beta, center):
+        return self._coef
+
+    def coef(self):
+        return self._coef
+
+    def penalty(self, f, coef=None):
+        if self.lam is None or coef is None:
+            return 0.
+        return sum(l * coef @ S @ coef for l, S in zip(self.lam, self.penalties)) / 2
+
+    def edf(self):
+        return float(np.trace(np.linalg.lstsq(self._A, self._xwx, rcond=None)[0]))
+
+    def basis(self, x=None):
+        if x is None:
+            return self.X_
+        x = np.asarray(x, float)
+        return x.reshape((x.shape[0], -1))
+
+    def penalty_matrices(self):
+        return list(self.penalties)
+
+    def penalty_matrix(self):
+        return sum(self.penalties)
+
+    def penalty_lams(self):
+        return list(self.lam_)
+
+    def penalty_lam(self):
+        if len(self.penalties) > 1:
+            raise ValueError(f'{self.name} has several penalties: use penalty_lams()')
+        return self.lam_[0]
+
+    def set_penalty_lams(self, lams):
+        self.lam = [float(l) for l in lams]
+
+    def finalize(self, f, r, coef=None):
+        self.coef_ = np.zeros(self.X_.shape[1]) if coef is None else np.asarray(coef, float)
+        return self
+
+    def predict(self, x):
+        return self.basis(x) @ self.coef_
+
+
+@dataclass
 class RandomEffectTerm(Term):
     """
     A random effect of the groups of the column `column`: the term
@@ -746,6 +862,20 @@ def re(column, by=None, lam=None, df=None, name=None):
         column = list(column)
     term = RandomEffectTerm(column, by=by, lam=lam, df=df)
     term.label = name or _name('re', _group_label(column), by=by, lam=lam, df=df)
+    return term
+
+
+def penalized_columns(columns, penalties, lam=None, name=None):
+    """
+    A block of columns with quadratic penalties on their coefficients (see
+    `PenalizedColumnsTerm`), as mgcv's `paraPen`: `columns` a list of
+    columns, `penalties` a list of matrices, `lam` one smoothing parameter
+    per penalty (None: estimated, with `method='REML'` or `'ML'`).
+    """
+    columns = list(columns) if isinstance(columns, (list, tuple)) else [columns]
+    term = PenalizedColumnsTerm(columns, penalties=list(penalties),
+                                lam=None if lam is None else list(np.atleast_1d(lam)))
+    term.label = name or f'penalized_columns({", ".join(str(c) for c in columns)})'
     return term
 
 

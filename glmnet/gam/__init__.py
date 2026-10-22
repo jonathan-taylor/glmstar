@@ -73,9 +73,11 @@ from .terms import (Term,
                     FactorTerm,
                     ColumnsTerm,
                     RandomEffectTerm,
+                    PenalizedColumnsTerm,
                     s,
                     lo,
                     re,
+                    penalized_columns,
                     linear,
                     factor)
 from .gp import GPTerm, gaussian_process
