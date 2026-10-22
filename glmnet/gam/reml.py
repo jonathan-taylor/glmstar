@@ -65,6 +65,7 @@ from statsmodels.genmod.families import family as sm_family, links as sm_links
 
 from .joint import JointDesign
 from .linalg import DenseHessian
+from .penalties import ScaledPenalty, SumPenalty
 
 
 class ExperimentalWarning(UserWarning):
@@ -277,6 +278,19 @@ class LaplaceCriterion(object):
         self.log_ev = np.array([np.log(ev).sum() for _, _, ev in single])
         self.multi, self.multi_terms = multi, multi_terms
         self._multi_of = {k: i for i, (k, _, _) in enumerate(multi)}
+        # the terms' penalties as objects (`glmnet.gam.penalties`), in the
+        # order of their parameters: (term, penalty, its parameters' slice)
+        self.models = []
+        for k, idx, ev in single:
+            self.models.append((self.penalty_terms[k],
+                                ScaledPenalty(idx, ev, [self.penalty_names[k]]), slice(k, k + 1)))
+        for ks in multi_terms:
+            idx = multi[self._multi_of[ks[0]]][1]
+            self.models.append((self.penalty_terms[ks[0]],
+                                SumPenalty(idx, [multi[self._multi_of[k]][2] for k in ks],
+                                           [self.penalty_names[k] for k in ks]),
+                                slice(ks[0], ks[-1] + 1)))
+        self.models.sort(key=lambda m: m[2].start)
         self.penalized = (np.unique(np.concatenate(range_coords)) if range_coords
                           else np.zeros(0, int))
         self.null_dim = P - len(self.penalized)
@@ -293,95 +307,34 @@ class LaplaceCriterion(object):
             lam_fixed[ks] = np.asarray(self.terms[j].penalty_lams(), float) * self.weight_total
         self.lam_fixed = lam_fixed
 
-    def _logdet_S(self, lam):
-        """`log|S|_+`, the terms' (block diagonal) penalties' log pseudo-determinant."""
-        lam = np.asarray(lam, float)
-        value = np.sum(self.rank * np.log(lam[self.single])) + np.sum(self.log_ev)
-        for ks in self.multi_terms:
-            # in the stable basis, where each penalty is exact beyond its block
-            _, T = self._stable_basis(ks, lam)
-            value += np.linalg.slogdet(sum(lam[k] * T_k for k, T_k in zip(ks, T)))[1]
-        return float(value)
-
-    def _stable_basis(self, ks, lam):
-        """
-        Wood's (2011) stable reparametrization of the penalties `ks` of one
-        term (on its range coordinates) at `lam`: the range of the dominant
-        penalty (the largest `lam_k |U_k|`) first, then, in its null space,
-        that of the next, and so on. Each penalty is exactly 0 beyond the
-        block where it dominates (its null space there), so a large smoothing
-        parameter multiplies only its own block: its rounding does not reach
-        the directions it does not penalize. Returns the basis `V` and the
-        penalties `T_k = V' U_k V` in it.
-        """
-        Us = [self.multi[self._multi_of[k]][2] for k in ks]
-        r = Us[0].shape[0]
-        Q, cols, ends, active = np.identity(r), [], {}, list(range(len(ks)))
-        while active and Q.shape[1] > 0:
-            sizes = [lam[ks[i]] * np.linalg.norm(Q.T @ Us[i] @ Q) for i in active]
-            i = active[int(np.argmax(sizes))]
-            ev, W = np.linalg.eigh(Q.T @ Us[i] @ Q)
-            if len(active) == 1:
-                cols.append(Q @ W)
-                break
-            on = ev > max(ev.max(), 0) * 1e-10
-            cols.append(Q @ W[:, on])
-            ends[i] = sum(c.shape[1] for c in cols)
-            Q = Q @ W[:, ~on]
-            active.remove(i)
-        V = np.hstack(cols)
-        T = []
-        for i, U in enumerate(Us):
-            Ti = V.T @ U @ V
-            Ti = (Ti + Ti.T) / 2
-            if i in ends:
-                Ti[ends[i]:, :] = 0.
-                Ti[:, ends[i]:] = 0.
-            T.append(Ti)
-        return V, T
-
     def _evaluation(self, params, beta):
         """
-        The criterion's pieces at `params` and `beta`, in the coordinates
-        of the stable reparametrization (`_stable_basis`; the single
-        penalties as they are): the design `X`, coefficients `beta`, the
-        penalty matrix `S` and each penalty `k` as `(coordinates, matrix or
-        diagonal)` times its smoothing parameter.
+        The criterion's pieces at `params` and `beta`, in the coordinates in
+        which the penalties evaluate themselves (`glmnet.gam.penalties`;
+        Wood's stable reparametrization for a sum of penalties): the design
+        `X`, coefficients `beta`, the penalty matrix `S`, the derivatives of
+        the penalty in each parameter `k` (`pieces[k]`), and `log|S|_+` and
+        its derivatives.
         """
         lam, phi = self._split(params)
         lam, phi = np.asarray(lam, float), float(phi)
+        theta = np.log(lam)
         X, beta = self.X.copy(), np.array(beta, float)
         P = X.shape[1]
         S = np.zeros((P, P))
-        penalties = {}
-        where = {k: b for b, k in enumerate(self.single)}
-        for k, b in where.items():
-            idx = np.nonzero(self.M[b] > 0)[0]
-            penalties[k] = (idx, lam[k] * self.M[b][idx])
-            S[idx, idx] += lam[k] * self.M[b][idx]
-        rotations = []
-        for ks in self.multi_terms:
-            idx = self.multi[self._multi_of[ks[0]]][1]
-            V, T = self._stable_basis(ks, lam)
-            X[:, idx] = X[:, idx] @ V
-            beta[idx] = V.T @ beta[idx]
-            for k, Tk in zip(ks, T):
-                penalties[k] = (idx, lam[k] * Tk)
-                S[np.ix_(idx, idx)] += lam[k] * Tk
-            rotations.append((idx, V))
-        return dict(lam=lam, phi=phi, X=X, beta=beta, S=S, penalties=penalties,
-                    rotations=rotations)
-
-    def _penalty_diag(self, k):
-        """The diagonal of the penalty `k` on its coordinates (for the starting values)."""
-        where = {k_: i for i, k_ in enumerate(self.single)}
-        if k in where:
-            on = self.M[where[k]] > 0
-            return np.nonzero(on)[0], self.M[where[k]][on]
-        _, idx, U = self.multi[self._multi_of[k]]
-        return idx, np.diag(U)
-
-    # the smoothing parameters and dispersion from the parameters
+        pieces, logdet, dlogdet = {}, 0., np.zeros(len(lam))
+        for _, model, sl in self.models:
+            e = model.evaluate(theta[sl])
+            if e.V is not None:
+                X[:, model.idx] = X[:, model.idx] @ e.V
+                beta[model.idx] = e.V.T @ beta[model.idx]
+            e.matrix.add_to(S)
+            for k, piece in zip(range(sl.start, sl.stop), e.derivatives):
+                pieces[k] = piece
+            logdet += e.logdet
+            dlogdet[sl] = e.dlogdet
+        return dict(lam=lam, phi=phi, X=X, beta=beta, S=S, pieces=pieces, logdet_S=logdet,
+                    dlogdet_S=dlogdet)
 
     def _split(self, params):
         params = np.asarray(params, float)
@@ -420,7 +373,7 @@ class LaplaceCriterion(object):
         Dp = float(np.sum(self.a * ev['dev']) + beta @ ev['S'] @ beta)
         jnp = self._jnp
         ls, dls = (float(v) for v in self._ls(jnp.asarray(self.y), jnp.asarray(self.a), phi))
-        value = Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - self._logdet_S(lam) / 2
+        value = Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - ev['logdet_S'] / 2
         if self.method == 'REML':
             value -= self.null_dim * np.log(2 * np.pi * phi) / 2
         ev.update(Dp=Dp, dls=dls)
@@ -430,15 +383,6 @@ class LaplaceCriterion(object):
         """The criterion at `params`, with the coefficients `beta` (in the criterion's coordinates)."""
         params = np.asarray(params, float)
         return self._value(self._factor(self._evaluation(params, beta)))
-
-    def _dlogdet_S(self, lam, k):
-        """The derivative of `log|S|_+` in `rho_k = log lam_k`."""
-        if k not in self._multi_of:
-            return float(self.rank[list(self.single).index(k)])
-        ks = next(ks for ks in self.multi_terms if k in ks)
-        _, T = self._stable_basis(ks, lam)
-        A = sum(lam[k_] * T_k for k_, T_k in zip(ks, T))
-        return float(lam[k] * np.trace(np.linalg.solve(A, T[ks.index(k)])))
 
     def value_and_grad(self, params):
         """
@@ -461,10 +405,10 @@ class LaplaceCriterion(object):
         g = np.zeros(self.n_params)
         dS_beta = np.zeros((self.n_rho, beta.shape[0]))            # lam_k S_k beta
         for i, k in enumerate(self.est_index):
-            idx, A = ev['penalties'][k]
-            dS_beta[i, idx] = A * beta[idx] if A.ndim == 1 else A @ beta[idx]
-            g[i] = (beta @ dS_beta[i] / (2 * phi) + H_int.trace(idx, A) / 2 -
-                    self._dlogdet_S(lam, k) / 2)
+            piece = ev['pieces'][k]
+            dS_beta[i] = piece.apply(beta)
+            g[i] = (beta @ dS_beta[i] / (2 * phi) + piece.trace(H_int) / 2 -
+                    ev['dlogdet_S'][k] / 2)
         # through beta: the penalized deviance (0 at the minimum, up to the
         # inner fit's convergence) and log|H|, through h
         g_beta = (X.T @ (self.a * ev['d1']) + 2 * ev['S'] @ beta) / (2 * phi)
@@ -537,11 +481,10 @@ class LaplaceCriterion(object):
         eta0 = np.full(self.y.shape[0], float(self.gam._null_state.intercept)) + self.offset
         h = 0.5 * np.asarray(self._h(jnp.asarray(eta0), jnp.asarray(self.y))) * self.a
         xwx = np.einsum('ij,i,ij->j', self.X, h, self.X)
-        rho = []
-        for k in self.est_index:
-            idx, d = self._penalty_diag(k)
-            rho.append(np.log(xwx[idx].mean() / max(d.mean(), np.finfo(float).tiny)))
-        params = list(rho)
+        start = np.zeros(len(self.lam_fixed))
+        for _, model, sl in self.models:
+            start[sl] = model.start(xwx)
+        params = list(start[self.est_index])
         if self.free_dispersion:
             mu0 = np.asarray(self.linkinv(jnp.asarray(eta0)))
             d = np.asarray(self.dev(jnp.asarray(self.y), jnp.asarray(mu0)))
