@@ -62,6 +62,14 @@ gam.fit(Wage, Wage['wage'])
 gam.summary()
 ```
 
+In a notebook a `GAM` shows the model it specifies: the response's
+distribution and link, the linear predictor, and what each term is
+(`model_latex()` gives the LaTeX):
+
+```{code-cell} ipython3
+gam
+```
+
 `edf` is each term's degrees of freedom, the trace of its smoother at the
 final weights; for a spline it is the `df` it was given (the constant is
 the intercept's). `lam` is the smoothing parameter that gives it. With

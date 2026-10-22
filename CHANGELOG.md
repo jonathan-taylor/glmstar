@@ -4,6 +4,15 @@
 
 ### New features
 
+- **A GAM shows the model it specifies.** In a notebook, `GAM` displays
+  its model in LaTeX (`text/latex`, from `GAM.model_latex()`): the
+  response's distribution and link, the linear predictor as the sum of
+  the terms, and a line per term saying what it is (a smooth and its
+  penalty, a random effect and its distribution, a covariance's
+  structure) and how its smoothing parameter or variance is chosen. It
+  needs only the specification, so it works before fitting. This replaces
+  scikit-learn's HTML diagram for `GAM`. The GAM pages of the docs display
+  their models.
 - **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
   gives the intercept and the coefficients of linear terms and blocks of
   columns, with standard errors from the posterior covariance (for the

@@ -235,6 +235,12 @@ slopes.fit(Sleep, Sleep['reaction'])
 slopes.variance_components_
 ```
 
+The model, as `GAM` displays it: two independent random effects per subject.
+
+```{code-cell} ipython3
+slopes
+```
+
 The two random effects are independent: this is lme4's
 `reaction ~ days + (days||subject)`, i.e. `(1|subject) + (0 + days|subject)`,
 and mgcv's `s(subject, bs="re") + s(subject, days, bs="re")`. (Without a
@@ -279,6 +285,12 @@ reached as one of its diagonal entries goes to 0.
 correlated = GAM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
                  method='REML').fit(Sleep, Sleep['reaction'])
 correlated.variance_components_
+```
+
+Its display shows the intercept and slope drawn together, with an unstructured covariance:
+
+```{code-cell} ipython3
+correlated
 ```
 
 The covariance, and the correlation of a subject's intercept and slope:
@@ -329,6 +341,12 @@ for method in ['ML', 'REML']:
                        method=method, response_id='p', weight_id='size')
     glmm[method].fit(Herds, Herds[['p', 'size']])
 pd.DataFrame({method: glmm[method].variance_components_['sd'] for method in glmm})
+```
+
+The binomial model, as `GAM` displays it:
+
+```{code-cell} ipython3
+glmm['ML']
 ```
 
 The marginal likelihood of a GLMM has no closed form. Both criteria are
@@ -415,6 +433,12 @@ Growth['y'] = (np.sin(2 * np.pi * Growth['time']) + Growth['subject'].map(effect
 
 gamm = GAM(terms=[s('time'), re('subject')], method='REML').fit(Growth, Growth['y'])
 gamm.summary()
+```
+
+The model:
+
+```{code-cell} ipython3
+gamm
 ```
 
 ```{code-cell} ipython3
