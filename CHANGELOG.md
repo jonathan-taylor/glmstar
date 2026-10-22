@@ -4,6 +4,26 @@
 
 ### New features
 
+- **Correlated random effects, `correlated_random_effect(group,
+  slopes=[...])`** (`CorrelatedRandomEffectTerm`), lme4's `(1 + v | g)`: an
+  intercept and slopes per group, their vectors `N(0, Sigma)` with
+  `Sigma` unstructured. Its precision is given (`precision=`) or estimated
+  by REML/ML (`glmnet.gam.penalties.CholeskyPenalty`). That uses the
+  log-Cholesky factor `L` of the relative covariance, as lme4's relative
+  covariance factor, with the criterion evaluated in the coordinates of
+  `b = L u` per group, where the penalty is the identity. A singular
+  covariance (lme4's boundary fit) is then a diagonal of `L` going to 0,
+  with the other parameters finite. `variance_components_` has the
+  variances and `covariance_` the covariance.
+
+  Against `lmer`, REML and ML: the standard deviations and correlation to
+  1e-5, fitted values and BLUPs, and ML's log-likelihood to 1e-8. Against
+  `glmer` (binomial, singular): to 1e-4. Backfitting (per group `q x q`
+  solves) agrees with the joint solve.
+- REML/ML: an evaluation where the deviance or its derivatives are not
+  finite, or the inner fit cannot decrease its objective (far from the
+  optimum), counts as an unconverged fit. Newton's method runs up to 100
+  steps, for an optimum at infinity such as a singular covariance.
 - **`glmnet.gam` REML/ML: penalties as objects** (`glmnet.gam.penalties`).
   A term's penalty is a function `S(theta)` of its parameters. Each
   evaluation gives its matrix, its derivatives in the parameters,

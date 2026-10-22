@@ -125,6 +125,19 @@ class DenseHessian(object):
             return float(np.sum(np.diag(Hinv) * U))
         return float(np.sum(Hinv * U.T))
 
+    def trace_blocks(self, idx, B):
+        """
+        `tr(H^{-1} (I_G (x) B))`, the block `B` on each row of coordinates
+        `idx` (`(G, q)`): the sum of `tr(H^{-1}[idx_g, idx_g] B)`, from the
+        diagonal blocks of `H^{-1}` (a sparse factorization's selected
+        inverse would give only these).
+        """
+        idx = np.asarray(idx)
+        G, q = idx.shape
+        Hinv = self._inverse_block(idx.reshape(-1)).reshape((G, q, G, q))
+        blocks = Hinv[np.arange(G), :, np.arange(G), :]          # (G, q, q)
+        return float(np.einsum('gij,ji->', blocks, B))
+
     def leverages(self):
         """The diagonal of `X H^{-1} X'` (`X` on the factored coordinates)."""
         Z = self.solve(self.X.T)                    # (P, n)
