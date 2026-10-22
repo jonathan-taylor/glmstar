@@ -299,9 +299,12 @@ class GAM(BaseEstimator):
         method = self._method = resolve_method(self.method)
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
-            if isinstance(term, FactorTerm) and isinstance(X, pd.DataFrame):
+            factor_column = (term.column if isinstance(term, FactorTerm)
+                             else getattr(term, 'factor_column', None))
+            if factor_column is not None and isinstance(X, pd.DataFrame):
                 # a categorical's order of the levels (not the sorted one)
-                column = X[term.column] if isinstance(term.column, str) else X.iloc[:, term.column]
+                column = (X[factor_column] if isinstance(factor_column, str)
+                          else X.iloc[:, factor_column])
                 if isinstance(column.dtype, pd.CategoricalDtype):
                     term.categories = list(column.cat.categories)
             term.setup(x)

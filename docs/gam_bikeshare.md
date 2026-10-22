@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, s, re, factor, tensor_spline, ExperimentalWarning
+from glmnet.gam import GAM, s, re, factor, tensor_spline, by_factor_spline, ExperimentalWarning
 
 Bike = load_data('Bikeshare')
 Bike[['bikers', 'hr', 'mnth', 'weekday', 'workingday', 'weathersit', 'temp']].dtypes
@@ -196,15 +196,22 @@ ax.legend(fontsize=8);
 ```
 
 Working days have the commute's peaks at 8am and 5pm; the other days one
-broad peak in the early afternoon. mgcv would model this with a smooth of
-the hour by the working day (`s(hour, by=workingday)`, with
-`workingday` a factor), a curve for each level. `glmnet.gam` has no `by=`
-smooths, and `tensor_spline` needs at least 3 knots per margin, so the
-working day cannot be one of its margins. Here the model is instead fitted
-separately to the working days and the others: every term then depends on
-the working day. The two parts of the data are independent with their own
-parameters, so the log-likelihoods, the ML criteria and the AIC of the two
-fits add, and compare with the additive model's.
+broad peak in the early afternoon. A curve of the hour for each level of
+the working day, `by_factor_spline('hour', by='workingday')` (mgcv's
+`s(hour, by=workingday)`, with `workingday` a factor), lets the hour's
+profile differ between them, the other terms shared; each curve has its own
+smoothing parameter. Further, the model can be fitted separately to the
+working days and the others: every term then depends on the working day.
+The two parts of the data are independent with their own parameters, so
+the log-likelihoods, the ML criteria and the AIC of the two fits add, and
+compare with the additive model's.
+
+```{code-cell} ipython3
+by_hour = GAM(terms=[by_factor_spline('hour', by='workingday', k=24), s('temp'),
+                     factor('weather'), factor('workingday'), factor('month')],
+              family=poisson, method='ML').fit(Bike, Bike['bikers'])
+by_hour.terms_[0].level_edf()
+```
 
 ```{code-cell} ipython3
 days = {1: 'working days', 0: 'other days'}
@@ -212,21 +219,24 @@ split_terms = [s('hour'), s('temp'), factor('weather'), factor('month')]
 split = {wd: GAM(terms=split_terms, family=poisson, method='ML')
              .fit(Bike[Bike['workingday'] == wd], Bike.loc[Bike['workingday'] == wd, 'bikers'])
          for wd in days}
-table = compare({'additive': additive_ml, 'tensor': tensor,
+table = compare({'additive': additive_ml, 'tensor': tensor, 'hour by working day': by_hour,
                  **{f'split: {days[wd]}': split[wd] for wd in days}})
-table.loc['split: total'] = table.iloc[2:].sum()
+table.loc['split: total'] = table.iloc[3:].sum()
 table.loc['split: total', 'deviance explained'] = 1 - (sum(f.deviance_ for f in split.values())
                                                        / additive_ml.null_deviance_)
-print('converged:', all(f.smoothing_.converged for f in [additive_ml, tensor, *split.values()]))
+print('converged:', all(f.smoothing_.converged for f in [additive_ml, tensor, by_hour, *split.values()]))
 table
 ```
 
 Under the Poisson every one of these differences is large. The tensor
 product lowers the additive model's ML criterion from 135850 to 131542,
-with 142 more degrees of freedom; splitting by the working day lowers it to
-70206, with 68 more, and raises the deviance explained from 0.793 to 0.918:
-its gain in the ML criterion is about 15 times the tensor product's. The
-working day's interaction with the hour is the one that matters. (These are
+with 142 more degrees of freedom. A curve of the hour for each kind of day
+lowers it to 72446, with 18 more, and raises the deviance explained from
+0.793 to 0.913: its gain is about 15 times the tensor product's.
+Splitting by the working day, every term interacting with it, lowers the
+criterion only a little further, to 70206, with 50 more degrees of freedom
+than the curves by the working day. The working day's interaction with the
+hour is the one that matters. (These are
 Poisson likelihoods: with the overdispersion below, all the differences are
 overstated.)
 
@@ -399,9 +409,6 @@ working day: commuters ride anyway.
 
 ## What `glmnet.gam` does not have
 
-- **Factor-by smooths,** mgcv's `s(x, by=f)`: a curve per level of a
-  factor. Here the model was split by the working day, so every term
-  interacts with it.
 - **Cyclic splines,** mgcv's `bs="cc"`: the hour's curve should join at
   midnight, and here 11pm and midnight are not tied. `cyclic_spline('hour',
   period=(0, 24))` ties them; this page keeps `s('hour')`.

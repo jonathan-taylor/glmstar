@@ -4,6 +4,21 @@
 
 ### New features
 
+- **Factor-by smooths, `by_factor_spline(x, by=f, k=10, lam=None,
+  pooled_lam=False)`** (`FactorSplineTerm`, mgcv's `s(x, by=f, bs="cr")`):
+  a cubic regression spline of `x` for each level of the factor `f`, zero
+  off its level and summing to 0 on it (include `factor(f)` for the
+  levels' means, as mgcv's `y ~ f + s(x, by=f)`). Each level has its own
+  smoothing parameter, or with `pooled_lam=True` one shared by all of them
+  (mgcv's `id`); either is given or estimated by REML/ML. A categorical's
+  levels keep their order; `level_edf()` gives each curve's degrees of
+  freedom, and the plot is a curve per level. Under REML and ML, penalties
+  of a term on disjoint coefficients are now single penalties (exact
+  log-determinants, no stable basis). Against mgcv, Gaussian and Poisson,
+  REML and ML, per level and pooled: our criterion is at most its value at
+  mgcv's smoothing parameters, Gaussian REML fits to 1e-8. The Bikeshare
+  page fits the hour by the working day, and the R translation page lists
+  it (#182).
 - **A GAM shows the model it specifies.** In a notebook, `GAM` displays
   its model in LaTeX (`text/latex`, from `GAM.model_latex()`): the
   response's distribution and link, the linear predictor as the sum of
