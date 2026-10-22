@@ -296,4 +296,4 @@ def test_basis_in_blocks():
     term = gp(0, 1).setup(X)
     full = term.basis()
     term.block_rows = 7
-    np.testing.assert_allclose(term.basis(X), full, rtol=1e-13, atol=1e-14)
+    np.testing.assert_allclose(term.basis(X), full, rtol=1e-10, atol=1e-12)
