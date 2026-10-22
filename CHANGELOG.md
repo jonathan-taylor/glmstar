@@ -140,6 +140,13 @@
 
 ### Documentation
 
+- **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
+  Owen on simulated ratings (customers × items, very unbalanced). It
+  covers the method-of-moments variances (`CrossedMoments`), GLS by
+  backfitting, and `fixed_effects_`. It shows OLS's naive standard errors,
+  the BLUPs' shrinkage, and run times about linear in N up to 400,000
+  ratings (48,000 random effects; the fit about 2 s), against REML on a
+  small problem.
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
   the updated list of what is not supported yet (#166).
