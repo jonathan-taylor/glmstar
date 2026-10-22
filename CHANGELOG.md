@@ -12,7 +12,7 @@
   solves with stochastic estimates) can replace the dense one without
   changing the criterion. JAX is now used only for the elementwise
   derivatives of the family's unit deviance, not for dense matrices. The
-  tests run in about half the time.
+  tests run in about half the time (#162).
 - **Wood's (2011) stable reparametrization** for terms with several
   penalties. At each evaluation the dominant penalty's range is split off,
   with its null space set exactly to 0, then the next penalty in that null
@@ -21,7 +21,7 @@
   inner fit's warm start. A smoothing parameter going to infinity (mgcv
   `paraPen`'s difference penalty, at about 1e13) no longer leaves the
   criterion's value noisy at 1e-9, and the gradient at the optimum is
-  about 1e-11.
+  about 1e-11 (#162).
 - **`glmnet.gam`: terms with several penalties.** A term can now have
   penalties `sum_m lam_m c' S_m c / 2` (`Term.penalty_matrices()`,
   `penalty_lams()` and `set_penalty_lams()`; a term with one penalty is
