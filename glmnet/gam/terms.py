@@ -872,13 +872,21 @@ class CorrelatedRandomEffectTerm(Term):
     list of them: their combinations): an intercept (`intercept=True`) and
     a slope in each of the columns `slopes` per group, `f(g, v) = b_g0 +
     sum_m b_gm v_m`, the vectors `b_g` of the groups independent
-    `N(0, Sigma)`, `Sigma` unstructured, as lme4's `(1 + v | g)`.
+    `N(0, Sigma)`. `covariance` is `Sigma`'s structure:
+
+    - `'unstructured'` (the default), lme4's `(1 + v | g)` and nlme's
+      `pdSymm`, by the log-Cholesky factor of the relative covariance
+      (`glmnet.gam.penalties.CholeskyPenalty`);
+    - `'compound_symmetry'`, nlme's `pdCompSymm`: a common variance and
+      correlation (`CompoundSymmetryPenalty`);
+    - `'diagonal'`, nlme's `pdDiag`: independent effects with their own
+      variances (`DiagonalPenalty`).
 
     The penalty is `sum_g b_g' B b_g / 2`, `B` the precision on the scale
     of the GAM's objective (`precision`, a `q x q` matrix, `q` the number of
     effects per group; `Sigma = dispersion (sum(weights) B)^{-1}`). With
-    `precision` None it is estimated by `method='REML'` or `'ML'`, by the
-    log-Cholesky factor of `B` (`glmnet.gam.penalties.CholeskyPenalty`).
+    `precision` None it is estimated by `method='REML'` or `'ML'` (a given
+    precision is used as it is, whatever the structure).
 
     The penalty identifies the effects: the term is not centered. Groups
     not seen in fitting predict 0.
@@ -886,6 +894,8 @@ class CorrelatedRandomEffectTerm(Term):
     slopes: list = field(default_factory=list)
     intercept: bool = True
     precision: Optional[np.ndarray] = None
+    covariance: str = 'unstructured'
+
     label: Optional[str] = None
 
     centered = False
@@ -1014,7 +1024,8 @@ class CorrelatedRandomEffectTerm(Term):
         return np.where(codes >= 0, np.sum(b[np.maximum(codes, 0)] * V, axis=1), 0.)
 
 
-def correlated_random_effect(column, slopes=(), intercept=True, precision=None, name=None):
+def correlated_random_effect(column, slopes=(), intercept=True, precision=None,
+                             covariance='unstructured', name=None):
     """
     Correlated random effects per group of `column` (see
     `CorrelatedRandomEffectTerm`): an intercept and slopes in the columns
@@ -1023,10 +1034,15 @@ def correlated_random_effect(column, slopes=(), intercept=True, precision=None, 
     """
     if _is_interaction(column):
         column = list(column)
+    if covariance not in ('unstructured', 'compound_symmetry', 'diagonal'):
+        raise ValueError("covariance should be one of 'unstructured', 'compound_symmetry' "
+                         "or 'diagonal'")
     term = CorrelatedRandomEffectTerm(column, slopes=list(slopes), intercept=intercept,
-                                      precision=precision)
+                                      precision=precision, covariance=covariance)
     effects = (['1'] if intercept else []) + [str(v) for v in slopes]
-    term.label = name or f'correlated_random_effect({" + ".join(effects)} | {_group_label(column)})'
+    structure = '' if covariance == 'unstructured' else f', covariance={covariance!r}'
+    term.label = name or (f'correlated_random_effect({" + ".join(effects)} | '
+                          f'{_group_label(column)}{structure})')
     return term
 
 

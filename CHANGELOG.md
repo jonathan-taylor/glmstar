@@ -4,6 +4,17 @@
 
 ### New features
 
+- **Structured covariances of correlated random effects:**
+  `correlated_random_effect(..., covariance='compound_symmetry')` (nlme's
+  `pdCompSymm`: a common variance and correlation) and `'diagonal'`
+  (`pdDiag`), next to the default `'unstructured'`. They are new penalty
+  objects on one general `CovariancePenalty`, which takes `Sigma(theta)`
+  and its derivatives and evaluates in lme4's coordinates `b = L u`. Its
+  parameters for compound symmetry are nlme's, valid for any value. With
+  a positive correlation, compound symmetry is exactly `re(g) + re([g,
+  condition])`, and diagonal is exactly independent `re()` terms. Against
+  `nlme::lme` with `pdCompSymm`: covariance to 1e-4, log-likelihood to
+  1e-7 (#178).
 - **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
   gives the intercept and the coefficients of linear terms and blocks of
   columns, with standard errors from the posterior covariance (for the
