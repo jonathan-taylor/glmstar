@@ -189,7 +189,7 @@
   evaluation, and writes out the gradient (the implicit derivative through
   the coefficients, `log|H|` through the weights). Comments in `_value`,
   `value_and_grad`, `_factor`, `_evaluation`, `_set_structure` and the Cox
-  criterion tie each line to its term of the formula.
+  criterion tie each line to its term of the formula (#184).
 - The "Generalized additive models" chapter comes after "GLMNet paths" in
   the table of contents, before "Inference" (#180).
 - **The crossed-effects page has a binary response**, as in Ghosh, Hastie
