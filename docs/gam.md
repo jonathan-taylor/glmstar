@@ -225,7 +225,10 @@ A random effect is a term like the smooths: `re(group)` gives each group
 its own intercept, penalized by its sum of squares, as the Gaussian prior
 of a mixed model; `re(group, by=x)` its own slope in `x`. Its variance is
 the dispersion over its smoothing parameter, and REML estimates it as the
-REML of the mixed model (for the Gaussian, exactly).
+REML of the mixed model (for the Gaussian, exactly). With a list of
+columns, `re(['batch', 'cask'])` gives each combination its own effect, so
+nested effects, lme4's `(1 | batch/cask)`, are `re('batch') + re(['batch',
+'cask'])`.
 
 Here marital status is a random effect, its levels' effects shrunk
 towards 0, next to the fixed effect of education:
