@@ -1,4 +1,11 @@
 """
+**Experimental.** The fits, smoothing parameters and variance components
+are checked against mgcv, lme4 and nlme, but the interface may change and
+the optimization of the criterion is less tested than the rest of
+`glmnet.gam`: check `GAM.smoothing_.converged` and compare with fixed
+smoothing parameters or with R. `GAM(method='REML')` warns
+(`ExperimentalWarning`).
+
 Smoothing parameter selection by (Laplace approximate) REML or ML, as mgcv's
 `gam(method="REML")` and `gam(method="ML")` (Wood, 2011): the smoothing
 parameters of the terms' quadratic penalties are those of Gaussian priors
@@ -48,6 +55,10 @@ from scipy.optimize import minimize
 from statsmodels.genmod.families import family as sm_family, links as sm_links
 
 from .joint import JointDesign
+
+
+class ExperimentalWarning(UserWarning):
+    """The feature is experimental: its interface and results may change."""
 
 
 def _jax():
@@ -359,11 +370,12 @@ class CoxLaplaceCriterion(LaplaceCriterion):
     implicit derivative is a central difference of the information operator
     (it needs the third derivatives of the partial likelihood).
     """
-    # the partial likelihood's criterion is precise to about 1e-11
-    # (relative), its gradient (from a difference of the information) to
-    # about 1e-5
+    # the partial likelihood's criterion is precise to about 1e-9 (relative:
+    # the inner fit, warm started, depends a little on the search's path,
+    # about 3e-10 at the optimum in the tests), its gradient (from a
+    # difference of the information) to about 1e-5
     grad_tol = 1e-4
-    value_tol = 1e-10
+    value_tol = 1e-9
     hess_eps = 1e-3
 
     def __init__(self, gam, estimated, method='REML', dispersion=None):

@@ -801,7 +801,9 @@ class GLMBase(BaseEstimator,
         dropped, without a warning as this is ISLP's convention (a warning would
         be raised at every fold of a cross-validation or step of a selection).
         As the only column (the intercept-only model) it is kept but excluded
-        instead.
+        instead. So is ISLP's empty design (a `ModelSpec` with no terms, the
+        null model of a stepwise search): a single column of zeros named
+        `zero`.
         """
         if fitting:
             self._intercept_column = (self.fit_intercept and
@@ -811,6 +813,11 @@ class GLMBase(BaseEstimator,
             self._excluded_intercept = []
             if self._intercept_column and X.shape[1] == 1:
                 self._intercept_column = False
+                self._excluded_intercept = [0]
+            if ((self.fit_intercept or self._shift_invariant) and
+                isinstance(X, pd.DataFrame) and list(X.columns) == ['zero'] and
+                not np.any(np.asarray(X['zero'], float))):
+                # the intercept-only model (or Cox's null model)
                 self._excluded_intercept = [0]
         if (getattr(self, '_intercept_column', False) and
             isinstance(X, pd.DataFrame) and 'intercept' in X.columns):
