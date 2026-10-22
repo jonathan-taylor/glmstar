@@ -88,6 +88,9 @@ the design".
 | `s(g, bs="re")` | `re('g')` | `gam.vcomp` to 1e-4 |
 | `s(g, x, bs="re")` | `re('g', by='x')` | |
 | `paraPen=list(X=list(S1, S2))` | `penalized_columns(cols, [S1, S2])` | fits to 1e-3 (mgcv stops sooner on a flat criterion) |
+| `family=quasipoisson()`, `quasibinomial()` | `family=QuasiPoisson()`, `QuasiBinomial()` (`glmnet.gam`) | the dispersion (REML/ML) to 1e-4, ML criterion to 1e-7 |
+| `family=nb()` | `family=NegativeBinomial()` (`glmnet.gam`), `theta` in `fit.negative_binomial_theta_` | theta to 1e-4, ML criterion to 1e-7 |
+| `family=negbin(theta)` | `family=NegativeBinomial(theta=theta)` | ML criterion to 1e-7 |
 | `family=cox.ph(), weights=status` | `family=CoxFamily(event_id=..., status_id=...)` | fixed `sp` and REML |
 | `m$sp` | `fit.smoothing_.lam_raw`, then times each `S.scale` | |
 | `m$gcv.ubre` | `fit.reml_score_` | ML: equal; REML: up to a constant |

@@ -409,13 +409,27 @@ For a non-orthogonal one, $\log|H|$ is corrected by its log determinant.
 inverse link, the unit deviance $d$, the saturated log-likelihood
 $\ell_s(\phi)$, and whether $\phi$ is fixed. $W$ comes from `jax.grad`
 twice of $d(y, g^{-1}(\eta))$, so it is the observed information for any
-link in the table. Families are Gaussian, binomial, Poisson, Gamma and
-inverse Gaussian. Links are identity, log, logit, probit, cloglog,
-inverse and inverse squared.
+link in the table. Families are Gaussian, binomial, Poisson, Gamma,
+inverse Gaussian and negative binomial, and the quasi-Poisson and
+quasi-binomial (`glmnet.gam.families`). Links are identity, log, logit,
+probit, cloglog, inverse and inverse squared.
+
+- **A quasi family** has a free $\phi$ and mgcv's "saturated
+  log-likelihood" $\ell_s(\phi) = -\tfrac{n}{2}\log\phi + \tfrac12\sum_i
+  \log w_i$, a Gaussian's in $\phi$.
+- **The negative binomial's** $d$ and $\ell_s$ also depend on $\theta$ (the
+  variance $\mu + \mu^2/\theta$). When $\theta$ is estimated (mgcv's
+  `nb()`), $\log\theta$ is one more parameter. Its derivative has the
+  same three parts as a smoothing parameter's: in $d$ and $\ell_s$ with
+  $\beta$ held; in $\log|H|$ through $W$ (`jax.grad` of $d$'s second
+  derivative in $\eta$, weighting the leverages); and through $\beta$, with
+  $d\hat\beta/d\log\theta = -H^{-1} X^T (w\, \partial_{\log\theta}
+  d')/2$, $d'$ the derivative of $d$ in $\eta$.
 
 **Parameters and scale.** The parameters are the penalties' $\theta$ for
 the estimated terms ($\rho_j = \log\lambda_j$, or a log-Cholesky
-factor), then $\log\phi$ when the dispersion is free.
+factor), then $\log\phi$ when the dispersion is free, then the negative
+binomial's $\log\theta$ when it is estimated.
 
 - Terms given `lam` keep it.
 - Terms given `df` have their $\lambda$ matched to the df at the prior

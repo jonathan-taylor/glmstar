@@ -36,7 +36,8 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, s, re, factor, tensor_spline, by_factor_spline, ExperimentalWarning
+from glmnet.gam import (GAM, s, re, factor, tensor_spline, QuasiPoisson, NegativeBinomial,
+                        ExperimentalWarning)
 
 Bike = load_data('Bikeshare')
 Bike[['bikers', 'hr', 'mnth', 'weekday', 'workingday', 'weathersit', 'temp']].dtypes
@@ -265,15 +266,15 @@ gave the temperature a wiggly curve with narrow bands, and why every
 difference in the table above is so large.
 
 From here on, the working days, with the smoothing parameters again by REML.
-There are two remedies.
+There are three remedies.
 
 - **A dispersion** $\phi$: the variance $\phi\mu$, a quasi-likelihood.
-  `fit(X, y, dispersion=phi)` fixes it, here at the Pearson estimate of the
-  Poisson fit; it is used by REML (the criterion is that of the Poisson
-  fit with prior weights $1/\phi$) and in the standard errors. (mgcv's
-  `quasipoisson` instead estimates $\phi$ with the smoothing parameters;
-  `glmnet.gam` has no quasi families. Its AIC, `aic_`, is not a
-  likelihood's.)
+  `family=QuasiPoisson()` estimates $\phi$ by REML with the smoothing
+  parameters, as mgcv's `quasipoisson`. (A quasi-likelihood has no AIC.)
+- **The negative binomial**, the variance $\mu + \mu^2/\theta$: the
+  extra variation grows with the mean. `family=NegativeBinomial()`
+  estimates $\theta$ by REML with the smoothing parameters, as mgcv's
+  `nb()`.
 - **A random effect of the day**, `re('day')`: the hours of a day share
   its unmeasured conditions (events, the weather between the records), so
   their counts are correlated. This is a Poisson GLMM, with the day's effect
@@ -285,24 +286,20 @@ There are two remedies.
   the number of coefficients, makes it slow at this size.
 
 The day's effect leaves overdispersion within the day, so the last fit has
-both: the random effect of the day, and a dispersion at the Pearson
-estimate of the Poisson GLMM.
+both: the random effect of the day, and a dispersion estimated with it.
 
 ```{code-cell} ipython3
 work = Bike[Bike['workingday'] == 1]
 t0 = time.time()
-fits = {'Poisson': GAM(terms=split_terms, family=poisson, method='REML').fit(work, work['bikers'])}
-phi = pearson(fits['Poisson'], work)
-fits['dispersion'] = GAM(terms=split_terms, family=poisson, method='REML').fit(
-    work, work['bikers'], dispersion=phi)
-fits['day'] = GAM(terms=split_terms + [re('day')], family=poisson, method='REML').fit(
-    work, work['bikers'])
-phi_day = pearson(fits['day'], work)
-fits['day + dispersion'] = GAM(terms=split_terms + [re('day')], family=poisson,
-                               method='REML').fit(work, work['bikers'], dispersion=phi_day)
+families = {'Poisson': (poisson, []), 'quasi-Poisson': (QuasiPoisson(), []),
+            'negative binomial': (NegativeBinomial(), []), 'day': (poisson, [re('day')]),
+            'day + dispersion': (QuasiPoisson(), [re('day')])}
+fits = {name: GAM(terms=split_terms + extra, family=family, method='REML').fit(work, work['bikers'])
+        for name, (family, extra) in families.items()}
 print(f'{time.time() - t0:.1f}s')
 pd.DataFrame({'converged': [f.smoothing_.converged for f in fits.values()],
               'dispersion': [f.dispersion_ for f in fits.values()],
+              'theta': [f.negative_binomial_theta_ for f in fits.values()],
               'edf s(hour)': [f.edf_['s(hour)'] for f in fits.values()],
               'edf s(temp)': [f.edf_['s(temp)'] for f in fits.values()],
               'sd re(day)': [f.variance_components_['sd'].get('re(day)', np.nan) for f in fits.values()]},
@@ -312,11 +309,13 @@ pd.DataFrame({'converged': [f.smoothing_.converged for f in fits.values()],
 The hour keeps nearly all its degrees of freedom: its pattern is strong
 enough. The temperature's spline is the one that changes: it has
 39.6 degrees of freedom under the Poisson, 29.9 with the day's random
-effect, and 10.8 with a dispersion. The days' effects have a standard
-deviation of 0.19 on the log scale (0.18 with the dispersion): a day one
-standard deviation above the median has about 1.2 times its riders. The
-random effect lowers Pearson's statistic from 9.2 to 6.9, the dispersion of
-the last fit.
+effect, 10.7 with a dispersion and 8.5 under the negative binomial. REML's
+dispersion, 9.4, is close to Pearson's 9.2; the negative binomial's
+$\theta$ of 12.8 makes the variance of a count of 100 riders about 9 times
+its mean, that of a count of 10 about 2 times. The days' effects have a
+standard deviation of 0.19 on the log scale (0.18 with the dispersion): a
+day one standard deviation above the median has about 1.2 times its riders.
+With the random effect, the dispersion falls from 9.4 to 6.8.
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(figsize=(6, 4))
@@ -351,8 +350,10 @@ pd.DataFrame(rows, index=['mean 8am', 'mean 1pm', 'mean 5pm', 'std err 8am',
 
 The dispersion multiplies the standard errors of the predictions by about
 2.3 to 2.5, and that of the months' difference by 3.0, against
-$\sqrt{\phi} = 3.0$: for the predictions, the smoother curve of the
-temperature offsets part of it. The day's random effect does more, a factor of 4
+$\sqrt{\phi} = 3.1$: for the predictions, the smoother curve of the
+temperature offsets part of it. The negative binomial's are larger still at
+the busy hours (8am and 5pm, a factor of 3.1 to 3.3), where its variance
+grows with the square of the mean. The day's random effect does more, a factor of 4
 to 6 on the Poisson's: the months' effects and the predictions are
 averages over days, about 20 working days a month, not hundreds of
 independent hours, and their standard errors grow accordingly. A new day
@@ -412,9 +413,6 @@ working day: commuters ride anyway.
 - **Cyclic splines,** mgcv's `bs="cc"`: the hour's curve should join at
   midnight, and here 11pm and midnight are not tied. `cyclic_spline('hour',
   period=(0, 24))` ties them; this page keeps `s('hour')`.
-- **Quasi families and the negative binomial under REML:** the dispersion
-  of a Poisson fit can be fixed (`dispersion=`), not estimated with the
-  smoothing parameters.
 - **Correlated residuals:** the hours of a day are a time series. The
   random effect of the day gives them a common correlation, not one that
   decays with the time between them.

@@ -116,34 +116,54 @@ def _jax_family(family):
     else:
         raise NotImplementedError(f'REML and ML: the link {type(link).__name__} is not supported')
 
+    # (each function takes `t`, the log of the negative binomial's theta,
+    # which the others ignore)
     if isinstance(family, sm_family.Gaussian):
-        dev = lambda y, mu: (y - mu)**2
-        ls = lambda y, a, phi: jnp.sum(-0.5 * jnp.log(2 * np.pi * phi / a))
+        dev = lambda y, mu, t: (y - mu)**2
+        ls = lambda y, a, phi, t: jnp.sum(-0.5 * jnp.log(2 * np.pi * phi / a))
         fixed = False
     elif isinstance(family, sm_family.Binomial):
-        dev = lambda y, mu: 2 * (xlogy(y, y) - xlogy(y, mu) + xlogy(1 - y, 1 - y) -
-                                 xlogy(1 - y, 1 - mu))
+        dev = lambda y, mu, t: 2 * (xlogy(y, y) - xlogy(y, mu) + xlogy(1 - y, 1 - y) -
+                                    xlogy(1 - y, 1 - mu))
         # y the proportion of a trials (a = 1 for 0/1 responses)
-        ls = lambda y, a, phi: jnp.sum(gammaln(a + 1) - gammaln(a * y + 1) - gammaln(a * (1 - y) + 1) +
-                                       a * (xlogy(y, y) + xlogy(1 - y, 1 - y)))
+        ls = lambda y, a, phi, t: jnp.sum(gammaln(a + 1) - gammaln(a * y + 1) -
+                                          gammaln(a * (1 - y) + 1) +
+                                          a * (xlogy(y, y) + xlogy(1 - y, 1 - y)))
         fixed = True
     elif isinstance(family, sm_family.Poisson):
-        dev = lambda y, mu: 2 * (xlogy(y, y) - xlogy(y, mu) - (y - mu))
-        ls = lambda y, a, phi: jnp.sum(a * (xlogy(y, y) - y - gammaln(y + 1)))
+        dev = lambda y, mu, t: 2 * (xlogy(y, y) - xlogy(y, mu) - (y - mu))
+        ls = lambda y, a, phi, t: jnp.sum(a * (xlogy(y, y) - y - gammaln(y + 1)))
+        fixed = True
+    elif isinstance(family, sm_family.NegativeBinomial):
+        # theta = exp(t): variance mu + mu^2 / theta
+        def dev(y, mu, t):
+            theta = jnp.exp(t)
+            return 2 * (xlogy(y, y) - xlogy(y, mu) - (y + theta) * (jnp.log(y + theta) -
+                                                                    jnp.log(mu + theta)))
+
+        def ls(y, a, phi, t):
+            theta = jnp.exp(t)
+            return jnp.sum(a * (gammaln(y + theta) - gammaln(theta) - gammaln(y + 1) +
+                                theta * t + xlogy(y, y) - (y + theta) * jnp.log(y + theta)))
         fixed = True
     elif isinstance(family, sm_family.Gamma):
-        dev = lambda y, mu: 2 * (-jnp.log(y / mu) + (y - mu) / mu)
+        dev = lambda y, mu, t: 2 * (-jnp.log(y / mu) + (y - mu) / mu)
 
-        def ls(y, a, phi):
+        def ls(y, a, phi, t):
             k = a / phi
             return jnp.sum(k * jnp.log(k) - jnp.log(y) - k - gammaln(k))
         fixed = False
     elif isinstance(family, sm_family.InverseGaussian):
-        dev = lambda y, mu: (y - mu)**2 / (mu**2 * y)
-        ls = lambda y, a, phi: jnp.sum(-0.5 * jnp.log(2 * np.pi * phi * y**3 / a))
+        dev = lambda y, mu, t: (y - mu)**2 / (mu**2 * y)
+        ls = lambda y, a, phi, t: jnp.sum(-0.5 * jnp.log(2 * np.pi * phi * y**3 / a))
         fixed = False
     else:
         raise NotImplementedError(f'REML and ML: the family {type(family).__name__} is not supported')
+    if getattr(family, 'quasi', False):
+        # a quasi-likelihood (`glmnet.gam.families`): a free dispersion, and
+        # mgcv's "saturated log-likelihood", a Gaussian's in the dispersion
+        ls = lambda y, a, phi, t: jnp.sum(-0.5 * jnp.log(phi / a))
+        fixed = False
     return linkinv, dev, ls, fixed
 
 
@@ -159,6 +179,8 @@ class SmoothingSelection(object):
     estimated parameters of the penalties (`glmnet.gam.penalties`): the
     logs of `lam_raw`, and for correlated random effects those of the
     Cholesky factor of their precision, whose `lam` are NaN.
+    `negative_binomial_theta` is the estimated theta of a negative binomial
+    (`glmnet.gam.families.NegativeBinomial(theta=None)`), else None.
     """
     method: str
     terms: list
@@ -171,13 +193,15 @@ class SmoothingSelection(object):
     converged: bool
     n_evaluations: int
     message: str = ''
+    negative_binomial_theta: Optional[float] = None
 
 
 class LaplaceCriterion(object):
     """
     The (negative log) Laplace approximate REML or ML of a GAM, as a function
     of the log smoothing parameters of its estimated terms and, when free,
-    the log dispersion. `gam` is a `GAM` set up for fitting (its terms set
+    the log dispersion and the log of the negative binomial's theta (in that
+    order: `params = (rho, log phi, log theta)`). `gam` is a `GAM` set up for fitting (its terms set
     up, its response and weights recorded); its local scoring gives the
     coefficients at each value.
     """
@@ -188,13 +212,23 @@ class LaplaceCriterion(object):
     value_tol = 1e-12
     hess_eps = 1e-5
 
+    # the negative binomial's theta estimated (`glmnet.gam.families`), and
+    # its log (0, ignored, for the other families)
+    estimate_theta = False
+    log_theta = 0.
+
     def __init__(self, gam, estimated, method='REML', dispersion=None):
         self.gam, self.method = gam, method
         self.terms = gam.terms_
         self.estimated = list(estimated)
         jax, jnp = _jax()
         self._jax, self._jnp = jax, jnp
-        self.linkinv, self.dev, self.ls, fixed = _jax_family(gam._family.base)
+        base = gam._family.base
+        self.linkinv, self.dev, self.ls, fixed = _jax_family(base)
+        self.estimate_theta = getattr(base, 'estimate_theta', False)
+        # the log theta (the negative binomial's; 0 for the others)
+        self.log_theta = (float(np.log(1 / base.alpha))
+                          if isinstance(base, sm_family.NegativeBinomial) else 0.)
         # a given dispersion is used for every family (for the binomial and
         # Poisson, a quasi-likelihood's); otherwise 1 for those
         self.free_dispersion = not fixed and dispersion is None
@@ -211,7 +245,7 @@ class LaplaceCriterion(object):
         self.weight_total = a.sum()
 
         self._set_structure(D, keep)
-        self.n_params = self.n_rho + self.free_dispersion
+        self.n_params = self.n_rho + self.free_dispersion + self.estimate_theta
         self._warm = None
         self.n_evaluations = 0
 
@@ -219,17 +253,25 @@ class LaplaceCriterion(object):
         linkinv = self.linkinv
         # half the second derivative of a unit deviance in eta: the observed
         # information weight (Fisher's for canonical links)
-        unit = lambda eta, y: dev(y, linkinv(eta))
-        self._h = jax.vmap(jax.grad(jax.grad(unit)), in_axes=(0, 0))
+        unit = lambda eta, y, t: dev(y, linkinv(eta), t)
+        self._h = jax.vmap(jax.grad(jax.grad(unit)), in_axes=(0, 0, None))
         # the first three derivatives of the unit deviance in eta, and that
         # of the saturated log-likelihood in the dispersion: all the
         # criterion needs of the family
         d1 = jax.grad(unit)
         d2 = jax.grad(d1)
         d3 = jax.grad(d2)
-        self._derivatives = jax.jit(jax.vmap(lambda e, y: (unit(e, y), d1(e, y), d2(e, y), d3(e, y))))
+        self._derivatives = jax.jit(jax.vmap(lambda e, y, t: (unit(e, y, t), d1(e, y, t),
+                                                              d2(e, y, t), d3(e, y, t)),
+                                             in_axes=(0, 0, None)))
+        # and, for theta, those of the deviance and its first two in eta in
+        # log theta
+        dt = [jax.grad(f, argnums=2) for f in (unit, d1, d2)]
+        self._theta_derivatives = jax.jit(jax.vmap(lambda e, y, t: tuple(f(e, y, t) for f in dt),
+                                                   in_axes=(0, 0, None)))
         ls = self.ls
-        self._ls = jax.jit(lambda y, a, phi: (ls(y, a, phi), jax.grad(ls, argnums=2)(y, a, phi)))
+        self._ls = jax.jit(lambda y, a, phi, t: (ls(y, a, phi, t), jax.grad(ls, argnums=2)(y, a, phi, t),
+                                                 jax.grad(ls, argnums=3)(y, a, phi, t)))
 
     def _set_structure(self, D, keep, intercept=True):
         """
@@ -395,15 +437,19 @@ class LaplaceCriterion(object):
                 pieces[k] = piece
             logdet += e.logdet
             dlogdet[sl] = e.dlogdet
-        return dict(lam=lam, phi=phi, X=X, beta=beta, S=S, pieces=pieces, logdet_S=logdet,
-                    dlogdet_S=dlogdet, logdet_V=logdet_V)
+        return dict(lam=lam, phi=phi, log_theta=self._log_theta(params), X=X, beta=beta, S=S,
+                    pieces=pieces, logdet_S=logdet, dlogdet_S=dlogdet, logdet_V=logdet_V)
 
     def _split(self, params):
         params = np.asarray(params, float)
         lam = self.lam_fixed.copy()
         lam[self.est_index] = np.exp(params[:self.n_rho])
-        phi = float(np.exp(params[-1])) if self.free_dispersion else self.fixed_dispersion
+        phi = float(np.exp(params[self.n_rho])) if self.free_dispersion else self.fixed_dispersion
         return lam, phi
+
+    def _log_theta(self, params):
+        """The log of the negative binomial's theta at `params` (fixed, or the last)."""
+        return float(params[-1]) if self.estimate_theta else self.log_theta
 
     # the factorization of H (a class with DenseHessian's operations)
     Hessian = DenseHessian
@@ -412,11 +458,14 @@ class LaplaceCriterion(object):
         """Factor `H` at the evaluation `ev` (`_evaluation`): adds `H` and the family's pieces."""
         jnp = self._jnp
         eta = ev['X'] @ ev['beta'] + self.offset
-        dev, d1, d2, d3 = (np.asarray(v, float)
-                           for v in self._derivatives(jnp.asarray(eta), jnp.asarray(self.y)))
+        args = (jnp.asarray(eta), jnp.asarray(self.y), ev['log_theta'])
+        dev, d1, d2, d3 = (np.asarray(v, float) for v in self._derivatives(*args))
         if not all(np.all(np.isfinite(v)) for v in (dev, d1, d2, d3)):
             raise ValueError('the deviance or its derivatives are not finite')
         ev.update(dev=dev, d1=d1, d3=d3, H=self.Hessian(ev['X'], 0.5 * self.a * d2, ev['S']))
+        if self.estimate_theta:
+            ev['dev_t'], ev['d1_t'], ev['d2_t'] = (np.asarray(v, float)
+                                                   for v in self._theta_derivatives(*args))
         ev['H_int'] = ev['H'].restrict(self.penalized) if self.method == 'ML' else ev['H']
         return ev
 
@@ -436,13 +485,14 @@ class LaplaceCriterion(object):
         lam, phi, beta = ev['lam'], ev['phi'], ev['beta']
         Dp = float(np.sum(self.a * ev['dev']) + beta @ ev['S'] @ beta)
         jnp = self._jnp
-        ls, dls = (float(v) for v in self._ls(jnp.asarray(self.y), jnp.asarray(self.a), phi))
+        ls, dls, dls_t = (float(v) for v in self._ls(jnp.asarray(self.y), jnp.asarray(self.a), phi,
+                                                     ev['log_theta']))
         # (log|H| in the original coordinates: less that of the change of them)
         value = (Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - ev['logdet_V'] -
                  ev['logdet_S'] / 2)
         if self.method == 'REML':
             value -= self.null_dim * np.log(2 * np.pi * phi) / 2
-        ev.update(Dp=Dp, dls=dls)
+        ev.update(Dp=Dp, dls=dls, dls_t=dls_t)
         return float(value)
 
     def criterion(self, params, beta):
@@ -490,8 +540,15 @@ class LaplaceCriterion(object):
         dbeta = -H.solve(dS_beta.T)                                  # (P, K)
         g[:self.n_rho] += g_beta @ dbeta
         if self.free_dispersion:
-            g[-1] = (-ev['Dp'] / (2 * phi) - phi * ev['dls'] -
-                     (self.null_dim / 2 if self.method == 'REML' else 0.))
+            g[self.n_rho] = (-ev['Dp'] / (2 * phi) - phi * ev['dls'] -
+                             (self.null_dim / 2 if self.method == 'REML' else 0.))
+        if self.estimate_theta:
+            # log theta: in the deviance, the saturated log-likelihood and
+            # log|H| (through the weights) with beta held, and through beta,
+            # d beta / d log theta = -H^{-1} X' (a d1_t) / 2
+            g[-1] = (np.sum(self.a * ev['dev_t']) / (2 * phi) - ev['dls_t'] +
+                     np.sum(0.5 * self.a * ev['d2_t'] * H_int.leverages()) / 2 +
+                     g_beta @ -H.solve(0.5 * X.T @ (self.a * ev['d1_t'])))
         self._max_value = max(getattr(self, '_max_value', -np.inf), value)
         return value, g
 
@@ -533,6 +590,8 @@ class LaplaceCriterion(object):
         """
         self._set_lams(params)
         gam = self.gam
+        if self.estimate_theta:
+            gam._family.base.set_theta(np.exp(self._log_theta(params)))
         # (a fit that does not converge, at smoothing parameters the search
         # tries far from the optimum, is not a warm start)
         try:
@@ -589,7 +648,7 @@ class LaplaceCriterion(object):
         """
         jnp = self._jnp
         eta0 = np.full(self.y.shape[0], float(self.gam._null_state.intercept)) + self.offset
-        h = 0.5 * np.asarray(self._h(jnp.asarray(eta0), jnp.asarray(self.y))) * self.a
+        h = 0.5 * np.asarray(self._h(jnp.asarray(eta0), jnp.asarray(self.y), self.log_theta)) * self.a
         xwx = np.einsum('ij,i,ij->j', self.X, h, self.X)
         start = np.zeros(len(self.lam_fixed))
         for _, model, sl in self.models:
@@ -597,8 +656,14 @@ class LaplaceCriterion(object):
         params = list(start[self.est_index])
         if self.free_dispersion:
             mu0 = np.asarray(self.linkinv(jnp.asarray(eta0)))
-            d = np.asarray(self.dev(jnp.asarray(self.y), jnp.asarray(mu0)))
+            d = np.asarray(self.dev(jnp.asarray(self.y), jnp.asarray(mu0), self.log_theta))
             params.append(np.log(np.sum(self.a * d) / self.y.shape[0]))
+        if self.estimate_theta:
+            # the moments' estimate at the intercept-only fit: var = mu + mu^2 / theta
+            mu0 = np.asarray(self.linkinv(jnp.asarray(eta0)))
+            excess = np.sum(self.a * ((self.y - mu0)**2 - mu0))
+            theta0 = np.sum(self.a * mu0**2) / excess if excess > 0 else 100.
+            params.append(np.log(np.clip(theta0, 1e-2, 1e4)))
         return np.array(params, float)
 
 
@@ -876,6 +941,9 @@ def select_smoothing(gam, dispersion=None):
         x0 = crit.start()
         K = crit.n_rho
         bounds = [(r - 25, r + 25) for r in x0[:K]] + [(None, None)] * (len(x0) - K)
+        if getattr(crit, 'estimate_theta', False):
+            # (theta to infinity: the Poisson; held at the bound)
+            bounds[-1] = (x0[-1] - 15, x0[-1] + 15)
         off = crit.off_diagonal() if hasattr(crit, 'off_diagonal') else np.zeros(0, int)
         if len(off):
             # correlated random effects: first with their covariances
@@ -915,4 +983,7 @@ def select_smoothing(gam, dispersion=None):
                               gradient=grad,
                               converged=converged,
                               n_evaluations=crit.n_evaluations,
-                              message=str(result.message))
+                              message=str(result.message),
+                              negative_binomial_theta=(float(np.exp(x[-1]))
+                                                       if getattr(crit, 'estimate_theta', False)
+                                                       else None))
