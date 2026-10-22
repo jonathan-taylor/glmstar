@@ -4,6 +4,17 @@
 
 ### New features
 
+- **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
+  gives the intercept and the coefficients of linear terms and blocks of
+  columns, with standard errors from the posterior covariance (for the
+  Gaussian, lme4's `vcov`), and `fixed_effects_covariance_` their
+  covariance. With random effects as the only penalized terms they come
+  from backfitting the random effects on the linear terms' columns,
+  `X_F' W (I - S) X_F`, without forming the design: 200,000 observations
+  of 2000 x 500 crossed levels take seconds. They agree with the dense
+  posterior covariance to 1e-8 and with lmer's `vcov` to 1e-4.
+  `summary()` no longer forms the dense covariance for a method that does
+  without it (`CrossedMoments`) (#170).
 - **`glmnet.gam`: pluggable methods for the penalty parameters.**
   `GAM(method=...)` takes a `SmoothingMethod` (`glmnet.gam.selection`)
   as well as `'fixed'`, `'REML'` or `'ML'` (now the `Fixed` and `Laplace`
