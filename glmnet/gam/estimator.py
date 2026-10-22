@@ -123,8 +123,9 @@ class GAM(BaseEstimator):
         How the smoothing parameters are chosen: `'fixed'` (the default, as
         R's `gam`: each term's `lam` or `df`; `s()` without them has
         `df=4`), `'REML'` or `'ML'`, or a `glmnet.gam.selection.SmoothingMethod`
-        (such as `CrossedMoments()`, the method of moments for the variances
-        of crossed random effects in large data, or a user's). With `'REML'`
+        (a user's: the documentation's page "Crossed random effects at
+        scale" writes one, the method of moments for the variances of
+        crossed random effects in large data). With `'REML'`
         or `'ML'` (as mgcv's `gam(method=...)`, with JAX) the smoothing
         parameters of the penalized terms without `lam` or `df` (or a given
         precision) maximize the restricted (or full) marginal likelihood,

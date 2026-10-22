@@ -1,8 +1,10 @@
 """
-Variance components by the method of moments (`CrossedMoments`) and
-custom `SmoothingMethod`s: the U statistics' expectations exactly (as traces
-of quadratic forms), the balanced crossed design's ANOVA estimators, nested
-effects, a large sparse crossed design, and a user's method.
+Variance components by the method of moments (`moment_equations`, and the
+`SmoothingMethod` written on the page "Crossed random effects at scale",
+copied here) and custom `SmoothingMethod`s: the U statistics' expectations
+exactly (as traces of quadratic forms), the balanced crossed design's ANOVA
+estimators, nested effects, a large sparse crossed design, the fixed
+effects' standard errors by backfitting, and a user's method.
 """
 import numpy as np
 import pandas as pd
@@ -11,9 +13,57 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, re, linear, s, CrossedMoments, SmoothingMethod
+from statsmodels.genmod.families import family as sm_family, links as sm_links
+
+from glmnet.gam import GAM, GAMControl, re, linear, s, SmoothingMethod
+from glmnet.gam.reml import SmoothingSelection
+from glmnet.gam.terms import RandomEffectTerm
 from glmnet.gam.moments import moment_equations
 from glmnet.gam.selection import estimated_terms
+
+
+# the method of the documentation's page "Crossed random effects at scale"
+class CrossedMoments(SmoothingMethod):
+    """Method-of-moments variances of crossed random intercepts (Gaussian, equal weights)."""
+    name = 'moments'
+    joint = False           # backfit: GAM never forms the design
+    covariance_edf = False  # the terms' own edf, not mgcv's (the dense P x P covariance)
+
+    def select(self, gam, dispersion=None):
+        base = gam._family.base
+        if not (isinstance(base, sm_family.Gaussian) and isinstance(base.link, sm_links.Identity)):
+            raise ValueError('the method of moments is for the Gaussian family')
+        weight = np.asarray(gam._weight, float)
+        if not np.allclose(weight, weight[0]):
+            raise ValueError('the method of moments needs equal prior weights')
+        estimated = estimated_terms(gam)
+        terms = gam.terms_
+        for j in estimated:
+            if not isinstance(terms[j], RandomEffectTerm) or terms[j].by is not None:
+                raise ValueError(f'{terms[j].name}: give its lam (only random intercepts here)')
+
+        # 1. the fit without the random effects, and its residuals
+        for j in estimated:
+            terms[j].lam = 1e12
+        state = gam.inner_fit()
+        r = np.asarray(gam._response, float) - np.asarray(state.mu, float)
+
+        # 2. the moment equations, solved; a negative variance is set to 0
+        U, A = moment_equations(r, [terms[j].codes_ for j in estimated])
+        variances = np.linalg.solve(A, U)
+        s2, phi = np.maximum(variances[:-1], 0.), float(variances[-1])
+
+        # 3. the smoothing parameters, phi / s_k^2, on the prior weights' scale
+        W = weight.sum()
+        lam_raw = np.where(s2 > 0, phi / np.where(s2 > 0, s2, 1.), 1e12 * W)
+        for j, lam in zip(estimated, lam_raw):
+            terms[j].lam = float(lam) / W
+
+        return SmoothingSelection(method=self.name, terms=[terms[j].name for j in estimated],
+                                  lam=lam_raw / W, lam_raw=lam_raw, theta=np.log(lam_raw),
+                                  dispersion=phi if dispersion is None else dispersion,
+                                  score=np.nan, gradient=np.zeros(0),
+                                  converged=bool(gam.converged_), n_evaluations=1)
 
 
 def _indicators(c):

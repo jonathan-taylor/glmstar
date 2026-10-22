@@ -14,7 +14,7 @@
   of 2000 x 500 crossed levels take seconds. They agree with the dense
   posterior covariance to 1e-8 and with lmer's `vcov` to 1e-4.
   `summary()` no longer forms the dense covariance for a method that does
-  without it (`CrossedMoments`) (#170).
+  without it (`covariance_edf = False`) (#170).
 - **`glmnet.gam`: pluggable methods for the penalty parameters.**
   `GAM(method=...)` takes a `SmoothingMethod` (`glmnet.gam.selection`)
   as well as `'fixed'`, `'REML'` or `'ML'` (now the `Fixed` and `Laplace`
@@ -23,15 +23,19 @@
   (`GAM.inner_fit()`), and says whether `GAM` needs the joint solve and
   mgcv's edf. Those form the dense covariance; a method for large data
   can do without them (#168).
-- **`CrossedMoments()`: the variances of crossed (or nested) random
-  intercepts by the method of moments**, in time linear in the number of
-  observations. These are Gao and Owen's U statistics, for any number of
-  factors, of the residuals of the fit without the random effects, as in
-  Ghosh, Hastie and Owen's backfitting for large crossed random effects.
-  `GAM` then fits by backfitting with them fixed: the GLS fit of the other
-  terms and the effects' predictions. On a balanced design they are the
-  ANOVA estimators. 200,000 observations of 2000 × 500 crossed levels take
-  about 2 seconds (#168).
+- **`glmnet.gam.moments.moment_equations`: the method of moments for the
+  variances of crossed (or nested) random intercepts**, in time linear in
+  the number of observations. These are Gao and Owen's U statistics, for
+  any number of factors, and their expectations' coefficients, from counts
+  of the levels and their pairs. The page "Crossed random effects at
+  scale" writes the `SmoothingMethod` around it, as in Ghosh, Hastie and
+  Owen: it takes the residuals of the fit without the random effects,
+  solves the equations, and then `GAM` backfits with the variances fixed,
+  giving the GLS fit and the effects' predictions. On a balanced design
+  they are the ANOVA estimators. 200,000 observations of 2000 × 500
+  crossed levels take about 2 seconds (#168). The method was
+  `glmnet.gam.CrossedMoments`; it is now the page's example of writing a
+  method, and the library keeps the equations.
 - **Cox REML/ML for every kind of penalty:** tensor products, several
   penalties per term and correlated random effects, on the penalty objects
   and `DenseHessian`, as the other families. As in theirs, one Newton step
@@ -149,8 +153,9 @@
 
 - **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
   Owen on simulated ratings (customers × items, very unbalanced). It
-  covers the method-of-moments variances (`CrossedMoments`), GLS by
-  backfitting, and `fixed_effects_`. It shows OLS's naive standard errors,
+  writes the method-of-moments variances as a `SmoothingMethod`, with a
+  discussion of how and why `select()` is designed as it is. It then
+  covers GLS by backfitting, and `fixed_effects_`. It shows OLS's naive standard errors,
   the BLUPs' shrinkage, and run times about linear in N up to 400,000
   ratings (48,000 random effects; the fit about 2 s), against REML on a
   small problem (#171).
