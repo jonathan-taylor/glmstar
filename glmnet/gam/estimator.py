@@ -31,6 +31,7 @@ from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
+from .display import model_latex
 from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning
@@ -311,9 +312,12 @@ class GAM(BaseEstimator):
                              '"ML": give theta (NegativeBinomial(theta=...)) to fix it')
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
-            if isinstance(term, FactorTerm) and isinstance(X, pd.DataFrame):
+            factor_column = (term.column if isinstance(term, FactorTerm)
+                             else getattr(term, 'factor_column', None))
+            if factor_column is not None and isinstance(X, pd.DataFrame):
                 # a categorical's order of the levels (not the sorted one)
-                column = X[term.column] if isinstance(term.column, str) else X.iloc[:, term.column]
+                column = (X[factor_column] if isinstance(factor_column, str)
+                          else X.iloc[:, factor_column])
                 if isinstance(column.dtype, pd.CategoricalDtype):
                     term.categories = list(column.cat.categories)
             term.setup(x)
@@ -678,6 +682,19 @@ class GAM(BaseEstimator):
         see `glmnet.gam.plot.plot_terms` and `plot_term`. Returns the axes.
         """
         return plot_terms(self, terms=terms, axes=axes, **kwargs)
+
+    def model_latex(self):
+        """
+        The model this GAM specifies, in LaTeX (an `aligned` block): the
+        response's distribution and link, the linear predictor and a line
+        per term (`glmnet.gam.display`). Jupyter shows it for a `GAM`.
+        """
+        return model_latex(self)
+
+    def _repr_mimebundle_(self, **kwargs):
+        # the model in LaTeX, and the text (not scikit-learn's HTML diagram,
+        # which a notebook would show instead)
+        return {'text/plain': repr(self), 'text/latex': '$$' + self.model_latex() + '$$'}
 
     def summary(self):
         """

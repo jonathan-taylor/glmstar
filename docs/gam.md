@@ -44,7 +44,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor, tensor_spline
+from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor, tensor_spline, by_factor_spline
 
 Wage = load_data('Wage')
 Wage[['wage', 'year', 'age', 'education']].head()
@@ -60,6 +60,14 @@ Each term names a column of the data frame.
 gam = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')])
 gam.fit(Wage, Wage['wage'])
 gam.summary()
+```
+
+In a notebook a `GAM` shows the model it specifies: the response's
+distribution and link, the linear predictor, and what each term is
+(`model_latex()` gives the LaTeX):
+
+```{code-cell} ipython3
+gam
 ```
 
 `edf` is each term's degrees of freedom, the trace of its smoother at the
@@ -250,6 +258,39 @@ ax.figure.tight_layout()
 Its penalties' null space is spanned by $1$, age, year and their product:
 however large its smoothing parameters, the term keeps a linear
 age-by-year interaction.
+
+## A curve for each level of a factor
+
+`by_factor_spline('age', by='jobclass')` fits a curve of age for each job
+class (mgcv's `s(age, by=jobclass, bs="cr")`): each curve is zero off its
+level and sums to zero on it, so the model includes `factor('jobclass')`
+for the levels' means, as mgcv's `wage ~ jobclass + s(age, by=jobclass)`.
+Each level has its own smoothing parameter:
+
+```{code-cell} ipython3
+by_class = [factor('jobclass'), by_factor_spline('age', by='jobclass'), s('year'),
+            factor('education')]
+gam_by = GAM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
+gam_by.smoothing_.lam, gam_by.terms_[1].level_edf()
+```
+
+REML gives the industrial curve about 4 degrees of freedom, the
+information curve nearly 5. (The last smoothing parameter is `year`'s.)
+With `pooled_lam=True` the levels share one smoothing parameter, estimated
+by REML as well (mgcv's `id`): the curves are taken to be equally smooth.
+
+```{code-cell} ipython3
+by_class[1] = by_factor_spline('age', by='jobclass', pooled_lam=True)
+gam_pooled = GAM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
+gam_pooled.smoothing_.lam, gam_pooled.terms_[1].level_edf()
+```
+
+The term is drawn as a curve per level:
+
+```{code-cell} ipython3
+ax = gam_by.plot(terms=[1])[0]
+ax.figure.tight_layout()
+```
 
 ## Random effects
 

@@ -16,6 +16,30 @@
   (implicit in the coefficients). Against mgcv (REML and ML): theta and
   the dispersions to 1e-4, ML criteria to 1e-7, fits to 1e-4. The
   Bikeshare page fits both (#183).
+- **Factor-by smooths, `by_factor_spline(x, by=f, k=10, lam=None,
+  pooled_lam=False)`** (`FactorSplineTerm`, mgcv's `s(x, by=f, bs="cr")`):
+  a cubic regression spline of `x` for each level of the factor `f`, zero
+  off its level and summing to 0 on it (include `factor(f)` for the
+  levels' means, as mgcv's `y ~ f + s(x, by=f)`). Each level has its own
+  smoothing parameter, or with `pooled_lam=True` one shared by all of them
+  (mgcv's `id`); either is given or estimated by REML/ML. A categorical's
+  levels keep their order; `level_edf()` gives each curve's degrees of
+  freedom, and the plot is a curve per level. Under REML and ML, penalties
+  of a term on disjoint coefficients are now single penalties (exact
+  log-determinants, no stable basis). Against mgcv, Gaussian and Poisson,
+  REML and ML, per level and pooled: our criterion is at most its value at
+  mgcv's smoothing parameters, Gaussian REML fits to 1e-8. The Bikeshare
+  page fits the hour by the working day, and the R translation page lists
+  it (#182).
+- **A GAM shows the model it specifies.** In a notebook, `GAM` displays
+  its model in LaTeX (`text/latex`, from `GAM.model_latex()`): the
+  response's distribution and link, the linear predictor as the sum of
+  the terms, and a line per term saying what it is (a smooth and its
+  penalty, a random effect and its distribution, a covariance's
+  structure) and how its smoothing parameter or variance is chosen. It
+  needs only the specification, so it works before fitting. This replaces
+  scikit-learn's HTML diagram for `GAM`. The GAM pages of the docs display
+  their models (#181).
 - **Cyclic smooths, `cyclic_spline(x, k=10, period=None)`**
   (`CyclicSplineTerm`, mgcv's `s(x, bs="cc")`), for a covariate whose ends
   meet, such as the hour of the day. It is a cyclic cubic regression

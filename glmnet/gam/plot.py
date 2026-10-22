@@ -12,6 +12,7 @@ from scipy.spatial import cKDTree
 from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
 from .tensor import TensorTerm
 from .gp import GPTerm
+from .by_factor import FactorSplineTerm
 
 
 def _term_index(gam, term):
@@ -151,7 +152,28 @@ def plot_term(gam,
     se = se and _has_covariance(gam)
     column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
 
-    if isinstance(term, (FactorTerm, RandomEffectTerm)):
+    if isinstance(term, FactorSplineTerm):
+        # a curve per level of the factor, over that level's range
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        for l, level in enumerate(term.levels_):
+            values = term.x_[term.codes_ == l]
+            grid = np.linspace(values.min(), values.max(), n_grid)
+            x = np.empty((n_grid, 2), dtype=object)
+            x[:, 0], x[:, 1] = grid, level
+            c = colors[l % len(colors)]
+            if se:
+                fit, std = gam.partial_effect(j, x, return_std=True)
+                ax.fill_between(grid, fit - multiplier * std, fit + multiplier * std,
+                                color=c, alpha=0.2, lw=0)
+            else:
+                fit = gam.partial_effect(j, x)
+            ax.plot(grid, fit, color=c, lw=2, label=str(level))
+        ax.legend(title=str(term.by), fontsize='small')
+        if rug:
+            ax.plot(np.unique(term.x_), np.zeros(len(np.unique(term.x_))), '|', color='k',
+                    alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
+        xlabel = term.column
+    elif isinstance(term, (FactorTerm, RandomEffectTerm)):
         levels = np.asarray(term.levels_)
         if isinstance(term, RandomEffectTerm) and term.by is not None:
             x = np.column_stack([levels, np.ones(len(levels))])
