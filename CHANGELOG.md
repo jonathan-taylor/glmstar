@@ -16,7 +16,7 @@
   standard errors. Against mgcv `te(x, z, bs="cr")` the fits agree to 1e-4
   (to 5e-11 alone) and the ML criteria to 1e-7. Where the criterion is
   flat, mgcv stops sooner and ours is as low, except along a smoothing
-  parameter going to infinity, which our bounds stop.
+  parameter going to infinity, which our bounds stop (#163).
 - **`glmnet.gam` REML/ML: the criterion on four operations of the Hessian.**
   The criterion and its gradient now need only `log|H|`, solves, the traces
   `tr(H^{-1} S_k)` and the leverages `x_i' H^{-1} x_i`, of
