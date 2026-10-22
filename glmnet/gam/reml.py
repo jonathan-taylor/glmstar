@@ -55,7 +55,8 @@ References
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
   (2nd ed.). Chapman & Hall/CRC.
 """
-from copy import deepcopy
+from contextlib import nullcontext
+from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -65,7 +66,11 @@ from statsmodels.genmod.families import family as sm_family, links as sm_links
 
 from .joint import JointDesign
 from .linalg import DenseHessian
-from .penalties import ScaledPenalty, SumPenalty, CholeskyPenalty
+from .penalties import (ScaledPenalty, SumPenalty, CholeskyPenalty, CovariancePenalty,
+                        covariance_penalty)
+
+# the penalties of correlated random effects (their covariance's parameters)
+COVARIANCE = (CholeskyPenalty, CovariancePenalty)
 
 
 class ExperimentalWarning(UserWarning):
@@ -73,6 +78,7 @@ class ExperimentalWarning(UserWarning):
 
 
 def _jax():
+    # (JAX is optional, needed only for REML and ML: imported when used)
     try:
         import jax
         import jax.numpy as jnp
@@ -249,15 +255,17 @@ class LaplaceCriterion(object):
                 continue
             term = self.terms[j]
             if getattr(term, 'penalty_varies', False):
-                # correlated random effects: their precision, by its Cholesky
-                # factor, on the coordinates as they are (group by group)
+                # correlated random effects: their precision, by its
+                # covariance structure, on the coordinates as they are (group
+                # by group)
                 idx = np.arange(P)[sl]
                 range_coords.append(idx)
-                q = term.q_
-                names = [f'{term.name}[{a},{b}]' for a, b in zip(*np.tril_indices(q))]
-                cholesky.append((len(self.penalty_terms), idx.reshape((-1, q)), names))
-                self.penalty_terms.extend([j] * len(names))
-                self.penalty_names.extend(names)
+                model = covariance_penalty(getattr(term, 'covariance', 'unstructured'),
+                                           idx.reshape((-1, term.q_)), term.name,
+                                           term.effect_names)
+                cholesky.append((len(self.penalty_terms), model))
+                self.penalty_terms.extend([j] * model.n_params)
+                self.penalty_names.extend(model.names)
                 continue
             total = sum(Ss)
             ev, V = np.linalg.eigh((total + total.T) / 2)
@@ -283,7 +291,8 @@ class LaplaceCriterion(object):
             T = T[:, 1:]
             single = [(k, idx - 1, ev) for k, idx, ev in single]
             multi = [(k, idx - 1, U) for k, idx, U in multi]
-            cholesky = [(k, idx - 1, names) for k, idx, names in cholesky]
+            for _, model in cholesky:
+                model.idx = model.idx - 1
             range_coords = [idx - 1 for idx in range_coords]
             P -= 1
         self.T = T
@@ -309,9 +318,8 @@ class LaplaceCriterion(object):
                                 SumPenalty(idx, [multi[self._multi_of[k]][2] for k in ks],
                                            [self.penalty_names[k] for k in ks]),
                                 slice(ks[0], ks[-1] + 1)))
-        for k, idx, names in cholesky:
-            self.models.append((self.penalty_terms[k], CholeskyPenalty(idx, names),
-                                slice(k, k + len(names))))
+        for k, model in cholesky:
+            self.models.append((self.penalty_terms[k], model, slice(k, k + model.n_params)))
         self.models.sort(key=lambda m: m[2].start)
         self.penalized = (np.unique(np.concatenate(range_coords)) if range_coords
                           else np.zeros(0, int))
@@ -333,7 +341,7 @@ class LaplaceCriterion(object):
         # of the smoothing parameters, or of a precision's Cholesky factor
         theta = np.log(np.where(lam_fixed > 0, lam_fixed, 1.))
         for j, model, sl in getattr(self, 'models', []):
-            if isinstance(model, CholeskyPenalty) and j not in estimated:
+            if isinstance(model, COVARIANCE) and j not in estimated:
                 theta[sl] = model.theta(self.terms[j].precision * self.weight_total)
         self.theta_fixed = theta
 
@@ -475,9 +483,9 @@ class LaplaceCriterion(object):
         position = {k: i for i, k in enumerate(self.est_index)}
         off = []
         for _, model, sl in self.models:
-            if isinstance(model, CholeskyPenalty):
-                for k, d in zip(range(sl.start, sl.stop), model.diag):
-                    if not d and k in position:
+            if isinstance(model, COVARIANCE):
+                for k, o in zip(range(sl.start, sl.stop), model.off_diagonal_params):
+                    if o and k in position:
                         off.append(position[k])
         return np.array(off, int)
 
@@ -494,7 +502,7 @@ class LaplaceCriterion(object):
         for j, model, sl in self.models:
             if j not in estimated:
                 continue
-            if isinstance(model, CholeskyPenalty):
+            if isinstance(model, COVARIANCE):
                 self.terms[j].set_precision(model.precision(theta[sl]) / self.weight_total)
             else:
                 self.terms[j].set_penalty_lams(np.exp(theta[sl]) / self.weight_total)
@@ -521,7 +529,6 @@ class LaplaceCriterion(object):
         return self.T.T @ self.design.gamma(state)
 
     def _inner_control(self):
-        from copy import copy
         control = copy(self.gam.control)
         # 1e-8, not tighter: the polish (`_polish`, a Newton step, which
         # squares the error) gives the coefficients the criterion's
@@ -680,7 +687,6 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         # 1e-10, not tighter: the polish (`_cox_evaluation`) gives the
         # coefficients the criterion's precision, and with a large
         # smoothing parameter the objective's rounding stops step halving
-        from copy import copy
         control = copy(self.gam.control)
         control.epsnr = 1e-10
         control.convergence = 'objective'
@@ -792,6 +798,31 @@ def _newton(crit, x, bounds, maxit=100, tol=1e-8):
     return x, value, grad, bool(np.max(np.abs(grad[free]), initial=0) < crit.grad_tol)
 
 
+def estimated_terms(gam):
+    """
+    The indices of the terms of the set-up `gam` whose penalty parameters a
+    method is to choose: the penalized terms with neither `lam` nor `df`
+    (nor, for correlated random effects, a given `precision`). Terms given
+    `df` have their smoothing parameter matched at the prior weights, then
+    fixed (as mgcv's `sp`).
+    """
+    normed = gam._normed_weight
+    estimated = []
+    for j, term in enumerate(gam.terms_):
+        if term.penalty_matrix() is None:
+            continue
+        if getattr(term, 'penalty_varies', False):
+            if term.precision is None:
+                estimated.append(j)
+            continue
+        if getattr(term, 'lam', None) is None and getattr(term, 'df', None) is None:
+            estimated.append(j)
+        elif getattr(term, 'df', None) is not None:
+            term.set_weights(normed)
+            term.lam, term.df = float(term.penalty_lam()), None
+    return estimated
+
+
 def select_smoothing(gam, dispersion=None):
     """
     Choose the smoothing parameters of `gam`'s estimated terms (penalized
@@ -803,7 +834,6 @@ def select_smoothing(gam, dispersion=None):
     if any(term.basis() is None for term in terms):
         raise ValueError('REML and ML need a basis for every term (not lo())')
     normed = gam._normed_weight
-    from .selection import estimated_terms
     estimated = estimated_terms(gam)
     if not estimated:
         raise ValueError(f'method="{gam._method.name}": no smoothing parameter to estimate '
@@ -818,7 +848,6 @@ def select_smoothing(gam, dispersion=None):
         term.set_weights(normed)
 
     if getattr(gam, '_cox', False):
-        from contextlib import nullcontext
         context, Criterion = nullcontext(), CoxLaplaceCriterion
     else:
         jax, _ = _jax()

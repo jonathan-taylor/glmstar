@@ -7,6 +7,7 @@ surface: `gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn as filled
 contours over the data's bounding box, as mgcv's `plot.gam` (`too.far`).
 """
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
 from .tensor import TensorTerm
@@ -64,7 +65,6 @@ def _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap):
     fit = gam.partial_effect(j, grid)
     if too_far is not None and too_far > 0:
         # (as mgcv's exclude.too.far: distances in the unit square)
-        from scipy.spatial import cKDTree
         scale = np.where(hi > lo, hi - lo, 1.)
         dist = cKDTree((X - lo) / scale).query((grid - lo) / scale)[0]
         fit = np.where(dist > too_far, np.nan, fit)
@@ -135,7 +135,7 @@ def plot_term(gam,
     -------
     ax: matplotlib Axes
     """
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt     # (optional: only for plots)
 
     j = _term_index(gam, term)
     term = gam.terms_[j]
@@ -217,7 +217,7 @@ def plot_terms(gam,
     -------
     axes: np.ndarray of matplotlib Axes, one per plotted term
     """
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt     # (optional: only for plots)
 
     if terms is None:
         terms = [j for j, t in enumerate(gam.terms_) if plottable(t)]

@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
+from scipy.linalg import cho_factor, cho_solve, solve_triangular, LinAlgError
+from scipy.linalg.lapack import dpocon
 
 from .backfit import GAMRegularizer, GAMState
 
@@ -147,8 +149,6 @@ class JointDesign(object):
         and if that is rank deficient, by its least squares solution of
         minimum norm.
         """
-        from scipy.linalg import cho_factor, cho_solve, solve_triangular, LinAlgError
-        from scipy.linalg.lapack import dpocon
         Xw = w[:, None] * self.X
         A = self.X.T @ Xw + self.penalty(lams)
         d = np.sqrt(np.diag(A))
@@ -221,8 +221,6 @@ def _solve_psd(A, b):
     its eigenvectors with eigenvalues above 1e-13 of the largest (minimum
     norm).
     """
-    from scipy.linalg import cho_factor, cho_solve, LinAlgError
-    from scipy.linalg.lapack import dpocon
     d = np.sqrt(np.maximum(np.diag(A), 0))
     d = np.where(d > 0, d, 1.)
     As = A / d[:, None] / d[None, :]

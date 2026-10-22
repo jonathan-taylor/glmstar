@@ -18,6 +18,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Optional, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,8 @@ from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .display import model_latex
 from .joint import JointDesign, JointRegularizer
+from .plot import plot_terms
+from .reml import ExperimentalWarning
 from .selection import resolve_method, SmoothingMethod
 from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, FactorTerm
 
@@ -339,8 +342,6 @@ class GAM(BaseEstimator):
 
         if method.estimates:
             if method.experimental:
-                import warnings
-                from .reml import ExperimentalWarning
                 warnings.warn(f"GAM(method='{method.name}') is experimental: the selection of the "
                               "smoothing parameters may change, and its convergence should be "
                               "checked (smoothing_.converged)", ExperimentalWarning, stacklevel=2)
@@ -478,7 +479,6 @@ class GAM(BaseEstimator):
         self.n_iter_ = info['n_iter']
         self.converged_ = converged
         if not converged and warn:
-            import warnings
             warnings.warn(f'GAM: local scoring did not converge in mxitnr={control.mxitnr} '
                           'iterations; increase control.mxitnr')
         return state
@@ -649,7 +649,6 @@ class GAM(BaseEstimator):
         panel each, with standard error bands and rugs, as R's `plot.Gam`:
         see `glmnet.gam.plot.plot_terms` and `plot_term`. Returns the axes.
         """
-        from .plot import plot_terms
         return plot_terms(self, terms=terms, axes=axes, **kwargs)
 
     def model_latex(self):

@@ -81,6 +81,7 @@ the design".
 | `s(x, bs="cr", k=..., knots=...)` | `s('x')`, mgcv given our knots | fits to rounding at fixed `sp`; REML/ML fits to 1e-4 (5e-5 on Wage), edf to 1e-3 |
 | `s(x, sp=...)` | `s('x', lam=...)`, `lam = sp / (sum(w) * S.scale)` | to rounding |
 | `te(x, z, bs="cr")` | `tensor_spline('x', 'z')` (mgcv's `place.knots`) | REML/ML fits to 1e-3 with other terms, edf to 1e-3, ML criterion to 1e-7 |
+| `s(x, bs="cc", k=k)` | `cyclic_spline('x', k=k)`, with `period=(a, b)` for the cycle's ends | REML/ML fits to 1e-8, criterion to 1e-9 |
 | `s(x, z, bs="gp", m=...)` | `gaussian_process('x', 'z', m=...)` | at fixed `sp` to rounding; REML/ML to mgcv's convergence |
 | `s(g, bs="re")` | `re('g')` | `gam.vcomp` to 1e-4 |
 | `s(g, x, bs="re")` | `re('g', by='x')` | |
@@ -123,6 +124,8 @@ REML and ML criteria are exactly lme4's.
 | `(1 \| a/b)` (nested) | `re('a'), re(['a', 'b'])` | `lmer` (to 1e-5), `nlme::lme` (to 1e-4) |
 | `(x \|\| g)` | `re('g'), re('g', by='x')` | `lmer` |
 | `(1 + x \| g)` | `correlated_random_effect('g', slopes=['x'])` | `lmer`: standard deviations and correlation to 1e-5, log-likelihood to 1e-8 |
+| `pdCompSymm(~ cond - 1)` (nlme) | `correlated_random_effect('g', slopes=[dummies], intercept=False, covariance='compound_symmetry')` | `lme`: covariance to 1e-4, log-likelihood to 1e-7 |
+| `pdDiag(~ x)` (nlme) | `correlated_random_effect('g', slopes=['x'], covariance='diagonal')` | equals `re('g'), re('g', by='x')` exactly |
 | `REML=TRUE` / `FALSE` | `method='REML'` / `'ML'` | |
 | `glmer(..., nAGQ=0)` | `family=...`, `method='ML'` | variances and linear predictor to 1e-4, log-likelihood to 1e-6 |
 | `glmer(..., nAGQ=1)` | | to about 3e-2: glmer also maximizes the approximation in the fixed effects |
@@ -147,14 +150,15 @@ Two differences in what is reported:
 These have no translation yet:
 
 - mgcv's `by=` factor smooths (one smooth per level of a factor), shrinkage
-  bases (`bs="ts"`, `select=TRUE`), cyclic and P-spline bases, and
+  bases (`bs="ts"`, `select=TRUE`), P-spline bases, and
   thin-plate splines (`bs="tp"`; `gaussian_process` and `tensor_spline` are
   the multi-column smooths);
 - mgcv's `Vc` correction of the covariance for the uncertainty in the
   smoothing parameters;
 - `bam()` and its discretized fits for very large data;
-- structured covariances of correlated random effects (nlme's
-  `pdCompSymm`, AR(1) residuals, variance functions);
+- other structured covariances of correlated random effects (beyond
+  `pdSymm`, `pdCompSymm` and `pdDiag`), AR(1) residuals, variance
+  functions;
 - `glmer` with adaptive Gauss–Hermite quadrature (`nAGQ > 1`);
 - Kenward–Roger or Satterthwaite degrees of freedom.
 
