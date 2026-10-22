@@ -55,7 +55,8 @@ References
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
   (2nd ed.). Chapman & Hall/CRC.
 """
-from copy import deepcopy
+from contextlib import nullcontext
+from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -73,6 +74,7 @@ class ExperimentalWarning(UserWarning):
 
 
 def _jax():
+    # (JAX is optional, needed only for REML and ML: imported when used)
     try:
         import jax
         import jax.numpy as jnp
@@ -521,7 +523,6 @@ class LaplaceCriterion(object):
         return self.T.T @ self.design.gamma(state)
 
     def _inner_control(self):
-        from copy import copy
         control = copy(self.gam.control)
         # 1e-8, not tighter: the polish (`_polish`, a Newton step, which
         # squares the error) gives the coefficients the criterion's
@@ -680,7 +681,6 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         # 1e-10, not tighter: the polish (`_cox_evaluation`) gives the
         # coefficients the criterion's precision, and with a large
         # smoothing parameter the objective's rounding stops step halving
-        from copy import copy
         control = copy(self.gam.control)
         control.epsnr = 1e-10
         control.convergence = 'objective'
@@ -792,6 +792,31 @@ def _newton(crit, x, bounds, maxit=100, tol=1e-8):
     return x, value, grad, bool(np.max(np.abs(grad[free]), initial=0) < crit.grad_tol)
 
 
+def estimated_terms(gam):
+    """
+    The indices of the terms of the set-up `gam` whose penalty parameters a
+    method is to choose: the penalized terms with neither `lam` nor `df`
+    (nor, for correlated random effects, a given `precision`). Terms given
+    `df` have their smoothing parameter matched at the prior weights, then
+    fixed (as mgcv's `sp`).
+    """
+    normed = gam._normed_weight
+    estimated = []
+    for j, term in enumerate(gam.terms_):
+        if term.penalty_matrix() is None:
+            continue
+        if getattr(term, 'penalty_varies', False):
+            if term.precision is None:
+                estimated.append(j)
+            continue
+        if getattr(term, 'lam', None) is None and getattr(term, 'df', None) is None:
+            estimated.append(j)
+        elif getattr(term, 'df', None) is not None:
+            term.set_weights(normed)
+            term.lam, term.df = float(term.penalty_lam()), None
+    return estimated
+
+
 def select_smoothing(gam, dispersion=None):
     """
     Choose the smoothing parameters of `gam`'s estimated terms (penalized
@@ -803,7 +828,6 @@ def select_smoothing(gam, dispersion=None):
     if any(term.basis() is None for term in terms):
         raise ValueError('REML and ML need a basis for every term (not lo())')
     normed = gam._normed_weight
-    from .selection import estimated_terms
     estimated = estimated_terms(gam)
     if not estimated:
         raise ValueError(f'method="{gam._method.name}": no smoothing parameter to estimate '
@@ -818,7 +842,6 @@ def select_smoothing(gam, dispersion=None):
         term.set_weights(normed)
 
     if getattr(gam, '_cox', False):
-        from contextlib import nullcontext
         context, Criterion = nullcontext(), CoxLaplaceCriterion
     else:
         jax, _ = _jax()

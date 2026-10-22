@@ -24,6 +24,10 @@ random effects, in time linear in the number of observations
 """
 import numpy as np
 
+# (estimated_terms is defined with the REML criterion, which uses it, and
+# shared here: the two modules would otherwise import each other)
+from .reml import select_smoothing, estimated_terms
+
 
 class SmoothingMethod(object):
     """
@@ -75,7 +79,6 @@ class Laplace(SmoothingMethod):
         self.name = method
 
     def select(self, gam, dispersion=None):
-        from .reml import select_smoothing
         return select_smoothing(gam, dispersion)
 
     def __repr__(self):
@@ -92,28 +95,3 @@ def resolve_method(method):
         return Laplace(method)
     raise ValueError("method should be one of 'fixed', 'REML', 'ML' or a "
                      "glmnet.gam.selection.SmoothingMethod")
-
-
-def estimated_terms(gam):
-    """
-    The indices of the terms of the set-up `gam` whose penalty parameters a
-    method is to choose: the penalized terms with neither `lam` nor `df`
-    (nor, for correlated random effects, a given `precision`). Terms given
-    `df` have their smoothing parameter matched at the prior weights, then
-    fixed (as mgcv's `sp`).
-    """
-    normed = gam._normed_weight
-    estimated = []
-    for j, term in enumerate(gam.terms_):
-        if term.penalty_matrix() is None:
-            continue
-        if getattr(term, 'penalty_varies', False):
-            if term.precision is None:
-                estimated.append(j)
-            continue
-        if getattr(term, 'lam', None) is None and getattr(term, 'df', None) is None:
-            estimated.append(j)
-        elif getattr(term, 'df', None) is not None:
-            term.set_weights(normed)
-            term.lam, term.df = float(term.penalty_lam()), None
-    return estimated

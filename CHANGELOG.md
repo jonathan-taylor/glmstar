@@ -248,6 +248,10 @@
 
 ### Changed
 
+- `glmnet.gam`'s modules import at their tops, not inside functions. The
+  optional dependencies (JAX, matplotlib, scatter_smooth) are still
+  imported when used. `estimated_terms` is defined in `glmnet.gam.reml`,
+  and shared by `glmnet.gam.selection` (#177).
 - **`glmnet.gam`'s REML and ML are marked experimental:**
   `GAM(method='REML')` and `'ML'` warn (`glmnet.gam.ExperimentalWarning`, a
   `UserWarning`), and the docstrings and the GAM page say so. Their fits
