@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- **How REML and ML work in `glmnet.gam`** (`docs/gam_reml.md`): the
+  criterion, derived for statisticians, then written out in a few lines of
+  JAX for a Gaussian and a Poisson additive model and minimized by hand. It
+  matches `GAM(method='REML')`. The page checks the optimum's identities in
+  the residuals (REML's dispersion, and each term's prior size against its
+  penalized degrees of freedom) and the implicit derivative of the fitted
+  coefficients. It ends with the design of `glmnet.gam.reml`. The same
+  checks are tests (`tests/gam/test_gam_reml_byhand.py`).
+
 ## 0.4.0 (2026-10-21)
 
 ### Packaging
