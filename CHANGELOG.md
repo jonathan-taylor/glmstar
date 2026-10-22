@@ -4,6 +4,15 @@
 
 ### New features
 
+- **`glmnet.gam` REML/ML: penalties as objects** (`glmnet.gam.penalties`).
+  A term's penalty is a function `S(theta)` of its parameters. Each
+  evaluation gives its matrix, its derivatives in the parameters,
+  `log|S|_+` and its derivatives, and starting values, so the criterion
+  doesn't depend on the kind of penalty. `ScaledPenalty` (one penalty,
+  `lam S`) and `SumPenalty` (several, in Wood's stable basis) are today's.
+  A new kind of term, such as a correlated random effect parametrized by
+  the Cholesky factor of its covariance, adds a class. There is no change
+  in the fits.
 - **Tensor product smooths, `tensor_spline(x, z, ...)`** (`TensorTerm`,
   mgcv's `te(..., bs="cr")`), in two or more columns. Each margin is a cubic
   regression spline: a natural cubic spline parametrized by its values at
