@@ -498,10 +498,11 @@ class LaplaceCriterion(object):
     def _inner_control(self):
         from copy import copy
         control = copy(self.gam.control)
-        # 1e-10, not tighter: the polish (`_polish`) gives the coefficients
-        # the criterion's precision, and a large smoothing parameter's
-        # rounding moves the linear predictor by about 1e-11 at each step
-        control.epsnr = 1e-10
+        # 1e-8, not tighter: the polish (`_polish`, a Newton step, which
+        # squares the error) gives the coefficients the criterion's
+        # precision, and a large smoothing parameter's rounding can move the
+        # linear predictor by more than 1e-10 at each step
+        control.epsnr = 1e-8
         control.convergence = 'eta'
         # (Fisher scoring converges linearly for non-canonical links)
         control.mxitnr = max(control.mxitnr, 500)
