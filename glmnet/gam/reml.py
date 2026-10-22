@@ -36,6 +36,10 @@ null space), the negative log REML is
 and ML integrates only the penalized coefficients: `H` restricted to them,
 and no last term.
 
+The documentation's page "REML and ML for GAMs: the design" derives the
+criterion, computes it by hand in JAX for a small example, and describes
+the choices made here (the coordinates, the inner fit, the search).
+
 For the Cox family (as mgcv's `cox.ph`) the likelihood is the partial
 likelihood, with no intercept and no dispersion (`CoxLaplaceCriterion`, in
 numpy, from coxdev's information operator).
