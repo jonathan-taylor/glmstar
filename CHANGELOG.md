@@ -4,6 +4,16 @@
 
 ### New features
 
+- **Cyclic smooths, `cyclic_spline(x, k=10, period=None)`**
+  (`CyclicSplineTerm`, mgcv's `s(x, bs="cc")`), for a covariate whose ends
+  meet, such as the hour of the day. It is a cyclic cubic regression
+  spline: values at `k - 1` knots, with the function and its first two
+  derivatives continuous around the cycle (Wood, 2017, section 5.3.2).
+  `period=(0, 24)` sets the cycle's ends; by default it is the data's
+  range, with mgcv's knots. Its smoothing parameter is fixed (`lam`) or
+  REML/ML. Against mgcv `s(hour, bs="cc")` with the same knots, REML and
+  ML for the Gaussian and Poisson: fits to 1e-8, edf to 1e-7, criteria to
+  1e-9 (#179).
 - **Structured covariances of correlated random effects:**
   `correlated_random_effect(..., covariance='compound_symmetry')` (nlme's
   `pdCompSymm`: a common variance and correlation) and `'diagonal'`
