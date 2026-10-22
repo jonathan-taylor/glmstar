@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`glmnet.gam`'s REML and ML are marked experimental:**
+  `GAM(method='REML')` and `'ML'` warn (`glmnet.gam.ExperimentalWarning`, a
+  `UserWarning`), and the docstrings and the GAM page say so. Their fits
+  agree with mgcv, lme4 and nlme in the tests, but the interface may change
+  and the optimization is less tested than the rest of `glmnet.gam` (#154).
+
 ## 0.4.0 (2026-10-21)
 
 ### Packaging
