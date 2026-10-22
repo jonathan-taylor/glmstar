@@ -176,7 +176,13 @@ class GAM(BaseEstimator):
     deviance_, null_deviance_, dispersion_, loglike_, aic_: float
         As for `GLM`; the AIC counts `1 + sum(edf_)` parameters, plus 1 for a
         free dispersion, as R's `gam` (for the Gamma and inverse Gaussian the
-        log-likelihood is at the dispersion deviance / sum(weights), as R's).
+        log-likelihood is at the dispersion deviance / sum(weights), as R's),
+        plus 1 for an estimated negative binomial theta. A quasi family
+        (`glmnet.gam.families`) has no log-likelihood or AIC (NaN).
+    negative_binomial_theta_: float
+        The negative binomial's theta, estimated (`NegativeBinomial(theta=None)`
+        with `method='REML'` or `'ML'`, as mgcv's `nb()`) or given; None for
+        other families.
     n_iter_: int
         Number of IRLS iterations.
     smoothing_: SmoothingSelection
@@ -280,7 +286,11 @@ class GAM(BaseEstimator):
             family, response, offset, weight = self._cox_data(y, nobs)
             self._family = family
         else:
-            family = self._family = GLMFamilySpec.from_family(self.family, y)
+            # (a negative binomial whose theta is estimated: a copy, its
+            # theta set at each fit)
+            estimate_theta = getattr(self.family, 'estimate_theta', False)
+            family = self._family = GLMFamilySpec.from_family(
+                deepcopy(self.family) if estimate_theta else self.family, y)
             _, _, response, offset, weight = _get_data(self,
                                                        np.zeros((nobs, 1)),
                                                        y,
@@ -296,6 +306,9 @@ class GAM(BaseEstimator):
         self.weight_total_ = weight_total
 
         method = self._method = resolve_method(self.method)
+        if getattr(self.family, 'estimate_theta', False) and not method.estimates:
+            raise ValueError('the negative binomial\'s theta is estimated by method="REML" or '
+                             '"ML": give theta (NegativeBinomial(theta=...)) to fix it')
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
             if isinstance(term, FactorTerm) and isinstance(X, pd.DataFrame):
@@ -345,6 +358,21 @@ class GAM(BaseEstimator):
                               "smoothing parameters may change, and its convergence should be "
                               "checked (smoothing_.converged)", ExperimentalWarning, stacklevel=2)
             self.smoothing_ = method.select(self, dispersion)
+            if getattr(self.family, 'estimate_theta', False):
+                theta = getattr(self.smoothing_, 'negative_binomial_theta', None)
+                if theta is None:
+                    raise ValueError(f'the method {method.name} does not estimate the negative '
+                                     'binomial\'s theta')
+                family.base.set_theta(theta)
+                # the null deviance at the estimated theta (as R's glm.nb)
+                _, null_deviance = family.get_null_deviance(response=response,
+                                                            sample_weight=normed_weight,
+                                                            offset=offset,
+                                                            fit_intercept=True)
+                self.null_deviance_ = weight_total * null_deviance
+        base = getattr(family, 'base', None)
+        self.negative_binomial_theta_ = (1 / base.alpha if isinstance(base, sm_family.NegativeBinomial)
+                                         else None)
 
         state = self._local_scoring()
 
@@ -413,7 +441,8 @@ class GAM(BaseEstimator):
 
         # as R's gam (and glm): the dispersion, when free, counts as a
         # parameter, and the log-likelihood is at R's estimate of it
-        k = (not self._cox) + self.edf_.sum() + (not self._fixed_dispersion())
+        k = ((not self._cox) + self.edf_.sum() + (not self._fixed_dispersion()) +
+             getattr(self.family, 'estimate_theta', False))
         n = np.sum(weight > 0)
         self.loglike_ = self._loglike()
         self.aic_ = -2 * self.loglike_ + 2 * k
@@ -757,7 +786,12 @@ class GAM(BaseEstimator):
 
     # as for GLM: they use only the response, weights, family and state_
     _on_train_index = GLM._on_train_index
-    _fixed_dispersion = GLM._fixed_dispersion
+
+    def _fixed_dispersion(self):
+        # (a quasi family's dispersion is free: `glmnet.gam.families`)
+        if getattr(getattr(self._family, 'base', None), 'quasi', False):
+            return False
+        return GLM._fixed_dispersion(self)
 
     def _residuals(self, kind='response', state=None):
         if getattr(self, '_cox', False):
@@ -772,6 +806,9 @@ class GAM(BaseEstimator):
                                                                   self._weight)
             return float(result.loglik_sat - result.deviance / 2)
         base = self._family.base
+        if getattr(base, 'quasi', False):
+            # (a quasi-likelihood: none, as R's quasipoisson()$aic)
+            return np.nan
         if isinstance(base, (sm_family.Gamma, sm_family.InverseGaussian)):
             # R's Gamma()$aic and inverse.gaussian()$aic: at the dispersion
             # deviance / sum(weights), not Pearson's

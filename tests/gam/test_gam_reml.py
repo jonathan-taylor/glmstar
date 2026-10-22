@@ -209,9 +209,9 @@ def test_errors(data):
         GAM(terms=[lo('a'), s('b')], method='REML').fit(data, data['y'])
     with pytest.raises(ValueError, match='no smoothing parameter to estimate'):
         GAM(terms=[s('a', df=4), factor('c')], method='REML').fit(data, data['y'])
-    with pytest.raises(NotImplementedError, match='NegativeBinomial'):
-        GAM(terms=[s('a')], family=sm.families.NegativeBinomial(alpha=1.),
-            method='REML').fit(data, data['yp'])
+    with pytest.raises(NotImplementedError, match='Tweedie'):
+        GAM(terms=[s('a')], family=sm.families.Tweedie(var_power=1.5),
+            method='REML').fit(data, data['yp'] + 0.5)
     # method='fixed': s() without arguments has df=4
     G = GAM(terms=[s('a')]).fit(data, data['y'])
     np.testing.assert_allclose(G.edf_.iloc[0], 4, rtol=1e-6)

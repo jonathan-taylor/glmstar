@@ -4,6 +4,18 @@
 
 ### New features
 
+- **Overdispersion under REML and ML** (`glmnet.gam.families`):
+  `QuasiPoisson()` and `QuasiBinomial()` (R's `quasipoisson`,
+  `quasibinomial`) have a free dispersion, estimated with the smoothing
+  parameters as mgcv's (Pearson's with fixed smoothing, as R's `glm`; no
+  log-likelihood or AIC). `NegativeBinomial(theta=None)` estimates the
+  negative binomial's theta by REML or ML with the smoothing parameters,
+  as mgcv's `nb()` (`fit.negative_binomial_theta_`, `smoothing_`'s too;
+  the null deviance at it, and the AIC counting it); `theta=` fixes it, as
+  `negbin(theta)`. The criterion's gradient in log theta is exact
+  (implicit in the coefficients). Against mgcv (REML and ML): theta and
+  the dispersions to 1e-4, ML criteria to 1e-7, fits to 1e-4. The
+  Bikeshare page fits both.
 - **Cyclic smooths, `cyclic_spline(x, k=10, period=None)`**
   (`CyclicSplineTerm`, mgcv's `s(x, bs="cc")`), for a covariate whose ends
   meet, such as the hour of the day. It is a cyclic cubic regression
