@@ -14,6 +14,17 @@
   REML/ML. Against mgcv `s(hour, bs="cc")` with the same knots, REML and
   ML for the Gaussian and Poisson: fits to 1e-8, edf to 1e-7, criteria to
   1e-9 (#179).
+- **Structured covariances of correlated random effects:**
+  `correlated_random_effect(..., covariance='compound_symmetry')` (nlme's
+  `pdCompSymm`: a common variance and correlation) and `'diagonal'`
+  (`pdDiag`), next to the default `'unstructured'`. They are new penalty
+  objects on one general `CovariancePenalty`, which takes `Sigma(theta)`
+  and its derivatives and evaluates in lme4's coordinates `b = L u`. Its
+  parameters for compound symmetry are nlme's, valid for any value. With
+  a positive correlation, compound symmetry is exactly `re(g) + re([g,
+  condition])`, and diagonal is exactly independent `re()` terms. Against
+  `nlme::lme` with `pdCompSymm`: covariance to 1e-4, log-likelihood to
+  1e-7 (#178).
 - **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
   gives the intercept and the coefficients of linear terms and blocks of
   columns, with standard errors from the posterior covariance (for the
@@ -161,6 +172,17 @@
 
 ### Documentation
 
+- **The crossed-effects page has a binary response**, as in Ghosh, Hastie
+  and Owen's scalable logistic regression with crossed random effects. It
+  writes Schall's (1991) PQL as a second `SmoothingMethod`, one that
+  alternates warm-started inner fits with updates of the variances. It
+  uses their O(N) trace approximation, which ignores the crossing in the
+  random effects' penalized information. The section compares it with
+  Laplace approximate ML: PQL's variances are smaller, as Breslow and
+  Clayton found, the fixed effects close, and it is much faster. It also
+  shows a naive logistic regression's standard errors, and run times up
+  to 100,000 ratings, about linear. The tests copy the method and check
+  the trace approximation against the exact traces (#176).
 - **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
   Owen on simulated ratings (customers × items, very unbalanced). It
   writes the method-of-moments variances as a `SmoothingMethod`, with a
@@ -247,6 +269,10 @@
 
 ### Changed
 
+- `glmnet.gam`'s modules import at their tops, not inside functions. The
+  optional dependencies (JAX, matplotlib, scatter_smooth) are still
+  imported when used. `estimated_terms` is defined in `glmnet.gam.reml`,
+  and shared by `glmnet.gam.selection` (#177).
 - **`glmnet.gam`'s REML and ML are marked experimental:**
   `GAM(method='REML')` and `'ML'` warn (`glmnet.gam.ExperimentalWarning`, a
   `UserWarning`), and the docstrings and the GAM page say so. Their fits

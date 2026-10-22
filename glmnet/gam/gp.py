@@ -29,8 +29,12 @@ References
 """
 from dataclasses import dataclass
 from typing import Optional, Union
+import warnings
 
 import numpy as np
+from scipy.linalg import eigh, solve_triangular
+from scipy.optimize import brentq
+from scipy.spatial.distance import cdist
 
 from .terms import Term, _name
 
@@ -68,7 +72,6 @@ def gp_correlation(d, kernel_code, power=1.):
 
 
 def _distances(x, y):
-    from scipy.spatial.distance import cdist
     return cdist(x, y)
 
 
@@ -218,7 +221,6 @@ class GPTerm(Term):
         dist = _distances(K, K)
         self.range_ = float(self.range_given_ if self.range_given_ is not None else dist.max())
         C = gp_correlation(dist / self.range_, self.kernel_code_, self.power_)
-        from scipy.linalg import eigh
         nk = C.shape[0]
         ev, U = eigh(C, subset_by_index=[nk - rank, nk - 1])
         ev, U = ev[::-1], U[:, ::-1]
@@ -226,7 +228,6 @@ class GPTerm(Term):
         if not keep.all():
             # the eigenvectors beyond the numerical rank are rounding (a
             # smooth kernel at a long range): left out
-            import warnings
             warnings.warn(f'{self.name}: the correlation matrix of the knots has numerical rank '
                           f'{keep.sum()} < k - {M} = {rank} (eigenvalues below {self.rank_tol:g} '
                           f'of the largest): the basis has dimension {keep.sum() + M}; '
@@ -302,7 +303,6 @@ class GPTerm(Term):
         return self._decomposition
 
     def _lam_for_df(self, df):
-        from scipy.optimize import brentq
         *_, s, _ = self._decompose()
         s2 = s[s > s.max() * 1e-10]**2
         M = self.null_dim_
@@ -316,7 +316,6 @@ class GPTerm(Term):
     def _solve(self, r):
         # the coefficients of the fit to r (uncentered)
         sq, P, Q, R, U, s, Vt = self._decompose()
-        from scipy.linalg import solve_triangular
         rw = sq * r
         delta = Vt.T @ ((s / (s**2 + self.lam_)) * (U.T @ rw))
         alpha = solve_triangular(R, Q.T @ (rw - P @ delta))

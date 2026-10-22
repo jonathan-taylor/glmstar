@@ -124,6 +124,8 @@ REML and ML criteria are exactly lme4's.
 | `(1 \| a/b)` (nested) | `re('a'), re(['a', 'b'])` | `lmer` (to 1e-5), `nlme::lme` (to 1e-4) |
 | `(x \|\| g)` | `re('g'), re('g', by='x')` | `lmer` |
 | `(1 + x \| g)` | `correlated_random_effect('g', slopes=['x'])` | `lmer`: standard deviations and correlation to 1e-5, log-likelihood to 1e-8 |
+| `pdCompSymm(~ cond - 1)` (nlme) | `correlated_random_effect('g', slopes=[dummies], intercept=False, covariance='compound_symmetry')` | `lme`: covariance to 1e-4, log-likelihood to 1e-7 |
+| `pdDiag(~ x)` (nlme) | `correlated_random_effect('g', slopes=['x'], covariance='diagonal')` | equals `re('g'), re('g', by='x')` exactly |
 | `REML=TRUE` / `FALSE` | `method='REML'` / `'ML'` | |
 | `glmer(..., nAGQ=0)` | `family=...`, `method='ML'` | variances and linear predictor to 1e-4, log-likelihood to 1e-6 |
 | `glmer(..., nAGQ=1)` | | to about 3e-2: glmer also maximizes the approximation in the fixed effects |
@@ -154,8 +156,9 @@ These have no translation yet:
 - mgcv's `Vc` correction of the covariance for the uncertainty in the
   smoothing parameters;
 - `bam()` and its discretized fits for very large data;
-- structured covariances of correlated random effects (nlme's
-  `pdCompSymm`, AR(1) residuals, variance functions);
+- other structured covariances of correlated random effects (beyond
+  `pdSymm`, `pdCompSymm` and `pdDiag`), AR(1) residuals, variance
+  functions;
 - `glmer` with adaptive Gauss–Hermite quadrature (`nAGQ > 1`);
 - Kenward–Roger or Satterthwaite degrees of freedom.
 
