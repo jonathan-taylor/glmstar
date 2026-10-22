@@ -172,6 +172,8 @@
 
 ### Documentation
 
+- The "Generalized additive models" chapter comes after "GLMNet paths" in
+  the table of contents, before "Inference" (#180).
 - **The crossed-effects page has a binary response**, as in Ghosh, Hastie
   and Owen's scalable logistic regression with crossed random effects. It
   writes Schall's (1991) PQL as a second `SmoothingMethod`, one that

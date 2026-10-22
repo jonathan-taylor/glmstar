@@ -34,15 +34,6 @@ project:
         - file: paths/CoxNetIRLS.md
         - file: paths/MultiClassNet.md
         - file: paths/MultiGaussNet.md
-    - title: Inference
-      children:
-        - file: inference.md
-        - file: score_bootstrap.md
-        - file: overdispersed_poisson.md
-        - file: probit_regression.md
-        - file: autocorrelated_errors.md
-        - file: cox_regression.md
-        - file: cox_misspecified.md
     - title: Generalized additive models
       children:
         - file: gam.md
@@ -52,6 +43,15 @@ project:
         - file: gam_mixed_models.md
         - file: gam_crossed.md
         - file: gam_from_r.md
+    - title: Inference
+      children:
+        - file: inference.md
+        - file: score_bootstrap.md
+        - file: overdispersed_poisson.md
+        - file: probit_regression.md
+        - file: autocorrelated_errors.md
+        - file: cox_regression.md
+        - file: cox_misspecified.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:
