@@ -15,7 +15,7 @@
   at full rank without a trend it is scikit-learn's
   `GaussianProcessRegressor` at fixed hyperparameters. `plot` draws a
   two-column term as filled contours. A docs page, "Gaussian processes as
-  GAM terms".
+  GAM terms" (#159).
 
 ## 0.4.0 (2026-10-21)
 
