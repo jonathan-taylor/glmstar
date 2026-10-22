@@ -25,6 +25,7 @@ References
   289–296.
 """
 import numpy as np
+from scipy.linalg import solve_triangular
 
 
 class Diagonal(object):
@@ -245,7 +246,6 @@ class CholeskyPenalty(object):
         return Linv.T @ Linv
 
     def evaluate(self, theta):
-        from scipy.linalg import solve_triangular
         theta = np.asarray(theta, float)
         L = self.factor(theta)
         Linv = solve_triangular(L, np.identity(self.q), lower=True)

@@ -55,9 +55,12 @@ from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
+from scipy.linalg import solve_banded
+from scipy.optimize import brentq
 
 
 def _scatter_smooth():
+    # (imported when a spline or loess term is set up: a clear error without it)
     try:
         import scatter_smooth
     except ImportError as e:
@@ -448,7 +451,6 @@ class SplineTerm(Term):
         # second derivatives of a natural cubic spline are those of its
         # values at the knots (Green & Silverman, 1994, section 2.1)
         if getattr(self, '_at_knots', None) is None:
-            from scipy.linalg import solve_banded
             t = self.knots_
             V = self._unit_values(t)
             h = np.diff(t)
@@ -799,7 +801,6 @@ class RandomEffectTerm(Term):
             raise ValueError(f'{self.name}: give lam or df (or estimate it, method="REML")')
 
     def _lam_for_df(self, df):
-        from scipy.optimize import brentq
         s = self._s[self._s > 0]
         if not 0 < df < len(s):
             raise ValueError(f'{self.name}: df should be in (0, {len(s)})')
