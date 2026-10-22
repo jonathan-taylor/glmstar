@@ -24,15 +24,6 @@ project:
         - file: penalty_factor.md
         - file: relax.md
         - file: glmnet_vs_R.md
-    - title: Generalized additive models
-      children:
-        - file: gam.md
-        - file: gam_reml.md
-        - file: gam_gp.md
-        - file: gam_bikeshare.md
-        - file: gam_mixed_models.md
-        - file: gam_crossed.md
-        - file: gam_from_r.md
     - title: GLMNet paths
       children:
         - file: paths/GLMNet.md
@@ -52,6 +43,15 @@ project:
         - file: autocorrelated_errors.md
         - file: cox_regression.md
         - file: cox_misspecified.md
+    - title: Generalized additive models
+      children:
+        - file: gam.md
+        - file: gam_reml.md
+        - file: gam_gp.md
+        - file: gam_bikeshare.md
+        - file: gam_mixed_models.md
+        - file: gam_crossed.md
+        - file: gam_from_r.md
     - title: API Reference
       url: https://jonathan-taylor.github.io/glmstar/api/
 site:
