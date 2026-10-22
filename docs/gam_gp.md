@@ -173,6 +173,12 @@ print(f'{time.time() - t0:.1f}s')
 fit_2d.summary()
 ```
 
+The model, as `GAM` displays it:
+
+```{code-cell} ipython3
+fit_2d
+```
+
 `plot` draws a two column term as filled contours over the data's bounding
 box (leaving out the parts far from any data, as mgcv's `too.far`), with
 the locations as points:
@@ -231,6 +237,12 @@ obs = sites.loc[np.repeat(np.arange(60), 8)].reset_index(drop=True)
 obs['y'] = surface(obs['u'], obs['v']) + obs['effect'] + 0.2 * rng.standard_normal(obs.shape[0])
 fit_re = GAM(terms=[gaussian_process('u', 'v'), re('site')], method='REML').fit(obs, obs['y'])
 fit_re.variance_components_
+```
+
+A Gaussian process surface with a random effect of the sites:
+
+```{code-cell} ipython3
+fit_re
 ```
 
 The site effects' standard deviation (0.3 in the simulation) and the

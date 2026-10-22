@@ -4,6 +4,15 @@
 
 ### New features
 
+- **A GAM shows the model it specifies.** In a notebook, `GAM` displays
+  its model in LaTeX (`text/latex`, from `GAM.model_latex()`): the
+  response's distribution and link, the linear predictor as the sum of
+  the terms, and a line per term saying what it is (a smooth and its
+  penalty, a random effect and its distribution, a covariance's
+  structure) and how its smoothing parameter or variance is chosen. It
+  needs only the specification, so it works before fitting. This replaces
+  scikit-learn's HTML diagram for `GAM`. The GAM pages of the docs display
+  their models (#181).
 - **Cyclic smooths, `cyclic_spline(x, k=10, period=None)`**
   (`CyclicSplineTerm`, mgcv's `s(x, bs="cc")`), for a covariate whose ends
   meet, such as the hour of the day. It is a cyclic cubic regression
