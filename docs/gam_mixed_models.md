@@ -49,7 +49,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, s, re, linear, factor
+from glmnet.gam import GAM, s, re, linear, factor, correlated_random_effect
 
 
 def effects(rng, labels, sd):
@@ -237,10 +237,10 @@ slopes.variance_components_
 
 The two random effects are independent: this is lme4's
 `reaction ~ days + (days||subject)`, i.e. `(1|subject) + (0 + days|subject)`,
-and mgcv's `s(subject, bs="re") + s(subject, days, bs="re")`. (lme4's
-`(days|subject)`, with a correlation between a subject's intercept and
-slope, is not available; see below. Without the correlation the model
-depends on the origin of `days`: here day 0, the start of the study.)
+and mgcv's `s(subject, bs="re") + s(subject, days, bs="re")`. (Without a
+correlation between a subject's intercept and slope the model depends on
+the origin of `days`: here day 0, the start of the study. The correlated
+version, lme4's `(days|subject)`, is below.)
 
 The fixed slope, with its standard error from the posterior covariance
 (for the Gaussian, the generalized least squares standard error, lme4's
@@ -264,6 +264,46 @@ for ax, (subject, rows) in zip(axes.ravel(), Sleep.groupby('subject')):
     ax.set_title(subject, fontsize=8)
 fig.supxlabel('days'); fig.supylabel('reaction')
 fig.tight_layout()
+```
+
+### Correlated intercepts and slopes
+
+`correlated_random_effect('subject', slopes=['days'])` gives each subject
+a vector of effects, an intercept and a slope, drawn from $N(0, \Sigma)$
+with $\Sigma$ unstructured: lme4's `reaction ~ days + (days|subject)`.
+REML estimates $\Sigma$ through its Cholesky factor (lme4's relative
+covariance factor), so a singular $\Sigma$, a correlation of $\pm 1$, is
+reached as one of its diagonal entries goes to 0.
+
+```{code-cell} ipython3
+correlated = GAM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
+                 method='REML').fit(Sleep, Sleep['reaction'])
+correlated.variance_components_
+```
+
+The covariance, and the correlation of a subject's intercept and slope:
+
+```{code-cell} ipython3
+Sigma = correlated.terms_[1].covariance_
+Sigma, Sigma.iloc[0, 1] / np.sqrt(Sigma.iloc[0, 0] * Sigma.iloc[1, 1])
+```
+
+The data were simulated with independent intercepts and slopes. The
+estimated correlation, about $-0.25$, is poorly determined by 18 subjects.
+Unlike the independent model, this one does not depend on the origin of
+`days`: shifting it changes $\Sigma$ but not the fit.
+
+```{code-cell} ipython3
+shifted = Sleep.assign(days=Sleep['days'] - 4.5)
+refit = GAM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
+            method='REML').fit(shifted, shifted['reaction'])
+np.abs(refit.predict(shifted) - correlated.predict(Sleep)).max()
+```
+
+The predicted effects, one row per subject:
+
+```{code-cell} ipython3
+correlated.terms_[1].effects_.head()
 ```
 
 ## A generalized linear mixed model
@@ -399,11 +439,10 @@ axes[0].figure.tight_layout()
 
 ## What is not supported yet
 
-- **Correlated random effects.** Each `re()` term is independent of the
-  others, with an identity covariance: random intercepts and slopes are
-  lme4's `(x||g)`, not `(x|g)`, and there are no unstructured (or other
-  structured) covariances of a group's vector of effects, as nlme's
-  `pdSymm` or lme4's `(x|g)`.
+- **Structured covariances of correlated random effects.**
+  `correlated_random_effect` has an unstructured covariance (nlme's
+  `pdSymm`, lme4's `(x|g)`). Compound symmetry, `pdCompSymm`, and other
+  structures are not available.
 - **Different variances by group,** e.g. nlme's `pdDiag` with one
   variance per level of another factor, or a random effect whose variance
   differs between strata (a nested sum of `re()` terms with different

@@ -105,6 +105,11 @@
 
 ### Documentation
 
+- The GAM page has a section on tensor products (`tensor_spline('age',
+  'year')` on the Wage data, its smoothing parameters and surface). The
+  mixed-models page has correlated intercepts and slopes
+  (`correlated_random_effect`, lme4's `(days|subject)`), and its list of
+  what is not supported is updated.
 - **Mixed models as GAMs:** a page, "Mixed models as GAMs", on fitting
   classical random-effects models with `glmnet.gam`'s `re()` terms: random
   intercepts (shrinkage, REML and ML), crossed and nested random effects,
