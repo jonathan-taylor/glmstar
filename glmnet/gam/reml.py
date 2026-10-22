@@ -36,6 +36,62 @@ null space), the negative log REML is
 and ML integrates only the penalized coefficients: `H` restricted to them,
 and no last term.
 
+From the formulas to the code
+-----------------------------
+The notation is that of the design page. `LaplaceCriterion` evaluates `V`
+in four steps, each a method:
+
+1. `coef(params)`: the inner fit. It sets the smoothing parameters on the
+   terms and runs `GAM`'s local scoring to `b = argmin D_p(b)`, warm started.
+2. `_evaluation(params, beta)`: the penalty side. It gives `S_lambda`, the
+   pieces `lambda_k S_k` (the derivatives of `S_lambda` in `rho_k`),
+   `log|S_lambda|_+` and its derivatives, from the penalty objects
+   (`glmnet.gam.penalties`).
+3. `_factor(ev)`: the likelihood side. It gives the unit deviance `d_i` and
+   its derivatives in `eta`, `d'_i, d''_i, d'''_i` (`dev, d1, d2, d3`, by
+   JAX), the weights `W = diag(a_i d''_i / 2)`, and the factored
+   `H = X' W X + S_lambda` (`H_int`: `H_PP` for ML).
+4. `_value(ev)`: `V`, term by term (see its comments).
+
+Symbols and their names in the code:
+
+    rho_k = log lambda_k          params[:n_rho]          (estimated; fixed: lam_fixed)
+    log phi                       params[n_rho]           (if free_dispersion)
+    log theta (negative binomial) params[-1]              (if estimate_theta)
+    a_i (prior weights)           self.a
+    X (in the criterion's coords) self.X, ev['X']
+    beta-hat                      ev['beta']
+    S_lambda                      ev['S']
+    lambda_k S_k                  ev['pieces'][k]
+    log|S_lambda|_+               ev['logdet_S']
+    D_p = D + b' S_lambda b       ev['Dp']
+    l_s(phi), dl_s/dphi           ls, ev['dls']
+    M                             self.null_dim
+    H, H_PP                       ev['H'], ev['H_int']
+
+The gradient (`value_and_grad`) is the total derivative through `b`, by the
+implicit function theorem (`b` solves `dD_p/db = 0`):
+
+    dV/drho_k = dV/drho_k |_b + dV/db |_b . db/drho_k,    db/drho_k = -H^{-1} lambda_k S_k b
+
+    dV/drho_k |_b = b' lambda_k S_k b / (2 phi) + tr(H^{-1} lambda_k S_k) / 2 - d log|S_lambda|_+ / drho_k / 2
+    dV/db |_b     = [X' (a d') / 2 + S_lambda b] / phi      (0 at the optimum: kept for the inner
+                                                             fit's tolerance)
+                    + X' (a d''' . lev) / 4                  (log|H| through W; lev_i = x_i' H^{-1} x_i)
+
+    dV/dlog phi   = -D_p / (2 phi) - phi dl_s/dphi - M / 2   (REML; ML without M / 2)
+
+No term of the gradient needs more of `H` than its four operations
+(`glmnet.gam.linalg`): `log|H|`, solves, `tr(H^{-1} A)` and the leverages.
+The Hessian of `V`, for the outer Newton steps (`_newton`), is central
+differences of this gradient.
+
+Two parameters' names are easily confused here. `theta` (`_theta`,
+`theta_fixed`) is the vector of the penalties' parameters
+(`glmnet.gam.penalties`): `log lambda_k`, or the log-Cholesky entries of a
+random effects' precision. `log_theta` (`t` in the family functions) is the
+log of the negative binomial's theta, a parameter of the family.
+
 The documentation's page "REML and ML for GAMs: the design" derives the
 criterion, computes it by hand in JAX for a small example, and describes
 the choices made here (the coordinates, the inner fit, the search).
@@ -251,8 +307,10 @@ class LaplaceCriterion(object):
 
         dev = self.dev
         linkinv = self.linkinv
-        # half the second derivative of a unit deviance in eta: the observed
-        # information weight (Fisher's for canonical links)
+        # the unit deviance as a function of eta, d(y, g^{-1}(eta)): all of
+        # the family the criterion uses is it, its derivatives in eta (d',
+        # d'', d''') and l_s. W_ii = a_i d''_i / 2 is then the observed
+        # information for any link (Fisher's for a canonical one)
         unit = lambda eta, y, t: dev(y, linkinv(eta), t)
         self._h = jax.vmap(jax.grad(jax.grad(unit)), in_axes=(0, 0, None))
         # the first three derivatives of the unit deviance in eta, and that
@@ -286,6 +344,15 @@ class LaplaceCriterion(object):
         The penalties (all the terms' together, in order) are indexed by
         `k`: `penalty_terms[k]` is the term of the penalty `k`, and
         `est_index` the estimated ones (all those of the estimated terms).
+
+        In the math: the coefficients are `beta = T gamma`, `T` orthogonal and
+        block diagonal, and the criterion works in `gamma` throughout (with
+        `X T` as the design, `self.X`). `V` is invariant to the change. In
+        these coordinates the null space of `S_lambda` is the set of
+        coordinates `penalized` leaves out, so `M` (`null_dim`) is a count,
+        and `H_PP` for ML is `H` restricted to `penalized`. `log|S_lambda|_+`
+        of a single penalty is `r_j log lambda_j + sum log(eigenvalues)`,
+        exactly, however large `lambda_j` is.
         """
         P = D.n_coef
         T = np.identity(P)
@@ -412,6 +479,15 @@ class LaplaceCriterion(object):
         `X`, coefficients `beta`, the penalty matrix `S`, the derivatives of
         the penalty in each parameter `k` (`pieces[k]`), and `log|S|_+` and
         its derivatives.
+
+        In the math: `S = S_lambda = sum_k lambda_k S_k`; for a smoothing
+        parameter, `pieces[k] = dS_lambda / drho_k = lambda_k S_k`, and
+        `dlogdet_S[k] = d log|S_lambda|_+ / drho_k` (`r_k` for a single
+        penalty). A penalty may evaluate in its own coordinates,
+        `beta = V u` (Wood's stable basis for several penalties; lme4's
+        `b = L u` for a covariance): then `X` becomes `X V`, `S` becomes
+        `V' S V`, and `logdet_V = log|det V|` corrects `log|H|`, while
+        `logdet_S` stays that of the original coordinates.
         """
         lam, phi = self._split(params)
         lam, phi = np.asarray(lam, float), float(phi)
@@ -455,10 +531,19 @@ class LaplaceCriterion(object):
     Hessian = DenseHessian
 
     def _factor(self, ev):
-        """Factor `H` at the evaluation `ev` (`_evaluation`): adds `H` and the family's pieces."""
+        """
+        Factor `H` at the evaluation `ev` (`_evaluation`): adds `H` and the family's pieces.
+
+        In the math, at `eta = X b + offset`: `dev` is the unit deviances
+        `d_i`, and `d1, d2, d3` their derivatives in `eta_i`. `H = X' W X +
+        S_lambda` with `W = diag(a_i d''_i / 2)`, the Hessian of `D_p / 2`.
+        For ML, `H_int = H_PP`, the block of the penalized coordinates (the
+        unpenalized ones are not integrated out). For REML, `H_int = H`.
+        """
         jnp = self._jnp
         eta = ev['X'] @ ev['beta'] + self.offset
         args = (jnp.asarray(eta), jnp.asarray(self.y), ev['log_theta'])
+        # d_i, d'_i, d''_i, d'''_i (derivatives in eta_i)
         dev, d1, d2, d3 = (np.asarray(v, float) for v in self._derivatives(*args))
         if not all(np.all(np.isfinite(v)) for v in (dev, d1, d2, d3)):
             raise ValueError('the deviance or its derivatives are not finite')
@@ -476,21 +561,35 @@ class LaplaceCriterion(object):
         coefficients to its precision, and independent of the inner fit's
         path (its warm start), on which the criterion would otherwise depend
         a little where a smoothing parameter is large.
+
+        In the math: `b <- b - H^{-1} g`, with `g = X' (a d') / 2 + S_lambda b`
+        the gradient of `D_p / 2` (and `H` its Hessian).
         """
         grad = 0.5 * ev['X'].T @ (self.a * ev['d1']) + ev['S'] @ ev['beta']
         ev['beta'] = ev['beta'] - ev['H'].solve(grad)
         return self._factor(ev)
 
     def _value(self, ev):
+        """
+        The criterion `V` at the evaluation `ev` (`_factor`'s), term by term:
+
+            V = D_p / (2 phi) - l_s(phi) + log|H| / 2 - log|S_lambda|_+ / 2 [- M log(2 pi phi) / 2]
+
+        (the last term for REML only; ML's `log|H|` is `log|H_PP|`).
+        """
         lam, phi, beta = ev['lam'], ev['phi'], ev['beta']
+        # D_p = sum_i a_i d_i + b' S_lambda b
         Dp = float(np.sum(self.a * ev['dev']) + beta @ ev['S'] @ beta)
         jnp = self._jnp
+        # l_s and its derivatives in phi and in log theta
         ls, dls, dls_t = (float(v) for v in self._ls(jnp.asarray(self.y), jnp.asarray(self.a), phi,
                                                      ev['log_theta']))
-        # (log|H| in the original coordinates: less that of the change of them)
+        # (log|H| in the original coordinates: less that of the change of them,
+        # log|H_orig| / 2 = log|H| / 2 - log|det V|)
         value = (Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - ev['logdet_V'] -
                  ev['logdet_S'] / 2)
         if self.method == 'REML':
+            # the flat prior on the M unpenalized coefficients
             value -= self.null_dim * np.log(2 * np.pi * phi) / 2
         ev.update(Dp=Dp, dls=dls, dls_t=dls_t)
         return float(value)
@@ -527,19 +626,28 @@ class LaplaceCriterion(object):
             return self._unconverged(params)
         lam, phi, X, beta, H, H_int = (ev[k] for k in ('lam', 'phi', 'X', 'beta', 'H', 'H_int'))
         g = np.zeros(self.n_params)
+        # dV/drho_k with b held: the three terms of V that contain lambda_k,
+        #   b' lambda_k S_k b / (2 phi) + tr(H^{-1} lambda_k S_k) / 2 - (d log|S_lambda|_+ / drho_k) / 2
         dS_beta = np.zeros((self.n_rho, beta.shape[0]))            # lam_k S_k beta
         for i, k in enumerate(self.est_index):
             piece = ev['pieces'][k]
             dS_beta[i] = piece.apply(beta)
             g[i] = (beta @ dS_beta[i] / (2 * phi) + piece.trace(H_int) / 2 -
                     ev['dlogdet_S'][k] / 2)
-        # through beta: the penalized deviance (0 at the minimum, up to the
-        # inner fit's convergence) and log|H|, through h
+        # dV/db with rho held: from D_p / (2 phi), [X' (a d') + 2 S_lambda b] / (2 phi),
+        # which is 0 at the minimum (up to the inner fit's convergence); and
+        # from log|H| / 2, through W(b): d log|H| / db_j = tr(H^{-1} X' dW/db_j X)
+        # = sum_i (a_i d'''_i / 2) x_ij lev_i, with the leverages
+        # lev_i = x_i' H^{-1} x_i
         g_beta = (X.T @ (self.a * ev['d1']) + 2 * ev['S'] @ beta) / (2 * phi)
         g_beta += X.T @ (0.5 * self.a * ev['d3'] * H_int.leverages()) / 2
+        # the implicit derivative db/drho_k = -H^{-1} lambda_k S_k b, one solve per k
         dbeta = -H.solve(dS_beta.T)                                  # (P, K)
         g[:self.n_rho] += g_beta @ dbeta
         if self.free_dispersion:
+            # dV/dlog phi: b does not depend on phi (it cancels from the
+            # inner problem), so only the explicit terms,
+            #   -D_p / (2 phi) - phi dl_s/dphi [- M / 2]
             g[self.n_rho] = (-ev['Dp'] / (2 * phi) - phi * ev['dls'] -
                              (self.null_dim / 2 if self.method == 'REML' else 0.))
         if self.estimate_theta:
@@ -739,6 +847,9 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         return ev
 
     def _cox_value(self, ev):
+        # V with phi = 1: the partial likelihood's deviance over 2 less its
+        # saturated log-likelihood is -l_p(b), then the penalty, log|H| / 2,
+        # -log|S_lambda|_+ / 2 and (REML) -M log(2 pi) / 2, as `_value`
         beta = ev['beta']
         value = (ev['result'].deviance / 2 - ev['result'].loglik_sat + beta @ ev['S'] @ beta / 2 +
                  ev['H_int'].logdet() / 2 - ev['logdet_V'] - ev['logdet_S'] / 2)
@@ -809,6 +920,11 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         # minimum, up to the inner fit's convergence)
         g_beta = X.T @ (ev['result'].gradient / 2) + ev['S'] @ beta
         dbeta = -H.solve(dS_beta.T)                                  # (P, K)
+        # log|H| through b: H = X' I(eta) X + S_lambda, with I the partial
+        # likelihood's information (not diagonal), so along db/drho_k,
+        #   d log|H| = tr(H^{-1} X' [dI(eta) along X db/drho_k] X),
+        # the directional derivative of I by a central difference in eta (it
+        # stands in for the Gaussian family's X' (a d''' . lev) / 4)
         idx = H_int.coords
         for i in range(K):
             v = X @ dbeta[:, i]
@@ -936,6 +1052,10 @@ def select_smoothing(gam, dispersion=None):
     else:
         jax, _ = _jax()
         context, Criterion = jax.enable_x64(True), LaplaceCriterion
+    # the search for argmin V over (rho, log phi, log theta): from mgcv's
+    # starting values, L-BFGS-B within +-25 of them in each rho (lambda from
+    # 0 to infinity in effect), then Newton steps (`_newton`, the Hessian of
+    # V by differences of its gradient) to the gradient's precision
     with context:
         crit = Criterion(gam, estimated, method=gam._method.name, dispersion=dispersion)
         x0 = crit.start()
