@@ -13,7 +13,7 @@
   range, with mgcv's knots. Its smoothing parameter is fixed (`lam`) or
   REML/ML. Against mgcv `s(hour, bs="cc")` with the same knots, REML and
   ML for the Gaussian and Poisson: fits to 1e-8, edf to 1e-7, criteria to
-  1e-9.
+  1e-9 (#179).
 - **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
   gives the intercept and the coefficients of linear terms and blocks of
   columns, with standard errors from the posterior covariance (for the
