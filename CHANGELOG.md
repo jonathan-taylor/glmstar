@@ -4,6 +4,20 @@
 
 ### New features
 
+- **Tensor product smooths, `tensor_spline(x, z, ...)`** (`TensorTerm`,
+  mgcv's `te(..., bs="cr")`), in two or more columns. Each margin is a cubic
+  regression spline: a natural cubic spline parametrized by its values at
+  `k` knots (5 by default), placed as mgcv's `place.knots`, with its own
+  penalty, as `S_1 (x) I` and `I (x) S_2`. So the term has one smoothing
+  parameter per margin and is invariant to the columns' scales. Its
+  smoothing parameters are fixed (`lam`) or estimated by REML/ML. It works
+  with backfitting (modified backfitting fits the null space `x, z, x z`
+  with the other linear parts), the joint solve, every family, weights and
+  standard errors. Against mgcv `te(x, z, bs="cr")` the fits agree to 1e-4
+  (to 5e-11 alone) and the ML criteria to 1e-7. Where the criterion is
+  flat, mgcv stops sooner and ours is as low, except along a smoothing
+  parameter going to infinity, which our bounds stop. `plot` draws a
+  two-column term as filled contours, as `gaussian_process(u, v)` (#163).
 - **`glmnet.gam` REML/ML: the criterion on four operations of the Hessian.**
   The criterion and its gradient now need only `log|H|`, solves, the traces
   `tr(H^{-1} S_k)` and the leverages `x_i' H^{-1} x_i`, of

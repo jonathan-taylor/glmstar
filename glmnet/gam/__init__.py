@@ -81,6 +81,7 @@ from .terms import (Term,
                     linear,
                     factor)
 from .gp import GPTerm, gaussian_process
+from .tensor import TensorTerm, tensor_spline
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning
