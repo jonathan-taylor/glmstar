@@ -18,7 +18,7 @@
   REML and ML, per level and pooled: our criterion is at most its value at
   mgcv's smoothing parameters, Gaussian REML fits to 1e-8. The Bikeshare
   page fits the hour by the working day, and the R translation page lists
-  it.
+  it (#182).
 - **Cyclic smooths, `cyclic_spline(x, k=10, period=None)`**
   (`CyclicSplineTerm`, mgcv's `s(x, bs="cc")`), for a covariate whose ends
   meet, such as the hour of the day. It is a cyclic cubic regression
