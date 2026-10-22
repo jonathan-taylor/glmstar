@@ -593,7 +593,8 @@ A term's prior precision is $S(\theta)/\phi$ for a few parameters $\theta$:
 - a sum $\sum_m\lambda_mS_m$ (`tensor_spline()`, `penalized_columns()`);
 - the inverse of an unstructured covariance, $I\otimes\Sigma^{-1}$, for
   correlated random effects (`correlated_random_effect()`);
-- later, AR(1) or compound symmetry.
+- a structured covariance, compound symmetry or diagonal
+  (`correlated_random_effect(..., covariance=...)`); later, AR(1).
 
 nlme's `pdMat` classes (Pinheiro and Bates, 2000) are the pattern, and
 `glmnet.gam.penalties` implements it. Each penalty gives $S(\theta)$, its
