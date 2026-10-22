@@ -4,6 +4,19 @@
 
 ### New features
 
+- **Gaussian process smooths in `glmnet.gam`:** `gaussian_process(x)`,
+  `gaussian_process(lon, lat)` (any number of columns), the low rank Gaussian process (kriging) smoother of
+  Kammann & Wand (2003), as mgcv's `s(..., bs="gp")`: its knots, linear
+  trend (or none, `trend=False`), Matern, power exponential and spherical
+  correlation functions, default range and basis dimension, and mgcv's `m`
+  codes. It takes `lam`, `df`, or neither under REML/ML, with both solvers,
+  every family, weights and offsets; its basis spans mgcv's, so fits at
+  fixed `sp`, edf, standard errors and REML/ML estimates agree with mgcv's;
+  at full rank without a trend it is scikit-learn's
+  `GaussianProcessRegressor` at fixed hyperparameters. `plot` draws a
+  two-column term as filled contours. A docs page, "Gaussian processes as
+  GAM terms" (#159).
+
 - **`glmnet.gam`: random effects of combinations of columns.**
   `re(['batch', 'cask'])` gives one effect per combination, labelled
   `'batch:cask'`, so nested effects such as lme4's `(1 | batch/cask)` are
