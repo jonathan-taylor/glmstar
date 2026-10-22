@@ -114,7 +114,11 @@
 
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
-  the updated list of what is not supported yet (#166).
+  the updated list of what is not supported yet. It adds ML and REML
+  versus ML: `V_REML - V_ML = log|C_F|/2 - M log(2 pi phi)/2`, `C_F` the
+  unpenalized coefficients' (GLS) information, checked on the by-hand
+  example. It also says what ML needs of the linear algebra: the four
+  operations plus `M` solves, a rank-`M` correction (#166).
 - The GAM page has a section on tensor products (`tensor_spline('age',
   'year')` on the Wage data, its smoothing parameters and surface). The
   mixed-models page has correlated intercepts and slopes

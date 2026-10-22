@@ -78,8 +78,11 @@ Here is where the terms come from:
 
 This is **REML**. It integrates the unpenalized coefficients too, with a
 flat prior, as REML does for the fixed effects of a mixed model. **ML**
-integrates only the penalized coefficients. Its $H$ is restricted to them,
-and it has no last term.
+integrates only the penalized coefficients, and treats the unpenalized
+ones as parameters, at the same joint mode $\hat\beta$. Its $H$ is
+$H_{PP}$, the block of the penalized coordinates, and it has no last term.
+The difference between the two is the subject of the section "ML, and
+REML versus ML" below.
 
 With one penalty per term, the blocks of $S_\lambda$ do not overlap, so
 
@@ -216,6 +219,61 @@ pd.DataFrame({'lam b\'S b / phi': [lam[j] * beta[sl] @ S_j @ beta[sl] / phi
               'edf - 1': G.edf_.values - 1}, index=G.edf_.index)
 ```
 
+### ML, and REML versus ML
+
+Split the coordinates into the penalized ones, $P$, and the $M$
+unpenalized ones, $F$: the intercept, the linear terms, and the
+penalties' null spaces (here each spline's linear part). Then
+
+$$\log|H| = \log|H_{PP}| + \log|C_F|, \qquad
+C_F = H_{FF} - H_{FP}H_{PP}^{-1}H_{PF} = X_F^TW(I - \mathcal{S})X_F,$$
+
+with $\mathcal{S}$ the smoother of the penalized terms (their joint
+penalized fit), so that
+
+$$V_{\text{REML}} - V_{\text{ML}} = \tfrac12\log|C_F| - \tfrac{M}{2}\log(2\pi\phi).$$
+
+$C_F$ is the information about the unpenalized coefficients once the
+penalized ones are integrated out: for the Gaussian, the GLS information.
+$\tfrac12\log|C_F|$ is Harville's (1974) REML correction. At the same
+parameters the two criteria differ by it:
+
+```{code-cell} ipython3
+from glmnet.gam.reml import LaplaceCriterion
+
+C_reml = LaplaceCriterion(G, [0, 1], method='REML')
+C_ml = LaplaceCriterion(G, [0, 1], method='ML')
+params = np.r_[np.log(G.smoothing_.lam_raw), np.log(G.smoothing_.dispersion)]
+b_hat = C_reml.coef(params)
+ev = C_reml._evaluation(params, b_hat)       # (the criterion's coordinates)
+H_c = ev['X'].T @ ev['X'] + ev['S']
+P_c = C_reml.penalized
+F_c = np.setdiff1d(np.arange(H_c.shape[0]), P_c)
+C_F = H_c[np.ix_(F_c, F_c)] - H_c[np.ix_(F_c, P_c)] @ np.linalg.solve(
+    H_c[np.ix_(P_c, P_c)], H_c[np.ix_(P_c, F_c)])
+phi_hat = G.smoothing_.dispersion
+(C_reml.criterion(params, b_hat) - C_ml.criterion(params, b_hat),
+ np.linalg.slogdet(C_F)[1] / 2 - len(F_c) * np.log(2 * np.pi * phi_hat) / 2)
+```
+
+What this means in practice:
+
+- **The dispersion.** REML's $\hat\phi = D_p/(n - M)$ accounts for the $M$
+  degrees of freedom of the unpenalized coefficients; ML's is $D_p/n$.
+  Likewise REML's smoothing parameters and variances account for them,
+  which is why REML is the usual choice for estimating them (Wood, 2011).
+- **Comparing models.** $\log|C_F|$ changes with the parametrization of
+  the unpenalized coefficients, and with which of them are in the model.
+  So REML criteria can be compared only between models with the same
+  unpenalized part (and agree with mgcv's or lme4's only up to a constant
+  when a factor's effects are parametrized differently). ML criteria are
+  log-likelihoods of the models, comparable across them, as for a
+  likelihood ratio or AIC between models with different fixed effects.
+- **Non-Gaussian families.** ML is the Laplace approximation with the
+  unpenalized coefficients at the mode, glmer's `nAGQ=0`. glmer's default,
+  `nAGQ=1`, also optimizes the approximation in them, and differs a
+  little.
+
 ## By hand: a Poisson additive model
 
 For a Poisson response, $\hat\beta(\rho)$ is not linear in $y$, and $W$
@@ -312,9 +370,11 @@ a looser tolerance.
 **The four operations.** $V$ and its gradient (the formula in the next
 section, through the implicit derivative as above) need only $\log|H|$,
 solves, the traces $\operatorname{tr}(H^{-1}S_k)$ and the leverages
-$x_i^TH^{-1}x_i$, from `glmnet.gam.linalg.DenseHessian`. A sparse or
-matrix-free implementation can replace it. JAX gives only the derivatives
-of the family's unit deviance.
+$x_i^TH^{-1}x_i$, from `glmnet.gam.linalg.DenseHessian`. ML needs the
+same quantities for $H_{PP}$ (`DenseHessian.restrict`), and solves with
+the full $H$ for the implicit derivative. A sparse or matrix-free
+implementation can replace it (see "What ML needs" below). JAX gives only
+the derivatives of the family's unit deviance.
 
 **Penalties as objects** (`glmnet.gam.penalties`). Each term's penalty is
 a function $S(\theta)$ of its parameters. At each evaluation it gives its
@@ -487,6 +547,30 @@ the dense one used now. Two others can sit behind the same interface:
   The estimates are noisy, so the outer optimizer must tolerate noise in
   the gradient.
 
+### What ML needs
+
+ML's criterion and gradient are REML's with $H_{PP}$ in place of $H$ in
+the log determinant, the traces and the leverages. The implicit
+derivative still solves with the full $H$, because $\hat\beta$ is the
+joint mode of all the coefficients. `DenseHessian` factors $H_{PP}$ a
+second time (`restrict`). A sparse or matrix-free backend need not. With
+the $M$ columns $H^{-1}e_f$ of the unpenalized coordinates, $M$ more
+solves, and $B = (H^{-1})_{FF} = C_F^{-1}$:
+
+$$\log|H_{PP}| = \log|H| + \log|B|, \qquad
+H_{PP}^{-1} = (H^{-1})_{PP} - (H^{-1})_{PF}\,B^{-1}(H^{-1})_{FP}.$$
+
+The second is a rank-$M$ correction. So ML's traces and leverages are
+REML's less small corrections built from those columns. **REML needs the
+four operations; ML needs the four and $M$ solves.** $M$ is usually small:
+the intercept, the linear terms, and one or two per spline.
+
+In the backfitting picture of large problems, those $M$ solves are
+backfitting the penalized terms on the columns of $X_F$. That is also how
+`GAM.fixed_effects_` computes the GLS covariance $C_F^{-1}$ without the
+dense design. So ML, REML and the fixed effects' standard errors share
+one computation.
+
 ### The outer optimizer can avoid the Hessian of $V$
 
 Newton's method needs the Hessian of $V$ in $\rho$, which takes many more
@@ -569,6 +653,8 @@ $b = Lu$, where the penalty is the identity.
 - Gilmour, A. R., Thompson, R. and Cullis, B. R. (1995). Average
   information REML: an efficient algorithm for variance parameter
   estimation in linear mixed models. *Biometrics* 51(4), 1440–1450.
+- Harville, D. A. (1974). Bayesian inference for variance components
+  using only error contrasts. *Biometrika* 61(2), 383–385.
 - Harville, D. A. (1977). Maximum likelihood approaches to variance
   component estimation and to related problems. *Journal of the American
   Statistical Association* 72(358), 320–338.
