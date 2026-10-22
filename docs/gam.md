@@ -192,7 +192,7 @@ pd.DataFrame({'age': new['age'], 'P(wage > 250)': prob, 'std err': std})
 ## Smoothing parameters by REML
 
 :::{warning}
-REML and ML are **experimental** in glmstar 0.4: the fits, smoothing
+REML and ML are **experimental** in glmstar 0.5: the fits, smoothing
 parameters and variance components agree with mgcv, lme4 and nlme in the
 tests, but the interface may change and the optimization is less tested than
 the rest of `glmnet.gam`. `GAM(method='REML')` warns
