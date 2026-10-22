@@ -10,7 +10,10 @@
   matches `GAM(method='REML')`. The page checks the optimum's identities in
   the residuals (REML's dispersion, and each term's prior size against its
   penalized degrees of freedom) and the implicit derivative of the fitted
-  coefficients. It ends with the design of `glmnet.gam.reml`. The same
+  coefficients. It ends with the design of `glmnet.gam.reml`, and the
+  lessons from lme4, MixedModels.jl, AI-REML, TMB, mgcv's `bam` and
+  Fellner–Schall, matrix-free GP and genetics codes, and nlme that shape its
+  path to large problems. The same
   checks are tests (`tests/gam/test_gam_reml_byhand.py`) (#158).
 
 ## 0.4.0 (2026-10-21)

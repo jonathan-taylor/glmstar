@@ -395,18 +395,191 @@ tolerances are looser.
 - The `Vc` correction.
 - `lo()` terms, which have no basis.
 
+## Toward large problems: lessons from mixed-model software
+
+Everything above forms $H$, a dense $P \times P$ matrix. That is fine for
+a few smooths, but not for a random effect with $10^5$ levels, or for the
+crossed random effects of Ghosh, Hastie and Owen (2022), where $N$ is in
+the millions. Mixed-model software has solved this problem several times.
+These are the lessons we are building into the design.
+
+### The criterion needs only four operations on $H$
+
+Write $h_i = W_{ii}$ and $h_i' = \partial h_i/\partial\eta_i$. At
+$\hat\beta$, the derivative of $V$ in $\rho_k$ is
+
+$$
+\frac{dV}{d\rho_k} = \frac{\lambda_k\hat\beta^TS_k\hat\beta}{2\phi}
+ + \frac{\lambda_k}{2}\operatorname{tr}\big(H^{-1}S_k\big)
+ - \frac{\lambda_k}{2}\operatorname{tr}\big(S_\lambda^{+}S_k\big)
+ + \frac12\sum_i h_i'\,\big(x_i^TH^{-1}x_i\big)\,x_i^T\frac{d\hat\beta}{d\rho_k},
+\qquad \frac{d\hat\beta}{d\rho_k} = -H^{-1}\lambda_kS_k\hat\beta .
+$$
+
+The last term is the third-derivative term of the Poisson example. So the
+value and the gradient need only:
+
+1. $\log|H|$;
+2. solves $H^{-1}b$;
+3. the traces $\operatorname{tr}(H^{-1}S_k)$;
+4. the leverages $x_i^TH^{-1}x_i$.
+
+$S_\lambda$ is block diagonal over the terms and small within each term, so
+its own log-determinant and traces are cheap. None of the four needs $H$
+or $H^{-1}$ as a dense matrix. The criterion is therefore written against
+an interface with these four operations, and its first implementation is
+the dense one used now. Two others can sit behind the same interface:
+
+- **Sparse Cholesky.** $H$ is sparse when the bases are: indicators of
+  groups, or B-splines.
+  - lme4 (Bates et al., 2015) factors the mixed-model equations with a
+    sparse Cholesky. The fill-reducing ordering and the symbolic
+    factorization are computed once and reused at every value of the
+    variance parameters.
+  - MixedModels.jl goes further, with a *blocked* Cholesky whose blocks
+    have the structure of the model: diagonal for the first grouping
+    factor, small dense blocks for random slopes, sparse blocks for
+    crossed factors.
+  - With a sparse factor, the traces and leverages come from Takahashi's
+    selected inversion (Takahashi, Fagan and Chen, 1973). It computes the
+    entries of $H^{-1}$ on the sparsity pattern of the factor, never all of
+    $H^{-1}$. That is how average-information REML (Gilmour, Thompson and
+    Cullis, 1995, in ASReml and the animal-breeding codes) fits models with
+    millions of levels.
+- **Matrix-free.** The solves are done by conjugate gradients, or by
+  backfitting, which is itself an iterative solver of these equations
+  (Ghosh, Hastie and Owen, 2022).
+  - $\log|H|$ comes from stochastic Lanczos quadrature (Ubaru, Chen and
+    Saad, 2017).
+  - The traces and leverages come from Hutchinson's (1989) estimator,
+    $\operatorname{tr}(A) \approx \frac1m\sum_l z_l^TAz_l$ for random
+    signs $z_l$.
+  - This is how GPyTorch (Gardner et al., 2018) fits Gaussian processes,
+    and how BOLT-LMM (Loh et al., 2015) fits mixed models to genetic data,
+    with a preconditioner in both.
+
+  The estimates are noisy, so the outer optimizer must tolerate noise in
+  the gradient.
+
+### The outer optimizer can avoid the Hessian of $V$
+
+Newton's method needs the Hessian of $V$ in $\rho$, which takes many more
+solves. mgcv's extended Fellner–Schall update (Wood and Fasiolo, 2017),
+
+$$\lambda_k \leftarrow \lambda_k\,\frac{\operatorname{tr}(S_\lambda^{+}S_k) - \operatorname{tr}(H^{-1}S_k)}{\hat\beta^TS_k\hat\beta/\phi},$$
+
+needs only operations 2 and 3. Its fixed point is the identity checked by
+hand above, in the residuals of the Gaussian example. Average-information
+REML similarly replaces the Hessian by a matrix of solves. Both are the
+optimizers that scale. The current quasi-Newton and Newton search stays
+for small problems, where it converges fastest.
+
+### Penalties as parametrized objects
+
+A term's prior precision is $S(\theta)/\phi$ for a few parameters $\theta$:
+
+- one $\lambda$ times a fixed matrix (a spline, `re()`);
+- a sum $\sum_m\lambda_mS_m$ (a tensor product, `pen()`);
+- the inverse of an unstructured covariance, $\Sigma^{-1}\otimes I$, for
+  correlated random effects;
+- later, AR(1) or compound symmetry.
+
+nlme's `pdMat` classes (Pinheiro and Bates, 2000) are the pattern. Each
+penalty gives $S(\theta)$, its derivatives in $\theta$, and
+$\log|S(\theta)|_+$, so the criterion does not care which kind it is. For
+an unstructured $\Sigma$ we use the log-Cholesky parametrization (Pinheiro
+and Bates, 1996). As lme4 does, we keep the relative Cholesky factor's
+diagonal bounded below at 0 rather than on the log scale, so that a
+variance estimated at 0 is a boundary the optimizer can reach.
+
+### Smaller lessons
+
+- **Profiling.** For the Gaussian, lme4 profiles $\beta$ and $\phi$ out of
+  the criterion in closed form. We already profile $\beta$, through the
+  inner fit. $\phi$ is still a parameter of the search, but the identity
+  $\hat\phi = (\|y - X\hat\beta\|^2 + \hat\beta^TS_\lambda\hat\beta)/(n - M)$
+  above profiles it out too, leaving only $\rho$ to search over.
+- **Automatic differentiation of the Laplace approximation.** TMB and
+  glmmTMB (Kristensen et al., 2016; Brooks et al., 2017) do what our JAX
+  criterion does, the inner fit with the implicit derivative, but with
+  sparse Hessians. JAX has no sparse Cholesky. A sparse implementation will
+  wrap a scipy or CHOLMOD factorization with its own derivative
+  (`jax.custom_vjp`), or use the matrix-free route, which needs no
+  factorization.
+- **Big data GAMs.** mgcv's `bam` builds $X^TWX$ from blocks of rows,
+  never the $N \times P$ design. With `discrete=TRUE` it discretizes the
+  covariates, so that the cross products are computed on the few distinct
+  values (Wood et al., 2017).
+- **Sparse precisions.** INLA (Rue, Martino and Chopin, 2009) works with
+  sparse precision matrices of latent Gaussian fields. Our penalties
+  already are precisions. Its SPDE representation of a Matérn field
+  (Lindgren, Rue and Lindström, 2011) is a sparse alternative to the dense
+  basis of a Gaussian process term.
+
 ## References
 
+- Bates, D., Mächler, M., Bolker, B. and Walker, S. (2015). Fitting linear
+  mixed-effects models using lme4. *Journal of Statistical Software*
+  67(1), 1–48.
+- Brooks, M. E., Kristensen, K., van Benthem, K. J., Magnusson, A., Berg,
+  C. W., Nielsen, A., Skaug, H. J., Mächler, M. and Bolker, B. M. (2017).
+  glmmTMB balances speed and flexibility among packages for zero-inflated
+  generalized linear mixed modeling. *The R Journal* 9(2), 378–400.
+- Gardner, J. R., Pleiss, G., Bindel, D., Weinberger, K. Q. and Wilson,
+  A. G. (2018). GPyTorch: Blackbox matrix-matrix Gaussian process inference
+  with GPU acceleration. *Advances in Neural Information Processing
+  Systems* 31.
+- Ghosh, S., Hastie, T. and Owen, A. B. (2022). Backfitting for large scale
+  crossed random effects regressions. *The Annals of Statistics* 50(1).
+  arXiv:2007.10612.
+- Gilmour, A. R., Thompson, R. and Cullis, B. R. (1995). Average
+  information REML: an efficient algorithm for variance parameter
+  estimation in linear mixed models. *Biometrics* 51(4), 1440–1450.
 - Harville, D. A. (1977). Maximum likelihood approaches to variance
   component estimation and to related problems. *Journal of the American
   Statistical Association* 72(358), 320–338.
+- Hutchinson, M. F. (1989). A stochastic estimator of the trace of the
+  influence matrix for Laplacian smoothing splines. *Communications in
+  Statistics — Simulation and Computation* 18(3), 1059–1076.
+- Kristensen, K., Nielsen, A., Berg, C. W., Skaug, H. and Bell, B. M.
+  (2016). TMB: Automatic differentiation and Laplace approximation.
+  *Journal of Statistical Software* 70(5), 1–21.
+- Lindgren, F., Rue, H. and Lindström, J. (2011). An explicit link between
+  Gaussian fields and Gaussian Markov random fields: the stochastic partial
+  differential equation approach. *Journal of the Royal Statistical
+  Society, Series B* 73(4), 423–498.
+- Loh, P.-R. et al. (2015). Efficient Bayesian mixed-model analysis
+  increases association power in large cohorts. *Nature Genetics* 47(3),
+  284–290.
+- Pinheiro, J. C. and Bates, D. M. (1996). Unconstrained parametrizations
+  for variance-covariance matrices. *Statistics and Computing* 6(3),
+  289–296.
+- Pinheiro, J. C. and Bates, D. M. (2000). *Mixed-Effects Models in S and
+  S-PLUS*. Springer.
+- Rue, H., Martino, S. and Chopin, N. (2009). Approximate Bayesian
+  inference for latent Gaussian models by using integrated nested Laplace
+  approximations. *Journal of the Royal Statistical Society, Series B*
+  71(2), 319–392.
 - Schall, R. (1991). Estimation in generalized linear models with random
   effects. *Biometrika* 78(4), 719–727.
+- Takahashi, K., Fagan, J. and Chen, M.-S. (1973). Formation of a sparse
+  bus impedance matrix and its application to short circuit study. In
+  *Proceedings of the 8th PICA Conference*, 63–69.
+- Ubaru, S., Chen, J. and Saad, Y. (2017). Fast estimation of tr(f(A)) via
+  stochastic Lanczos quadrature. *SIAM Journal on Matrix Analysis and
+  Applications* 38(4), 1075–1099.
 - Wood, S. N. (2011). Fast stable restricted maximum likelihood and
   marginal likelihood estimation of semiparametric generalized linear
   models. *Journal of the Royal Statistical Society, Series B* 73(1), 3–36.
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
   (2nd ed.). Chapman & Hall/CRC.
+- Wood, S. N. and Fasiolo, M. (2017). A generalized Fellner-Schall method
+  for smoothing parameter optimization with application to Tweedie
+  location, scale and shape models. *Biometrics* 73(4), 1071–1081.
+- Wood, S. N., Li, Z., Shaddick, G. and Augustin, N. H. (2017).
+  Generalized additive models for gigadata: modeling the U.K. black smoke
+  network daily data. *Journal of the American Statistical Association*
+  112(519), 1199–1210.
 - Wood, S. N., Pya, N. and Säfken, B. (2016). Smoothing parameter and model
   selection for general smooth models. *Journal of the American Statistical
   Association* 111(516), 1548–1563.
