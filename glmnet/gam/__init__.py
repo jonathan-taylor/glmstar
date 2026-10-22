@@ -65,9 +65,11 @@ from .terms import (Term,
                     FactorTerm,
                     ColumnsTerm,
                     RandomEffectTerm,
+                    PenalizedColumnsTerm,
                     s,
                     lo,
                     re,
+                    pen,
                     linear,
                     factor)
 from .backfit import GAMState, GAMRegularizer

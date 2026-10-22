@@ -49,6 +49,8 @@ class JointDesign(object):
     def __init__(self, terms):
         self.terms = terms
         self.Z, self.means, self.penalties, self.slices = [], [], [], []
+        # the penalties of each term (several for some), and their sum
+        self.penalty_sets = []
         blocks, start = [], 1
         for term in terms:
             B = term.basis()
@@ -57,7 +59,7 @@ class JointDesign(object):
                                  '(GAMControl(solver="backfit"))')
             B = np.asarray(B, float)
             n = B.shape[0]
-            S = term.penalty_matrix()
+            Ss = term.penalty_matrices()
             Z = mean = None
             if term.centered:
                 ones = np.ones(n)
@@ -69,23 +71,18 @@ class JointDesign(object):
                 else:
                     mean = B.mean(0)
             block = B @ Z if Z is not None else (B - mean if mean is not None else B)
-            if S is not None and Z is not None:
-                S = Z.T @ S @ Z
+            if Z is not None:
+                Ss = [Z.T @ S @ Z for S in Ss]
             self.Z.append(Z)
             self.means.append(mean)
-            self.penalties.append(S)
+            self.penalty_sets.append(Ss)
+            self.penalties.append(sum(Ss) if Ss else None)
             self.slices.append(slice(start, start + block.shape[1]))
             start += block.shape[1]
             blocks.append(block)
         self.X = np.hstack([np.ones((blocks[0].shape[0], 1))] + blocks)
-        # the square roots of the penalties: S = R' R
-        self._roots = []
-        for S in self.penalties:
-            if S is None:
-                self._roots.append(None)
-            else:
-                ev, V = np.linalg.eigh((S + S.T) / 2)
-                self._roots.append(np.sqrt(np.maximum(ev, 0))[:, None] * V.T)
+        # the square roots of the single penalties: S = R' R
+        self._roots = [_root(Ss[0]) if len(Ss) == 1 else None for Ss in self.penalty_sets]
 
     @property
     def n_coef(self):
@@ -106,21 +103,31 @@ class JointDesign(object):
         return np.hstack([np.ones((blocks[0].shape[0], 1))] + blocks)
 
     def penalty(self, lams):
-        """The penalty matrix, `sum_j lams[j] S_j` (on the coefficients of the design)."""
+        """
+        The penalty matrix, `sum_j sum_m lams[j][m] S_jm` (on the coefficients
+        of the design): `lams[j]` the smoothing parameters of the term `j`'s
+        penalties (a number for a term with one).
+        """
         P = np.zeros((self.n_coef, self.n_coef))
-        for sl, S, lam in zip(self.slices, self.penalties, lams):
-            if S is not None:
-                P[sl, sl] += lam * S
+        for sl, Ss, lam in zip(self.slices, self.penalty_sets, lams):
+            for S, l in zip(Ss, np.atleast_1d(lam)):
+                P[sl, sl] += l * S
         return P
 
     def root(self, lams):
         """A square root `E` of the penalty matrix, `E' E = penalty(lams)`."""
         rows = []
-        for sl, R, lam in zip(self.slices, self._roots, lams):
-            if R is not None and lam > 0:
-                E = np.zeros((R.shape[0], self.n_coef))
-                E[:, sl] = np.sqrt(lam) * R
-                rows.append(E)
+        for sl, Ss, R, lam in zip(self.slices, self.penalty_sets, self._roots, lams):
+            lam = np.atleast_1d(lam)
+            if not Ss or not np.any(lam > 0):
+                continue
+            if R is not None:
+                R = np.sqrt(lam[0]) * R
+            else:
+                R = _root(sum(l * S for l, S in zip(lam, Ss)))
+            E = np.zeros((R.shape[0], self.n_coef))
+            E[:, sl] = R
+            rows.append(E)
         return np.vstack(rows) if rows else np.zeros((0, self.n_coef))
 
     def solve(self, z, w, lams):
@@ -194,6 +201,12 @@ class JointDesign(object):
         return fits, float(gamma[0]), coefs
 
 
+def _root(S):
+    """A square root `R` of the positive semi-definite `S`, `R' R = S`."""
+    ev, V = np.linalg.eigh((S + S.T) / 2)
+    return np.sqrt(np.maximum(ev, 0))[:, None] * V.T
+
+
 def _solve_psd(A, b):
     """
     The solution of `A x = b`, `A` positive semi-definite: equilibrated (its
@@ -240,8 +253,7 @@ class JointRegularizer(GAMRegularizer):
 
     def lams(self):
         """The terms' smoothing parameters at the current weights."""
-        return [term.penalty_lam() if term.penalty_matrix() is not None else 0.
-                for term in self.terms]
+        return [term.penalty_lams() for term in self.terms]
 
     def newton_step(self,
                     design,                 # ignored

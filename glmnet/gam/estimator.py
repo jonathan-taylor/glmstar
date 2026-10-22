@@ -365,9 +365,10 @@ class GAM(BaseEstimator):
             # scale of the prior weights
             names, variances = [], []
             for term in self.terms_:
-                if term.penalty_matrix() is not None:
-                    names.append(term.name)
-                    variances.append(self.dispersion_ / (term.penalty_lam() * weight_total))
+                lams = term.penalty_lams()
+                for m, lam in enumerate(lams):
+                    names.append(term.name if len(lams) == 1 else f'{term.name}[{m}]')
+                    variances.append(self.dispersion_ / (lam * weight_total))
             names.append('scale')
             variances.append(self.dispersion_)
             self.variance_components_ = pd.DataFrame({'variance': variances,
@@ -467,8 +468,7 @@ class GAM(BaseEstimator):
                                  if isinstance(self.regularizer_, JointRegularizer)
                                  and self.regularizer_.design_ is not None
                                  else JointDesign(self.terms_))
-            lams = [term.penalty_lam() if term.penalty_matrix() is not None else 0.
-                    for term in self.terms_]
+            lams = [term.penalty_lams() for term in self.terms_]
             if self._cox:
                 # the full information of the partial likelihood (as mgcv's
                 # cox.ph); no intercept: its row and column are 0

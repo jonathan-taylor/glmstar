@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+- **`glmnet.gam`: terms with several penalties.** A term can now have
+  penalties `sum_m lam_m c' S_m c / 2` (`Term.penalty_matrices()`,
+  `penalty_lams()` and `set_penalty_lams()`; a term with one penalty is
+  unchanged). This is the foundation for tensor products and correlated
+  random effects. All three fitting paths take them: backfitting, the joint
+  solve, and REML/ML. REML and ML estimate one smoothing parameter per
+  penalty. `log|S|_+` is that of the term's weighted sum of penalties on the
+  range of their sum. Each evaluation rotates the term to the eigenvectors
+  of that sum and equilibrates H (as Wood's, 2011, stable
+  reparametrization), so a dominant penalty (a smoothing parameter going to
+  infinity) does not cost the gradient its precision. Cox REML does not
+  support them yet.
+- **`pen(columns, penalties, lam=None)`** (`PenalizedColumnsTerm`), a block
+  of columns with penalties on their coefficients, as mgcv's `paraPen`. Its
+  smoothing parameters are fixed or estimated, and the fit agrees with mgcv's
+  `paraPen` under REML and ML.
+
 ## 0.4.0 (2026-10-21)
 
 ### Packaging
