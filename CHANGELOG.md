@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixes
+
+- **ISLP's empty design without a warning:** a `DataFrame` with a single
+  column of zeros named `zero` (ISLP's `ModelSpec` with no terms, the null
+  model of a stepwise search such as `sklearn_selected(GLM(), ...)`) is the
+  intercept-only model (Cox: the null model). It is excluded silently, as a
+  lone `intercept` column. It warned "excluding the constant column(s)
+  ['zero']" at every null model of the search (the ISLP Ch06 lab). Other
+  constant columns still warn (#155).
 ### Changed
 
 - **`glmnet.gam`'s REML and ML are marked experimental:**
