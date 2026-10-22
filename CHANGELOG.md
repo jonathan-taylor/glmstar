@@ -26,6 +26,15 @@
 
 ### Documentation
 
+- **Mixed models as GAMs:** a page, "Mixed models as GAMs", on fitting
+  classical random-effects models with `glmnet.gam`'s `re()` terms: random
+  intercepts (shrinkage, REML and ML), crossed and nested random effects,
+  independent random intercepts and slopes, a binomial GLMM (Laplace ML and
+  REML), an observation-level random effect for overdispersed counts, and a
+  smooth with a random effect, with what is not supported yet (correlated
+  random effects). Its fits are checked against lme4's `lmer` and `glmer`,
+  nlme's `lme` and mgcv's `gam(bs="re")` in tests. The docs have a
+  "Generalized additive models" chapter, with the GAM page (#157).
 - **How REML and ML work in `glmnet.gam`** (`docs/gam_reml.md`): the
   criterion, derived for statisticians, then written out in a few lines of
   JAX for a Gaussian and a Poisson additive model and minimized by hand. It
