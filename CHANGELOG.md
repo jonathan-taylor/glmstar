@@ -13,6 +13,20 @@
   1e-4. The Cox criterion's precision is now 1e-9 (the gradient, accurate,
   must still halve). Rounding-level perturbations of the data reproduced it
   on macOS (2 of 16 REML fits); all converge now (#156).
+- **ISLP's empty design without a warning:** a `DataFrame` with a single
+  column of zeros named `zero` (ISLP's `ModelSpec` with no terms, the null
+  model of a stepwise search such as `sklearn_selected(GLM(), ...)`) is the
+  intercept-only model (Cox: the null model). It is excluded silently, as a
+  lone `intercept` column. It warned "excluding the constant column(s)
+  ['zero']" at every null model of the search (the ISLP Ch06 lab). Other
+  constant columns still warn (#155).
+### Changed
+
+- **`glmnet.gam`'s REML and ML are marked experimental:**
+  `GAM(method='REML')` and `'ML'` warn (`glmnet.gam.ExperimentalWarning`, a
+  `UserWarning`), and the docstrings and the GAM page say so. Their fits
+  agree with mgcv, lme4 and nlme in the tests, but the interface may change
+  and the optimization is less tested than the rest of `glmnet.gam` (#154).
 
 ## 0.4.0 (2026-10-21)
 
