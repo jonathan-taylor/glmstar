@@ -178,6 +178,22 @@ def _weighted_fit(X, r, w):
     return rbar + Xc @ beta
 
 
+def _is_interaction(column):
+    return isinstance(column, (list, tuple))
+
+
+def _group_label(column):
+    return ':'.join(str(c) for c in column) if _is_interaction(column) else column
+
+
+def _interaction(x):
+    """The labels of the combinations of the columns of `x`: `'a:b'`."""
+    g = x[:, 0].astype(str)
+    for k in range(1, x.shape[1]):
+        g = np.char.add(np.char.add(g, ':'), x[:, k].astype(str))
+    return g
+
+
 def _level_codes(levels, x):
     """The positions of the values `x` in the sorted `levels`; -1 for values not among them."""
     x = np.asarray(x).reshape(-1)
@@ -583,7 +599,10 @@ class RandomEffectTerm(Term):
     A random effect of the groups of the column `column`: the term
     `re(column)`, one effect per group (a random intercept), or with
     `by=`, one coefficient of the column `by` per group (a random slope),
-    `f(g, v) = b_g v`. The effects are penalized by `lam / 2` times their sum
+    `f(g, v) = b_g v`. With `column` a list of columns, the groups are
+    their combinations (their interaction, labelled `'a:b'`): nested
+    effects, as lme4's `(1 | batch/cask)`, are `re('batch') +
+    re(['batch', 'cask'])`. The effects are penalized by `lam / 2` times their sum
     of squares (on the scale of the GAM's objective, the deviance over twice
     the sum of the weights), the Gaussian prior of a mixed model; or, with
     `df`, `lam` is chosen at each working problem's weights so that the trace
@@ -609,11 +628,15 @@ class RandomEffectTerm(Term):
         label = getattr(self, 'label', None)
         if label:
             return label
-        return f're({self.column}, by={self.by})' if self.by is not None else f're({self.column})'
+        group = _group_label(self.column)
+        return f're({group}, by={self.by})' if self.by is not None else f're({group})'
 
     @property
     def columns(self):
-        return self.column if self.by is None else [self.column, self.by]
+        group = list(self.column) if _is_interaction(self.column) else [self.column]
+        if self.by is None:
+            return group if _is_interaction(self.column) else self.column
+        return group + [self.by]
 
     @property
     def has_objective(self):
@@ -621,10 +644,12 @@ class RandomEffectTerm(Term):
 
     def _split(self, x):
         x = np.asarray(x)
-        if self.by is None:
+        if not _is_interaction(self.column) and self.by is None:
             return x.reshape(-1), None
         x = x.reshape((x.shape[0], -1))
-        return x[:, 0], x[:, 1].astype(float)
+        k = len(self.column) if _is_interaction(self.column) else 1
+        g = _interaction(x[:, :k]) if _is_interaction(self.column) else x[:, 0]
+        return g, (None if self.by is None else x[:, k].astype(float))
 
     def setup(self, x):
         g, v = self._split(x)
@@ -713,10 +738,14 @@ def re(column, by=None, lam=None, df=None, name=None):
     """
     A random effect term (see `RandomEffectTerm`): a random intercept per
     group of `column`, or with `by`, a random slope of the column `by` per
-    group.
+    group. `column` may be a list of columns: the groups are then their
+    combinations, so that `re('batch') + re(['batch', 'cask'])` are the
+    nested effects of lme4's `(1 | batch/cask)`.
     """
+    if _is_interaction(column):
+        column = list(column)
     term = RandomEffectTerm(column, by=by, lam=lam, df=df)
-    term.label = name or _name('re', column, by=by, lam=lam, df=df)
+    term.label = name or _name('re', _group_label(column), by=by, lam=lam, df=df)
     return term
 
 

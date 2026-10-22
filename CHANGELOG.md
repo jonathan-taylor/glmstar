@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### New features
+
+- **`glmnet.gam`: random effects of combinations of columns.**
+  `re(['batch', 'cask'])` gives one effect per combination, labelled
+  `'batch:cask'`, so nested effects such as lme4's `(1 | batch/cask)` are
+  `re('batch') + re(['batch', 'cask'])`. `by=` slopes, new data (unseen
+  combinations predict 0) and positional columns work as for one column.
+  Checked against `lmer` under REML and ML.
+
 ## 0.4.0 (2026-10-21)
 
 ### Packaging
