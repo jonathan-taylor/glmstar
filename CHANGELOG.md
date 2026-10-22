@@ -15,7 +15,7 @@
   `negbin(theta)`. The criterion's gradient in log theta is exact
   (implicit in the coefficients). Against mgcv (REML and ML): theta and
   the dispersions to 1e-4, ML criteria to 1e-7, fits to 1e-4. The
-  Bikeshare page fits both.
+  Bikeshare page fits both (#183).
 - **Cyclic smooths, `cyclic_spline(x, k=10, period=None)`**
   (`CyclicSplineTerm`, mgcv's `s(x, bs="cc")`), for a covariate whose ends
   meet, such as the hour of the day. It is a cyclic cubic regression
