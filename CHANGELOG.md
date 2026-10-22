@@ -14,7 +14,7 @@
   `b = L u` per group, where the penalty is the identity. A singular
   covariance (lme4's boundary fit) is then a diagonal of `L` going to 0,
   with the other parameters finite. `variance_components_` has the
-  variances and `covariance_` the covariance.
+  variances and `covariance_` the covariance (#165).
 
   Against `lmer`, REML and ML: the standard deviations and correlation to
   1e-5, fitted values and BLUPs, and ML's log-likelihood to 1e-8. Against
@@ -23,7 +23,7 @@
 - REML/ML: an evaluation where the deviance or its derivatives are not
   finite, or the inner fit cannot decrease its objective (far from the
   optimum), counts as an unconverged fit. Newton's method runs up to 100
-  steps, for an optimum at infinity such as a singular covariance.
+  steps, for an optimum at infinity such as a singular covariance (#165).
 - **`glmnet.gam` REML/ML: penalties as objects** (`glmnet.gam.penalties`).
   A term's penalty is a function `S(theta)` of its parameters. Each
   evaluation gives its matrix, its derivatives in the parameters,
