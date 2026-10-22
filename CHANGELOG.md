@@ -19,7 +19,7 @@
 - **`pen(columns, penalties, lam=None)`** (`PenalizedColumnsTerm`), a block
   of columns with penalties on their coefficients, as mgcv's `paraPen`. Its
   smoothing parameters are fixed or estimated, and the fit agrees with mgcv's
-  `paraPen` under REML and ML.
+  `paraPen` under REML and ML (#160).
 
 ## 0.4.0 (2026-10-21)
 
