@@ -128,7 +128,9 @@ class GAM(BaseEstimator):
         it; terms with `df` have it matched at the prior weights, then fixed.
         The working problems are solved jointly, and `edf_`, `df_resid_`
         and `dispersion_` follow mgcv (its edf, its residual df, the REML
-        or ML estimate of the dispersion).
+        or ML estimate of the dispersion). **Experimental**: `'REML'` and
+        `'ML'` warn (`glmnet.gam.ExperimentalWarning`); check
+        `smoothing_.converged`.
 
     Attributes
     ----------
@@ -324,7 +326,11 @@ class GAM(BaseEstimator):
         self._null_state = GAMState(np.zeros((nobs, len(self.terms_))), null_intercept)
 
         if self.method != 'fixed':
-            from .reml import select_smoothing
+            import warnings
+            from .reml import select_smoothing, ExperimentalWarning
+            warnings.warn(f"GAM(method='{self.method}') is experimental: the selection of the "
+                          "smoothing parameters may change, and its convergence should be "
+                          "checked (smoothing_.converged)", ExperimentalWarning, stacklevel=2)
             self.smoothing_ = select_smoothing(self, dispersion)
 
         state = self._local_scoring()

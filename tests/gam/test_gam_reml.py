@@ -205,3 +205,16 @@ def test_without_jax(data, monkeypatch):
         GAM(terms=[s('a')], method='REML').fit(data, data['y'])
     # the fixed method does not need it
     GAM(terms=[s('a')]).fit(data, data['y'])
+
+
+def test_reml_is_experimental(data):
+    # REML and ML warn that they are experimental; the fixed method does not
+    import warnings
+    from glmnet.gam import ExperimentalWarning
+    for method in ['REML', 'ML']:
+        with pytest.warns(ExperimentalWarning, match=f"method='{method}'.*experimental"):
+            GAM(terms=[s('a')], method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', ExperimentalWarning)
+        GAM(terms=[s('a', df=4)]).fit(data, data['y'])
+    assert issubclass(ExperimentalWarning, UserWarning)

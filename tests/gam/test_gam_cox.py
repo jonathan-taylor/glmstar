@@ -347,15 +347,18 @@ def test_cox_reml_mgcv(Rinfo, data, use_offset):
                                rtol=1e-3)
 
 
-@pytest.mark.parametrize('k', range(4))
-def test_cox_ml_converges_under_rounding(data, k):
-    # the Cox criterion is precise to about 1e-10 (relative): near the
-    # optimum a Newton step's decrease is below that, and perturbations of
-    # the data at the level of rounding used to stop the search short
+@pytest.mark.parametrize('method', ['REML', 'ML'])
+@pytest.mark.parametrize('k', range(16))
+def test_cox_reml_converges_under_rounding(data, method, k):
+    # near the optimum a Newton step's decrease is below the criterion's
+    # precision (the warm-started inner fit depends a little on the search's
+    # path), and perturbations of the data at the level of rounding stopped
+    # the search short (k = 10, 14 for REML before value_tol = 1e-9; and the
+    # Windows CI, whose rounding differs)
     D = data.copy()
     D['w'] = D['w'] * (1 + 1e-13 * k)
     D['o'] = D['o'] + 1e-13 * k
-    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family('efron', 'all'), method='ML',
+    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family('efron', 'all'), method=method,
             weight_id='w', offset_id='o').fit(D, D)
     sel = G.smoothing_
     assert sel.converged
@@ -372,9 +375,11 @@ def test_cox_reml_brain_cancer(method):
     # 57). mgcv's cox.ph gives s(gtv) edf 1
     import warnings
     ISLP = pytest.importorskip('ISLP')
+    from glmnet.gam import ExperimentalWarning
     B = ISLP.load_data('BrainCancer').dropna()
     with warnings.catch_warnings():
         warnings.simplefilter('error', UserWarning)
+        warnings.simplefilter('ignore', ExperimentalWarning)
         G = GAM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
                 family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
                 method=method).fit(B, B[['time', 'status']])
