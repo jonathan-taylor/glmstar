@@ -188,7 +188,8 @@ Ten batches of a chemical paste, three casks from each batch and two
 measurements of strength from each cask (the design of lme4's `Pastes`).
 The casks are nested in the batches: cask `a` of one batch has nothing to
 do with cask `a` of another. A random effect of the casks is one per
-batch and cask, so its grouping column is their combination:
+batch and cask, so its groups are their combinations: `re(['batch',
+'cask'])`, whose groups are labelled `'B00:a'`, and so on.
 
 ```{code-cell} ipython3
 rng = np.random.default_rng(3)
@@ -199,7 +200,8 @@ Pastes['strength'] = (60 + Pastes['batch'].map(effects(rng, Pastes['batch'], 1.3
                       + Pastes['sample'].map(effects(rng, Pastes['sample'], 2.9))
                       + rng.normal(0, 0.8, Pastes.shape[0]))
 
-nested = GAM(terms=[re('batch'), re('sample')], method='REML').fit(Pastes, Pastes['strength'])
+nested = GAM(terms=[re('batch'), re(['batch', 'cask'])],
+             method='REML').fit(Pastes, Pastes['strength'])
 nested.variance_components_
 ```
 
@@ -207,7 +209,8 @@ This is lme4's `(1|batch/cask)`, that is `(1|batch) + (1|batch:cask)`, and
 nlme's `lme(strength ~ 1, random=~1|batch/cask)`. `re('cask')` instead
 would be a random effect of 3 casks crossed with the batches, a different
 model. Nested or crossed, the terms are the same kind; only the labels of
-the groups differ.
+the groups differ. (`re('sample')`, on a column of the combined labels, is
+the same term.)
 
 ```{code-cell} ipython3
 nested.terms_[1].effects_.head()

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### New features
+
+- **`glmnet.gam`: random effects of combinations of columns.**
+  `re(['batch', 'cask'])` gives one effect per combination, labelled
+  `'batch:cask'`, so nested effects such as lme4's `(1 | batch/cask)` are
+  `re('batch') + re(['batch', 'cask'])`. `by=` slopes, new data (unseen
+  combinations predict 0) and positional columns work as for one column.
+  Checked against `lmer` under REML and ML (#161).
+
 ### Documentation
 
 - **Mixed models as GAMs:** a page, "Mixed models as GAMs", on fitting
@@ -13,6 +22,17 @@
   random effects). Its fits are checked against lme4's `lmer` and `glmer`,
   nlme's `lme` and mgcv's `gam(bs="re")` in tests. The docs have a
   "Generalized additive models" chapter, with the GAM page (#157).
+- **How REML and ML work in `glmnet.gam`** (`docs/gam_reml.md`): the
+  criterion, derived for statisticians, then written out in a few lines of
+  JAX for a Gaussian and a Poisson additive model and minimized by hand. It
+  matches `GAM(method='REML')`. The page checks the optimum's identities in
+  the residuals (REML's dispersion, and each term's prior size against its
+  penalized degrees of freedom) and the implicit derivative of the fitted
+  coefficients. It ends with the design of `glmnet.gam.reml`, and the
+  lessons from lme4, MixedModels.jl, AI-REML, TMB, mgcv's `bam` and
+  Fellner–Schall, matrix-free GP and genetics codes, and nlme that shape its
+  path to large problems. The same
+  checks are tests (`tests/gam/test_gam_reml_byhand.py`) (#158).
 
 ### Fixes
 
