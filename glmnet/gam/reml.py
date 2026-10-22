@@ -470,6 +470,17 @@ class LaplaceCriterion(object):
         self._max_value = max(getattr(self, '_max_value', -np.inf), value)
         return value, g
 
+    def off_diagonal(self):
+        """The positions, among the estimated parameters, of Cholesky factors' off-diagonal entries."""
+        position = {k: i for i, k in enumerate(self.est_index)}
+        off = []
+        for _, model, sl in self.models:
+            if isinstance(model, CholeskyPenalty):
+                for k, d in zip(range(sl.start, sl.stop), model.diag):
+                    if not d and k in position:
+                        off.append(position[k])
+        return np.array(off, int)
+
     def _theta(self, params):
         """The penalties' parameters: the fixed, and the estimated (`params`)."""
         theta = self.theta_fixed.copy()
@@ -529,11 +540,18 @@ class LaplaceCriterion(object):
         very large coefficients (a smooth with as many knots as events, for
         Cox), and the criterion at an unconverged fit is meaningless (it can
         be very negative). A value larger than any seen, with a gradient
-        towards larger smoothing parameters, so that the search turns back.
+        towards more penalty (larger smoothing parameters; a smaller
+        covariance of correlated random effects: its penalty object's
+        `more_penalty`), so that the search turns back.
         """
         worst = getattr(self, '_max_value', 0.)
+        theta = self._theta(params)
+        direction = np.ones(len(theta))
+        for _, model, sl in self.models:
+            if hasattr(model, 'more_penalty'):
+                direction[sl] = model.more_penalty(theta[sl])
         g = np.zeros(len(params))
-        g[:self.n_rho] = -1e3
+        g[:self.n_rho] = -1e3 * direction[self.est_index]
         return abs(worst) + 1e6, g
 
     def start(self):
@@ -823,6 +841,21 @@ def select_smoothing(gam, dispersion=None):
         x0 = crit.start()
         K = crit.n_rho
         bounds = [(r - 25, r + 25) for r in x0[:K]] + [(None, None)] * (len(x0) - K)
+        off = crit.off_diagonal() if hasattr(crit, 'off_diagonal') else np.zeros(0, int)
+        if len(off):
+            # correlated random effects: first with their covariances
+            # diagonal (the off-diagonal entries of their Cholesky factors
+            # held at 0), as independent random effects, then all. From the
+            # start, the off-diagonals' gradient can be large, and a first
+            # step to the edge of the box can lead the search into the basin
+            # of a singular covariance, a local minimum
+            diagonal = list(bounds)
+            for i in off:
+                diagonal[i] = (0., 0.)
+            x0 = x0.copy()
+            x0[off] = 0.
+            x0 = minimize(crit.value_and_grad, x0, jac=True, method='L-BFGS-B', bounds=diagonal,
+                          options=dict(maxiter=500, ftol=1e-12, gtol=1e-6)).x
         result = minimize(crit.value_and_grad, x0, jac=True, method='L-BFGS-B', bounds=bounds,
                           options=dict(maxiter=500, ftol=1e-14, gtol=1e-8))
         x, value, grad, converged = _newton(crit, result.x, bounds)
