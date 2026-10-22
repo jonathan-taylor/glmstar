@@ -225,6 +225,7 @@ class CholeskyPenalty(object):
         self.G, self.q = self.idx.shape
         self.rows, self.cols = np.tril_indices(self.q)
         self.diag = self.rows == self.cols
+        self.off_diagonal_params = ~self.diag
         self.names = list(names)
         self.n_params = len(self.rows)
 
@@ -272,3 +273,127 @@ class CholeskyPenalty(object):
         """As mgcv's: the precision diagonal, matching the mean diagonal of each effect's `X' W X`."""
         d = xwx[self.idx].mean(0)
         return self.theta(np.diag(np.maximum(d, np.finfo(float).tiny)))
+
+
+class CovariancePenalty(object):
+    """
+    The precision `I_G (x) Sigma(theta)^{-1}` of `G` groups' vectors of `q`
+    random effects (coordinates `idx`, `(G, q)`), for a structured relative
+    covariance `Sigma(theta)` given by a subclass (`covariance`,
+    `derivatives`, `parameters`). As `CholeskyPenalty`, the evaluation is in
+    the coordinates of `b = L u` per group, `L` the Cholesky factor of
+    `Sigma` at `theta`: the penalty is the identity there, and its
+    derivatives `-L^{-1} (dSigma / dtheta_k) L^{-T}`.
+
+    Subclasses set `off_diagonal_params` (a boolean per parameter: the
+    search fits the covariance diagonal first, with those held at 0).
+    """
+
+    def __init__(self, idx, names):
+        self.idx = np.asarray(idx)
+        self.G, self.q = self.idx.shape
+        self.names = list(names)
+        self.n_params = len(self.names)
+
+    def precision(self, theta):
+        return np.linalg.inv(self.covariance(theta))
+
+    def theta(self, B):
+        """The parameters of the precision `B` (on the prior weights' scale)."""
+        return self.parameters(np.linalg.inv(np.asarray(B, float)))
+
+    def evaluate(self, theta):
+        from scipy.linalg import solve_triangular
+        theta = np.asarray(theta, float)
+        Sigma = self.covariance(theta)
+        L = np.linalg.cholesky(Sigma)
+        Linv = solve_triangular(L, np.identity(self.q), lower=True)
+        Sinv = Linv.T @ Linv
+        derivatives, dlogdet = [], []
+        for dSigma in self.derivatives(theta):
+            derivatives.append(Repeated(self.idx, -(Linv @ dSigma @ Linv.T)))
+            dlogdet.append(-self.G * np.trace(Sinv @ dSigma))
+        logdet_Sigma = 2 * np.sum(np.log(np.diag(L)))
+        return Evaluation(Repeated(self.idx, np.identity(self.q)), derivatives,
+                          -self.G * logdet_Sigma, dlogdet,
+                          V=L, V_inverse=Linv, logdet_V=self.G * logdet_Sigma / 2)
+
+    def start(self, xwx):
+        """As mgcv's: the precision diagonal, matching the mean diagonal of each effect's `X' W X`."""
+        d = np.maximum(xwx[self.idx].mean(0), np.finfo(float).tiny)
+        return self.parameters(np.diag(1 / d))
+
+
+class CompoundSymmetryPenalty(CovariancePenalty):
+    """
+    Compound symmetry (nlme's `pdCompSymm`): `Sigma = s ((1 - rho) I + rho
+    J)`, a common variance `s` and correlation `rho` of the `q` effects,
+    `theta = (log s, t)` with `rho = (e^t - 1) / (e^t + q - 1)` (nlme's: any
+    `t` is a positive definite `Sigma`, `rho` in `(-1/(q - 1), 1)`).
+    """
+    off_diagonal_params = np.array([False, True])
+
+    def _rho(self, t):
+        e = np.exp(t)
+        return (e - 1) / (e + self.q - 1), self.q * e / (e + self.q - 1)**2   # rho, drho/dt
+
+    def covariance(self, theta):
+        s, (rho, _) = np.exp(theta[0]), self._rho(theta[1])
+        q = self.q
+        return s * ((1 - rho) * np.identity(q) + rho * np.ones((q, q)))
+
+    def derivatives(self, theta):
+        s, (rho, drho) = np.exp(theta[0]), self._rho(theta[1])
+        q = self.q
+        C = (1 - rho) * np.identity(q) + rho * np.ones((q, q))
+        return [s * C, s * drho * (np.ones((q, q)) - np.identity(q))]
+
+    def parameters(self, Sigma):
+        q = self.q
+        s = np.mean(np.diag(Sigma))
+        rho = (np.sum(Sigma) - np.trace(Sigma)) / (q * (q - 1)) / s if q > 1 else 0.
+        # rho = (e^t - 1) / (e^t + q - 1)  =>  e^t = (1 + (q - 1) rho) / (1 - rho)
+        return np.array([np.log(s), np.log((1 + (q - 1) * rho) / (1 - rho))])
+
+    def more_penalty(self, theta):
+        """A smaller covariance: the variance down, the correlation towards 0."""
+        return np.array([-1., -np.sign(theta[1])])
+
+
+class DiagonalPenalty(CovariancePenalty):
+    """A diagonal covariance (nlme's `pdDiag`): independent effects, `theta` their log variances."""
+
+    @property
+    def off_diagonal_params(self):
+        return np.zeros(self.q, bool)
+
+    def covariance(self, theta):
+        return np.diag(np.exp(np.asarray(theta, float)))
+
+    def derivatives(self, theta):
+        v = np.exp(np.asarray(theta, float))
+        out = []
+        for k in range(self.q):
+            D = np.zeros((self.q, self.q))
+            D[k, k] = v[k]
+            out.append(D)
+        return out
+
+    def parameters(self, Sigma):
+        return np.log(np.diag(Sigma))
+
+    def more_penalty(self, theta):
+        return -np.ones(self.q)
+
+
+def covariance_penalty(kind, idx, name, effect_names):
+    """The penalty of a correlated random effect term's covariance structure `kind`."""
+    q = np.asarray(idx).shape[1]
+    if kind == 'unstructured':
+        names = [f'{name}[{a},{b}]' for a, b in zip(*np.tril_indices(q))]
+        return CholeskyPenalty(idx, names)
+    if kind == 'compound_symmetry':
+        return CompoundSymmetryPenalty(idx, [f'{name}[variance]', f'{name}[correlation]'])
+    if kind == 'diagonal':
+        return DiagonalPenalty(idx, [f'{name}[{e}]' for e in effect_names])
+    raise ValueError("covariance should be one of 'unstructured', 'compound_symmetry' or 'diagonal'")

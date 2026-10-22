@@ -476,8 +476,9 @@ is not precise enough to converge.
 **Not yet.**
 
 - Sparse and matrix-free implementations of the four operations (below).
-- Structured covariances of correlated random effects (compound symmetry,
-  AR(1)).
+- Other structured covariances of correlated random effects (banded,
+  AR(1)); compound symmetry and diagonal are `CompoundSymmetryPenalty` and
+  `DiagonalPenalty`.
 - The `Vc` correction.
 - `lo()` terms, which have no basis.
 
