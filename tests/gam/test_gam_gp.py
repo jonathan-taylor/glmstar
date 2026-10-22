@@ -286,3 +286,14 @@ def test_sklearn_gpr(data, case, weights):
             R = _sklearn_fit(D, cols, nu, rho, sigma2, sigma2 / (lam_k * w.sum()), w)
             np.testing.assert_allclose(-reml - np.log(2 * np.pi * FLAT) / 2,
                                        R.log_marginal_likelihood_value_, rtol=1e-7)
+
+
+def test_basis_in_blocks():
+    # the basis is computed in blocks of rows (the correlations with the
+    # knots are never formed for all rows): the same as in one
+    rng = np.random.default_rng(4)
+    X = rng.uniform(0, 1, (500, 2))
+    term = gp(0, 1).setup(X)
+    full = term.basis()
+    term.block_rows = 7
+    np.testing.assert_allclose(term.basis(X), full, rtol=1e-13, atol=1e-14)
