@@ -14,7 +14,7 @@
   of 2000 x 500 crossed levels take seconds. They agree with the dense
   posterior covariance to 1e-8 and with lmer's `vcov` to 1e-4.
   `summary()` no longer forms the dense covariance for a method that does
-  without it (`CrossedMoments`).
+  without it (`CrossedMoments`) (#170).
 - **`glmnet.gam`: pluggable methods for the penalty parameters.**
   `GAM(method=...)` takes a `SmoothingMethod` (`glmnet.gam.selection`)
   as well as `'fixed'`, `'REML'` or `'ML'` (now the `Fixed` and `Laplace`
