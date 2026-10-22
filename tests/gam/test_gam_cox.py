@@ -372,9 +372,11 @@ def test_cox_reml_brain_cancer(method):
     # 57). mgcv's cox.ph gives s(gtv) edf 1
     import warnings
     ISLP = pytest.importorskip('ISLP')
+    from glmnet.gam import ExperimentalWarning
     B = ISLP.load_data('BrainCancer').dropna()
     with warnings.catch_warnings():
         warnings.simplefilter('error', UserWarning)
+        warnings.simplefilter('ignore', ExperimentalWarning)
         G = GAM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
                 family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
                 method=method).fit(B, B[['time', 'status']])
