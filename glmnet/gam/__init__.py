@@ -72,6 +72,7 @@ from .terms import (Term,
                     penalized_columns,
                     linear,
                     factor)
+from .tensor import TensorTerm, tensor_spline
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning
