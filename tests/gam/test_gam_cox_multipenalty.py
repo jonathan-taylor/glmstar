@@ -36,11 +36,19 @@ def data():
     C = rng.exponential(2, n)
     D['time'] = np.minimum(T, C)
     D['status'] = (T <= C).astype(int)
+    # a surface curved in both columns (sin(2 pi x) z is linear in z: the
+    # tensor product's second smoothing parameter goes to infinity, where
+    # the Cox gradient's precision, from differences of the information,
+    # does not converge on every platform)
+    eta2 = 1.2 * np.sin(2 * np.pi * D['x']) * np.cos(np.pi * D['z']) + b[code, 0] + b[code, 1] * D['z']
+    T2 = rng.exponential(1 / np.exp(eta2))
+    D['time2'] = np.minimum(T2, C)
+    D['status2'] = (T2 <= C).astype(int)
     return D
 
 
-def _family():
-    return CoxFamily(event_id='time', status_id='status', tie_breaking='breslow')
+def _family(event='time', status='status'):
+    return CoxFamily(event_id=event, status_id=status, tie_breaking='breslow')
 
 
 COLS = [f'c{k}' for k in range(6)]
@@ -69,8 +77,8 @@ def test_split_penalties_are_separate_terms(data, method):
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 def test_gradient(data, method):
     from glmnet.gam.reml import CoxLaplaceCriterion
-    G = GAM(terms=[te('x', 'z'), cre('g', slopes=['z'])], family=_family(), method=method,
-            control=TIGHT).fit(data, data)
+    G = GAM(terms=[te('x', 'z'), cre('g', slopes=['z'])], family=_family('time2', 'status2'),
+            method=method, control=TIGHT).fit(data, data)
     assert G.smoothing_.converged
     C = CoxLaplaceCriterion(G, [0, 1], method=method)
     assert C.n_rho == 5

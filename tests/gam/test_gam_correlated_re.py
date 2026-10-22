@@ -34,6 +34,11 @@ def data():
               b[code, 1] * D['days'] + 25 * rng.standard_normal(G * T))
     eta = -1 + 0.2 * D['days'] + (b[code, 0] + b[code, 1] * D['days']) / 30
     D['yb'] = rng.binomial(1, 1 / (1 + np.exp(-eta)))
+    # proportions of 20 trials, with effects large enough to identify their
+    # covariance (the 0/1 response's is singular, as glmer finds)
+    eta2 = -1 + 0.1 * D['days'] + (b[code, 0] + b[code, 1] * D['days']) / 25
+    D['trials'] = 20.
+    D['pb'] = rng.binomial(20, 1 / (1 + np.exp(-eta2))) / 20
     return D
 
 
@@ -97,9 +102,13 @@ def test_diagonal_is_two_re(data):
 def test_gradient(data, family, method):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
-    fam, y = (sm.families.Gaussian(), 'y') if family == 'gaussian' else (sm.families.Binomial(), 'yb')
-    G = GAM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])], family=fam,
-            method=method, control=GAMControl(**TIGHT)).fit(data, data[y])
+    if family == 'gaussian':
+        G = GAM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])],
+                method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
+    else:
+        G = GAM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])],
+                family=sm.families.Binomial(), method=method, control=GAMControl(**TIGHT),
+                response_id='pb', weight_id='trials').fit(data, data[['pb', 'trials']])
     assert G.smoothing_.converged
     with jax.enable_x64(True):
         C = LaplaceCriterion(G, [1, 2], method=method)
@@ -171,3 +180,29 @@ def test_glmer(Rinfo, data):
     np.testing.assert_allclose(np.sqrt(np.diag(Sigma)), sd[:2], rtol=1e-4)
     np.testing.assert_allclose(G.predict(data, prediction_type='link'),
                                _get(Rinfo, 'as.numeric(predict(m))'), rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize('method', ['REML', 'ML'])
+def test_glmer_proportions(Rinfo, data, method):
+    # binomial proportions with a well-determined covariance: our ML is
+    # glmer's nAGQ=0; REML converges to the interior optimum (its search
+    # first fits the covariance diagonal, then all of it)
+    pytest.importorskip('jax')
+    rpy = _R(Rinfo, data[['subject', 'days', 'pb', 'trials']])
+    G = GAM(terms=[linear('days'), cre('subject', slopes=['days'])], family=sm.families.Binomial(),
+            method=method, control=GAMControl(**TIGHT), response_id='pb',
+            weight_id='trials').fit(data, data[['pb', 'trials']])
+    assert G.smoothing_.converged
+    Sigma = G.terms_[1].covariance_.to_numpy()
+    corr = Sigma[0, 1] / np.sqrt(Sigma[0, 0] * Sigma[1, 1])
+    assert 0.5 < corr < 0.95
+    if method == 'ML':
+        rpy.r("""m <- lme4::glmer(cbind(pb * trials, trials - pb * trials) ~ days + (1 + days | subject),
+                                  data=D, family=binomial, nAGQ=0,
+                                  control=lme4::glmerControl(optimizer='bobyqa', tolPwrss=1e-12,
+                                                             optCtrl=list(rhoend=1e-10)))
+                 vc <- as.data.frame(lme4::VarCorr(m))""")
+        sd = _get(Rinfo, 'vc$sdcor')
+        np.testing.assert_allclose(np.sqrt(np.diag(Sigma)), sd[:2], rtol=1e-4)
+        np.testing.assert_allclose(corr, sd[2], rtol=1e-4)
+        np.testing.assert_allclose(-G.reml_score_, _get(Rinfo, 'as.numeric(logLik(m))')[0], rtol=1e-7)
