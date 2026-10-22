@@ -151,6 +151,17 @@
 
 ### Documentation
 
+- **The crossed-effects page has a binary response**, as in Ghosh, Hastie
+  and Owen's scalable logistic regression with crossed random effects. It
+  writes Schall's (1991) PQL as a second `SmoothingMethod`, one that
+  alternates warm-started inner fits with updates of the variances. It
+  uses their O(N) trace approximation, which ignores the crossing in the
+  random effects' penalized information. The section compares it with
+  Laplace approximate ML: PQL's variances are smaller, as Breslow and
+  Clayton found, the fixed effects close, and it is much faster. It also
+  shows a naive logistic regression's standard errors, and run times up
+  to 100,000 ratings, about linear. The tests copy the method and check
+  the trace approximation against the exact traces (#176).
 - **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
   Owen on simulated ratings (customers × items, very unbalanced). It
   writes the method-of-moments variances as a `SmoothingMethod`, with a
