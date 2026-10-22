@@ -9,7 +9,7 @@
   `'batch:cask'`, so nested effects such as lme4's `(1 | batch/cask)` are
   `re('batch') + re(['batch', 'cask'])`. `by=` slopes, new data (unseen
   combinations predict 0) and positional columns work as for one column.
-  Checked against `lmer` under REML and ML.
+  Checked against `lmer` under REML and ML (#161).
 
 ## 0.4.0 (2026-10-21)
 
