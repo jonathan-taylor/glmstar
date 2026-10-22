@@ -11,7 +11,7 @@
   the residuals (REML's dispersion, and each term's prior size against its
   penalized degrees of freedom) and the implicit derivative of the fitted
   coefficients. It ends with the design of `glmnet.gam.reml`. The same
-  checks are tests (`tests/gam/test_gam_reml_byhand.py`).
+  checks are tests (`tests/gam/test_gam_reml_byhand.py`) (#158).
 
 ## 0.4.0 (2026-10-21)
 
