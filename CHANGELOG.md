@@ -12,7 +12,7 @@
   structure) and how its smoothing parameter or variance is chosen. It
   needs only the specification, so it works before fitting. This replaces
   scikit-learn's HTML diagram for `GAM`. The GAM pages of the docs display
-  their models.
+  their models (#181).
 - **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
   gives the intercept and the coefficients of linear terms and blocks of
   columns, with standard errors from the posterior covariance (for the
