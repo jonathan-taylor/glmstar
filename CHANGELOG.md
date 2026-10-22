@@ -147,6 +147,13 @@
 
 ### Documentation
 
+- **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
+  Owen on simulated ratings (customers × items, very unbalanced). It
+  covers the method-of-moments variances (`CrossedMoments`), GLS by
+  backfitting, and `fixed_effects_`. It shows OLS's naive standard errors,
+  the BLUPs' shrinkage, and run times about linear in N up to 400,000
+  ratings (48,000 random effects; the fit about 2 s), against REML on a
+  small problem (#171).
 - **A Poisson GAM: bike sharing** (`docs/gam_bikeshare.md`), on ISLP's
   `Bikeshare` data, after the ISLR lab's Poisson regression: smooths of the
   hour and the temperature with REML, a tensor product of the two, the
