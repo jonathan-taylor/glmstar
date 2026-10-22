@@ -33,8 +33,10 @@ algorithm costs $O(N)$:
    random effect's update is a vector of shrunken group means;
 3. its standard errors, from backfitting the columns of $X$.
 
-In `glmnet.gam` these are `method=CrossedMoments()`, `GAM`'s backfitting,
-and `fixed_effects_`. None of the three forms the $N \times P$ design or a
+In `glmnet.gam` the first is a method for choosing the penalty parameters,
+which this page writes. It's a `SmoothingMethod`, around the library's
+`moment_equations`. The second is `GAM`'s backfitting, and the third
+`fixed_effects_`. None of the three forms the $N \times P$ design or a
 $P \times P$ matrix.
 
 ```{code-cell} ipython3
@@ -45,10 +47,134 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, re, linear, CrossedMoments, ExperimentalWarning
+from glmnet.gam import GAM, GAMControl, re, linear, ExperimentalWarning
 
 warnings.simplefilter('ignore', ExperimentalWarning)
 ```
+
+## Writing the method
+
+`GAM(method=...)` takes a string (`'fixed'`, `'REML'`, `'ML'`) or a
+`SmoothingMethod`. A method chooses the penalty parameters of the terms
+that `GAM` was not given: smoothing parameters, random effects' variances.
+Ghosh, Hastie and Owen's first step is such a method.
+
+**The moments.** For random intercepts of $K$ crossed factors, $r_i =
+\sum_k a^k_{g_k(i)} + e_i$, Gao and Owen's statistics are linear in the
+variances in expectation:
+
+- the sum of squares within the levels of each factor;
+- $N$ times the total sum of squares.
+
+Their expectations' coefficients are sums of squared counts of the levels
+and of their pairs. `glmnet.gam.moments.moment_equations(r, codes)` gives
+the statistics and that matrix in $O(N)$, from the factors' level codes.
+Solving the $(K + 1) \times (K + 1)$ system gives the variances and
+$\sigma_E^2$.
+
+**The method.** `select(gam, dispersion)` does the following:
+
+1. It finds the terms whose parameters it is to choose
+   (`estimated_terms(gam)`: the penalized terms given neither `lam` nor
+   `df`), and checks that it can.
+2. It fits the model without them (their smoothing parameters very large:
+   their effects 0), by `gam.inner_fit()`, and takes the residuals.
+3. It solves the moment equations, and sets each term's smoothing
+   parameter to $\lambda_k = \hat\sigma_E^2/\hat\sigma_k^2$ (on the scale
+   of the sum of the prior weights, `GAM`'s objective).
+4. It reports what it did, as a `SmoothingSelection`.
+
+`GAM` then fits with those parameters, by backfitting: the GLS fit and
+the random effects' predictions.
+
+```{code-cell} ipython3
+from statsmodels.genmod.families import family as sm_family, links as sm_links
+
+from glmnet.gam import SmoothingMethod
+from glmnet.gam.selection import estimated_terms
+from glmnet.gam.reml import SmoothingSelection
+from glmnet.gam.terms import RandomEffectTerm
+from glmnet.gam.moments import moment_equations
+
+
+class CrossedMoments(SmoothingMethod):
+    """Method-of-moments variances of crossed random intercepts (Gaussian, equal weights)."""
+    name = 'moments'
+    joint = False           # backfit: GAM never forms the design
+    covariance_edf = False  # the terms' own edf, not mgcv's (the dense P x P covariance)
+
+    def select(self, gam, dispersion=None):
+        base = gam._family.base
+        if not (isinstance(base, sm_family.Gaussian) and isinstance(base.link, sm_links.Identity)):
+            raise ValueError('the method of moments is for the Gaussian family')
+        weight = np.asarray(gam._weight, float)
+        if not np.allclose(weight, weight[0]):
+            raise ValueError('the method of moments needs equal prior weights')
+        estimated = estimated_terms(gam)
+        terms = gam.terms_
+        for j in estimated:
+            if not isinstance(terms[j], RandomEffectTerm) or terms[j].by is not None:
+                raise ValueError(f'{terms[j].name}: give its lam (only random intercepts here)')
+
+        # 1. the fit without the random effects, and its residuals
+        for j in estimated:
+            terms[j].lam = 1e12
+        state = gam.inner_fit()
+        r = np.asarray(gam._response, float) - np.asarray(state.mu, float)
+
+        # 2. the moment equations, solved; a negative variance is set to 0
+        U, A = moment_equations(r, [terms[j].codes_ for j in estimated])
+        variances = np.linalg.solve(A, U)
+        s2, phi = np.maximum(variances[:-1], 0.), float(variances[-1])
+
+        # 3. the smoothing parameters, phi / s_k^2, on the prior weights' scale
+        W = weight.sum()
+        lam_raw = np.where(s2 > 0, phi / np.where(s2 > 0, s2, 1.), 1e12 * W)
+        for j, lam in zip(estimated, lam_raw):
+            terms[j].lam = float(lam) / W
+
+        return SmoothingSelection(method=self.name, terms=[terms[j].name for j in estimated],
+                                  lam=lam_raw / W, lam_raw=lam_raw, theta=np.log(lam_raw),
+                                  dispersion=phi if dispersion is None else dispersion,
+                                  score=np.nan, gradient=np.zeros(0),
+                                  converged=bool(gam.converged_), n_evaluations=1)
+```
+
+### Why `select()` is designed this way
+
+- **A method declares what the fit needs.** `GAM` has to decide some
+  things before it fits, and the method states them as attributes:
+  - `joint`: backfit, or build the design for the joint solve, which REML
+    needs;
+  - `covariance_edf`: whether to report mgcv's edf, which form the dense
+    $P \times P$ covariance;
+  - `experimental`: whether to warn.
+
+  Saying no to the first two is what keeps this fit linear in $N$. A
+  plain callback could not say it.
+- **The method chooses; `GAM` fits.** `select()` sets the parameters on
+  the terms and returns. Fitting, finalizing the terms, the dispersion and
+  the covariances stay `GAM`'s, so a method can't get them wrong. Within
+  `select()` a method may fit as often as it needs, with
+  `gam.inner_fit()`. This one fits once, without the random effects.
+  Another, such as mgcv's extended Fellner–Schall update, would alternate
+  fits and updates.
+- **A contract on the terms.** `estimated_terms(gam)` says which terms
+  the method owns; terms given `lam` keep it, and those given `df` have
+  it matched first. The method sets theirs with the terms' own setters
+  (`lam`, `set_penalty_lams`, or `set_precision` for correlated random
+  effects).
+- **One report.** Whatever the method, `smoothing_` is a
+  `SmoothingSelection`, and `variance_components_`, `dispersion_` and the
+  covariances follow from the parameters it set. A user-given
+  `dispersion` comes in, and the method's estimate goes back out.
+- **REML is one method, not the framework.** `'REML'` and `'ML'` are the
+  built-in `Laplace` method, which needs the Hessian operations of
+  `glmnet.gam.linalg`. This method needs only residuals and counts.
+
+The method is short, so this page writes it out instead of the library
+providing it. It's specific to its setting (Gaussian, equal weights,
+random intercepts), and it's a template for other methods.
 
 ## Simulated ratings
 
@@ -204,8 +330,8 @@ pd.concat({'REML': reml.fixed_effects_, 'moments': moments.fixed_effects_}, axis
 
 ## What is not covered
 
-- `CrossedMoments` is for a Gaussian response with equal prior weights, and
-  random intercepts. Random slopes and non-Gaussian responses (Ghosh,
+- The method above is for a Gaussian response with equal prior weights,
+  and random intercepts. Random slopes and non-Gaussian responses (Ghosh,
   Hastie and Owen's logistic regression with crossed random effects) are
   not yet available.
 - `fixed_effects_` is for linear terms and blocks of columns; a factor

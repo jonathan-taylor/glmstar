@@ -17,10 +17,10 @@ A method can use:
   (`glmnet.gam.penalties`) are its own objects.
 
 Built in: `Fixed` (the terms' `lam` or `df`, as R's `gam`) and `Laplace`
-(REML or ML, as mgcv's). `glmnet.gam.moments.CrossedMoments` estimates the
-variances of crossed random effects by the method of moments, in time
-linear in the number of observations (Gao & Owen, 2017; Ghosh, Hastie &
-Owen, 2022).
+(REML or ML, as mgcv's). The documentation's page "Crossed random effects
+at scale" writes one: the method of moments for the variances of crossed
+random effects, in time linear in the number of observations
+(`glmnet.gam.moments`; Gao & Owen, 2017; Ghosh, Hastie & Owen, 2022).
 """
 import numpy as np
 
