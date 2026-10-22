@@ -119,7 +119,7 @@
   by ML criteria and AIC; then the overdispersion (Pearson's statistic, a
   fixed dispersion, a random effect of the day) and its effect on the
   smoothing and the standard errors, and predictions with standard errors
-  (#PR).
+  (#169).
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
   the updated list of what is not supported yet (#166).
@@ -155,7 +155,7 @@
   Poisson:** `fit(X, y, dispersion=phi)` set `dispersion_` (and so the
   standard errors) to `phi`, but the criterion that chose the smoothing
   parameters used 1. It now uses `phi`, a quasi-likelihood's dispersion:
-  the fit is that with prior weights `1 / phi` (a test) (#PR).
+  the fit is that with prior weights `1 / phi` (a test) (#169).
 - **`glmnet.gam` REML/ML for the Cox family converged short on Windows**
   (two tests failed on its CI, Efron's ties with start times and strata).
   Near the optimum, the Cox criterion's value depends a little (about 3e-10,
