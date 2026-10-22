@@ -152,7 +152,7 @@
 ### Documentation
 
 - The "Generalized additive models" chapter comes after "GLMNet paths" in
-  the table of contents, before "Inference".
+  the table of contents, before "Inference" (#180).
 - **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
   Owen on simulated ratings (customers × items, very unbalanced). It
   writes the method-of-moments variances as a `SmoothingMethod`, with a
