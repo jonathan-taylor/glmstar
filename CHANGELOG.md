@@ -35,7 +35,7 @@
   they are the ANOVA estimators. 200,000 observations of 2000 × 500
   crossed levels take about 2 seconds (#168). The method was
   `glmnet.gam.CrossedMoments`; it is now the page's example of writing a
-  method, and the library keeps the equations.
+  method, and the library keeps the equations (#175).
 - **Cox REML/ML for every kind of penalty:** tensor products, several
   penalties per term and correlated random effects, on the penalty objects
   and `DenseHessian`, as the other families. As in theirs, one Newton step
