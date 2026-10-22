@@ -4,6 +4,23 @@
 
 ### New features
 
+- **`glmnet.gam`: pluggable methods for the penalty parameters.**
+  `GAM(method=...)` takes a `SmoothingMethod` (`glmnet.gam.selection`)
+  as well as `'fixed'`, `'REML'` or `'ML'` (now the `Fixed` and `Laplace`
+  methods). Its `select(gam, dispersion)` sets the estimated terms'
+  parameters (`estimated_terms(gam)`), using fits at given parameters
+  (`GAM.inner_fit()`), and says whether `GAM` needs the joint solve and
+  mgcv's edf. Those form the dense covariance; a method for large data
+  can do without them (#168).
+- **`CrossedMoments()`: the variances of crossed (or nested) random
+  intercepts by the method of moments**, in time linear in the number of
+  observations. These are Gao and Owen's U statistics, for any number of
+  factors, of the residuals of the fit without the random effects, as in
+  Ghosh, Hastie and Owen's backfitting for large crossed random effects.
+  `GAM` then fits by backfitting with them fixed: the GLS fit of the other
+  terms and the effects' predictions. On a balanced design they are the
+  ANOVA estimators. 200,000 observations of 2000 × 500 crossed levels take
+  about 2 seconds (#168).
 - **Cox REML/ML for every kind of penalty:** tensor products, several
   penalties per term and correlated random effects, on the penalty objects
   and `DenseHessian`, as the other families. As in theirs, one Newton step
@@ -127,6 +144,12 @@
   fixed dispersion, a random effect of the day) and its effect on the
   smoothing and the standard errors, and predictions with standard errors
   (#169).
+- **A page translating R models**, "GAMs and mixed models from R": tables
+  from `gam::gam`, `mgcv` and `lme4`/`nlme` to `glmnet.gam` terms and
+  attributes, with what each translation is checked against in the tests
+  and how closely it agrees. Also the differences in parametrization (the
+  smoothing parameters' scale, the REML criterion's constant, the standard
+  errors of random effects) and what has no translation yet (#167).
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
   the updated list of what is not supported yet. It adds ML and REML

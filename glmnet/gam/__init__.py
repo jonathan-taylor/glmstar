@@ -88,4 +88,6 @@ from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning
 from .estimator import GAM, GAMControl
+from .selection import SmoothingMethod, Fixed, Laplace
+from .moments import CrossedMoments
 from .plot import plot_term, plot_terms
