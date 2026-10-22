@@ -154,6 +154,20 @@
   the BLUPs' shrinkage, and run times about linear in N up to 400,000
   ratings (48,000 random effects; the fit about 2 s), against REML on a
   small problem (#171).
+- **A Poisson GAM: bike sharing** (`docs/gam_bikeshare.md`), on ISLP's
+  `Bikeshare` data, after the ISLR lab's Poisson regression: smooths of the
+  hour and the temperature with REML, a tensor product of the two, the
+  model split by the working day (there are no factor-by smooths), compared
+  by ML criteria and AIC; then the overdispersion (Pearson's statistic, a
+  fixed dispersion, a random effect of the day) and its effect on the
+  smoothing and the standard errors, and predictions with standard errors
+  (#169).
+- **A page translating R models**, "GAMs and mixed models from R": tables
+  from `gam::gam`, `mgcv` and `lme4`/`nlme` to `glmnet.gam` terms and
+  attributes, with what each translation is checked against in the tests
+  and how closely it agrees. Also the differences in parametrization (the
+  smoothing parameters' scale, the REML criterion's constant, the standard
+  errors of random effects) and what has no translation yet (#167).
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
   the updated list of what is not supported yet. It adds ML and REML
@@ -189,6 +203,11 @@
 
 ### Fixes
 
+- **`glmnet.gam` REML/ML ignored a given dispersion for the binomial and
+  Poisson:** `fit(X, y, dispersion=phi)` set `dispersion_` (and so the
+  standard errors) to `phi`, but the criterion that chose the smoothing
+  parameters used 1. It now uses `phi`, a quasi-likelihood's dispersion:
+  the fit is that with prior weights `1 / phi` (a test) (#169).
 - **`glmnet.gam` REML/ML for the Cox family converged short on Windows**
   (two tests failed on its CI, Efron's ties with start times and strata).
   Near the optimum, the Cox criterion's value depends a little (about 3e-10,
