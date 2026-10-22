@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### New features
+
+- **`glmnet.gam`: random effects of combinations of columns.**
+  `re(['batch', 'cask'])` gives one effect per combination, labelled
+  `'batch:cask'`, so nested effects such as lme4's `(1 | batch/cask)` are
+  `re('batch') + re(['batch', 'cask'])`. `by=` slopes, new data (unseen
+  combinations predict 0) and positional columns work as for one column.
+  Checked against `lmer` under REML and ML (#161).
+
 ### Documentation
 
 - **How REML and ML work in `glmnet.gam`** (`docs/gam_reml.md`): the
@@ -33,6 +42,7 @@
   lone `intercept` column. It warned "excluding the constant column(s)
   ['zero']" at every null model of the search (the ISLP Ch06 lab). Other
   constant columns still warn (#155).
+
 ### Changed
 
 - **`glmnet.gam`'s REML and ML are marked experimental:**
