@@ -32,7 +32,7 @@ from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .joint import JointDesign, JointRegularizer
 from .selection import resolve_method, SmoothingMethod
-from .terms import SplineTerm, Term
+from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm
 
 
 @dataclass
@@ -483,6 +483,7 @@ class GAM(BaseEstimator):
         first used.
         """
         self._covariance_weights, self._covariance = w, None
+        self._fixed_covariance = None
         self._covariance_cox_weights = self._normed_weight
 
     def _get_covariance(self):
@@ -652,10 +653,102 @@ class GAM(BaseEstimator):
         """
         lam = [getattr(term, 'lam_', np.nan) for term in self.terms_]
         table = pd.DataFrame({'edf': self.edf_.values}, index=self.edf_.index)
-        if self.edf_influence_ is not None:
+        # (mgcv's edf form the dense covariance: not for a method for large
+        # data, which says it does without them)
+        method = getattr(self, '_method', None)
+        if (method is None or not method.estimates or method.covariance_edf) and \
+           self.edf_influence_ is not None:
             table['edf_influence'] = self.edf_influence_.values
         table['lam'] = lam
         return table
+
+    @property
+    def fixed_effects_(self):
+        """
+        The intercept and the coefficients of the linear terms (`linear()`,
+        and blocks of columns), with their standard errors from the posterior
+        covariance (for the Gaussian, the generalized least squares standard
+        errors, lme4's `vcov`). With random effects (and blocks of penalized
+        columns) as the only penalized terms, they come from backfitting
+        those terms on the linear terms' columns, never forming the dense
+        design: the linear coefficients' block of the inverse of `H` is that
+        of `X_F' W (I - S) X_F`, `S` the random effects' smoother (their joint
+        penalized fit). Otherwise from `posterior_covariance_`.
+        """
+        cov = self.fixed_effects_covariance_
+        estimates = [float(self.intercept_)]
+        for term in self.terms_:
+            if isinstance(term, SlopeTerm):
+                estimates.append(float(np.atleast_1d(term.coef_)[0]))
+            elif isinstance(term, ColumnsTerm):
+                estimates.extend(np.atleast_1d(term.coef_).astype(float))
+        return pd.DataFrame({'estimate': estimates, 'std_error': np.sqrt(np.diag(cov))},
+                            index=cov.index)
+
+    @property
+    def fixed_effects_covariance_(self):
+        """The covariance of `fixed_effects_` (see there)."""
+        if getattr(self, '_fixed_covariance', None) is None:
+            self._fixed_covariance = self._compute_fixed_covariance()
+        return self._fixed_covariance
+
+    def _fixed_terms(self):
+        """The linear terms' columns (centered) and names, and the other terms."""
+        if self._cox:
+            raise NotImplementedError('fixed_effects_ of a Cox GAM: no intercept')
+        columns, names, others = [np.ones(self.state_.fits.shape[0])], ['intercept'], []
+        for j, term in enumerate(self.terms_):
+            if isinstance(term, SlopeTerm):
+                columns.append(term.linear_columns()[:, 0])
+                names.append(term.name)
+            elif isinstance(term, ColumnsTerm):
+                X = term.linear_columns()
+                columns.extend(X.T)
+                labels = term.column if isinstance(term.column, list) else [term.column]
+                names.extend(f'{term.name}[{c}]' for c in labels)
+            elif term.penalty_matrix() is None:
+                raise NotImplementedError(f'fixed_effects_: {term.name} (unpenalized, not a '
+                                          'linear term) is not supported; give its columns '
+                                          'as a block of columns')
+            else:
+                others.append(j)
+        return np.column_stack(columns), names, others
+
+    def _compute_fixed_covariance(self):
+        F, names, others = self._fixed_terms()
+        w = self._covariance_weights
+        terms = [self.terms_[j] for j in others]
+        if all(not term.centered for term in terms):
+            # backfit the random effects on each column: (I - S) F
+            for term in terms:
+                term.set_weights(w)
+            resid = np.empty_like(F)
+            for c in range(F.shape[1]):
+                v = F[:, c]
+                fits = np.zeros((F.shape[0], len(terms)))
+                for sweep in range(self.control.bf_maxit):
+                    old = fits.copy()
+                    total = fits.sum(1)
+                    for k, term in enumerate(terms):
+                        f = term.smooth(v - (total - fits[:, k]))
+                        total += f - fits[:, k]
+                        fits[:, k] = f
+                    change = np.linalg.norm(fits - old) / (0.1 + np.linalg.norm(fits))
+                    if change < self.control.bf_tol:
+                        break
+                resid[:, c] = v - fits.sum(1)
+            M = F.T @ (w[:, None] * resid)
+            cov = self.dispersion_ * np.linalg.inv((M + M.T) / 2) / self.weight_total_
+        else:
+            # a smooth among the penalized terms: the block of the posterior
+            # covariance (the dense design)
+            D = self.design_
+            idx = [0]
+            for j, term in enumerate(self.terms_):
+                if isinstance(term, (SlopeTerm, ColumnsTerm)):
+                    idx.extend(range(D.slices[j].start, D.slices[j].stop))
+            cov = self.posterior_covariance_[np.ix_(idx, idx)]
+        return pd.DataFrame(cov, index=names, columns=names)
 
     # as for GLM: they use only the response, weights, family and state_
     _on_train_index = GLM._on_train_index

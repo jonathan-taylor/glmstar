@@ -144,3 +144,75 @@ def test_errors():
         GAM(terms=[re('g', by='x')], method=CrossedMoments()).fit(D, D['y'])
     with pytest.raises(ValueError, match="method should be one of"):
         GAM(terms=[re('g')], method='GCV').fit(D, D['y'])
+
+
+@pytest.fixture(scope='module')
+def crossed():
+    from glmnet.gam.terms import ColumnsTerm  # noqa: F401
+    rng = np.random.default_rng(0)
+    N, R, C = 3000, 60, 40
+    row, col = rng.integers(0, R, N), rng.integers(0, C, N)
+    D = pd.DataFrame({'row': row, 'col': col, 'x': rng.standard_normal(N),
+                      'z1': rng.standard_normal(N), 'z2': rng.uniform(size=N)})
+    D['y'] = (1 + 0.5 * D['x'] + 0.2 * D['z1'] - D['z2'] + rng.normal(0, 1, R)[row] +
+              rng.normal(0, 0.6, C)[col] + rng.normal(0, 1, N))
+    return D
+
+
+@pytest.mark.parametrize('method', ['REML', 'moments'])
+def test_fixed_effects_by_backfitting(crossed, method):
+    # the backfitted covariance of the linear coefficients is the block of
+    # the posterior covariance (the dense design)
+    from glmnet.gam.terms import ColumnsTerm
+    D = crossed
+    if method == 'REML':
+        pytest.importorskip('jax')
+    G = GAM(terms=[linear('x'), ColumnsTerm(['z1', 'z2']), re('row'), re('col')],
+            method=CrossedMoments() if method == 'moments' else method,
+            control=GAMControl(bf_tol=1e-13, bf_maxit=5000, epsnr=1e-12)).fit(D, D['y'])
+    fe = G.fixed_effects_
+    design = G.design_
+    idx = [0, design.slices[0].start, design.slices[1].start, design.slices[1].start + 1]
+    np.testing.assert_allclose(G.fixed_effects_covariance_.values,
+                               G.posterior_covariance_[np.ix_(idx, idx)], rtol=1e-8)
+    np.testing.assert_allclose(fe['estimate'].values[1:], [0.5, 0.2, -1], atol=0.1)
+    assert list(fe.index)[:2] == ['intercept', 'linear(x)']
+
+
+def test_fixed_effects_lmer(Rinfo, crossed):
+    # REML: lme4's fixed effects and vcov (the GLS standard errors)
+    pytest.importorskip('jax')
+    rpy = Rinfo['rpy']
+    if not rpy.r('isTRUE(requireNamespace("lme4", quietly=TRUE))')[0]:
+        pytest.skip('requires the R package lme4')
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('D', crossed)
+    rpy.r("""m <- lme4::lmer(y ~ x + z1 + z2 + (1 | row) + (1 | col), data=D, REML=TRUE,
+                         control=lme4::lmerControl(optimizer='bobyqa', optCtrl=list(rhoend=1e-12)))""")
+    G = GAM(terms=[linear('x'), linear('z1'), linear('z2'), re('row'), re('col')], method='REML',
+            control=GAMControl(bf_tol=1e-13, bf_maxit=5000, epsnr=1e-12)).fit(crossed, crossed['y'])
+    with Rinfo['np_cv_rules'].context():
+        se_R = np.sqrt(np.diag(np.asarray(rpy.r('as.matrix(vcov(m))'))))
+        beta_R = np.asarray(rpy.r('lme4::fixef(m)'))
+    fe = G.fixed_effects_
+    # (the slopes; lme4's intercept is at x = z = 0, ours at their means)
+    np.testing.assert_allclose(fe['estimate'].values[1:], beta_R[1:], rtol=1e-5)
+    np.testing.assert_allclose(fe['std_error'].values[1:], se_R[1:], rtol=1e-4)
+
+
+def test_fixed_effects_large():
+    # 200,000 observations of 2000 x 500 crossed levels: the standard errors
+    # by backfitting, without the design (2501 columns)
+    rng = np.random.default_rng(1)
+    N, R, C = 200000, 2000, 500
+    row, col = rng.integers(0, R, N), (rng.zipf(1.5, N) - 1) % C
+    x = rng.standard_normal(N)
+    y = 1 + 0.5 * x + rng.normal(0, 1, R)[row] + rng.normal(0, 0.5, C)[col] + rng.normal(0, 2, N)
+    D = pd.DataFrame({'row': row, 'col': col, 'x': x, 'y': y})
+    G = GAM(terms=[linear('x'), re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
+    fe = G.fixed_effects_
+    assert G._covariance is None          # (the dense covariance was not formed)
+    # near the OLS standard error of the slope: x is independent of the effects
+    se_ols = np.sqrt(G.dispersion_ / np.sum((x - x.mean())**2))
+    np.testing.assert_allclose(fe.loc['linear(x)', 'std_error'], se_ols, rtol=0.05)
+    assert 'edf_influence' not in G.summary()
