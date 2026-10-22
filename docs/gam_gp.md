@@ -59,7 +59,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, gp, s, re, factor, plot_term
+from glmnet.gam import GAM, gaussian_process, s, re, factor, plot_term
 
 rng = np.random.default_rng(0)
 ```
@@ -81,7 +81,7 @@ A GP term and a cubic smoothing spline, each with its smoothing parameter
 chosen by REML:
 
 ```{code-cell} ipython3
-fit_gp = GAM(terms=[gp('x', k=30)], method='REML').fit(curve, curve['y'])
+fit_gp = GAM(terms=[gaussian_process('x', k=30)], method='REML').fit(curve, curve['y'])
 fit_s = GAM(terms=[s('x')], method='REML').fit(curve, curve['y'])
 pd.DataFrame({'edf': [fit_gp.edf_.iloc[0], fit_s.edf_.iloc[0]],
               'REML': [fit_gp.reml_score_, fit_s.reml_score_]},
@@ -116,7 +116,7 @@ smooth as its trend, with the smoothing parameter estimated in each case.
 fig, ax = plt.subplots(figsize=(7, 4))
 ax.plot(curve['x'], curve['y'], '.', color='0.7')
 for rho in [0.02, 0.1, 0.5, 2.]:
-    fit = GAM(terms=[gp('x', k=30, range=rho)], method='REML').fit(curve, curve['y'])
+    fit = GAM(terms=[gaussian_process('x', k=30, range=rho)], method='REML').fit(curve, curve['y'])
     ax.plot(grid['x'], fit.predict(grid), label=f'range {rho}: edf {fit.edf_.iloc[0]:.1f}')
 ax.legend();
 ```
@@ -132,7 +132,8 @@ ranges = np.geomspace(0.01, 0.5, 15)
 kernels = {'Matern 1.5': dict(nu=1.5), 'Matern 2.5': dict(nu=2.5),
            'Matern 3.5': dict(nu=3.5), 'exponential': dict(nu=0.5)}
 t0 = time.time()
-profile = pd.DataFrame({name: [GAM(terms=[gp('x', k=20, range=rho, **kw)], method='REML')
+profile = pd.DataFrame({name: [GAM(terms=[gaussian_process('x', k=20, range=rho, **kw)],
+                                   method='REML')
                                .fit(curve, curve['y']).reml_score_ for rho in ranges]
                         for name, kw in kernels.items()}, index=ranges)
 print(f'{profile.size} fits in {time.time() - t0:.1f}s')
@@ -154,7 +155,7 @@ with a warning; hence the grid stops at 0.5 here.)
 
 ## A surface
 
-In two (or more) columns `gp` is an isotropic process: distances are
+In two (or more) columns `gaussian_process` is an isotropic process: distances are
 Euclidean, so the columns should be on comparable scales (coordinates in
 the same units). Simulated data at 500 irregular locations:
 
@@ -167,7 +168,7 @@ n = 500
 spatial = pd.DataFrame({'u': rng.uniform(0, 1, n), 'v': rng.uniform(0, 1, n)})
 spatial['y'] = surface(spatial['u'], spatial['v']) + 0.2 * rng.standard_normal(n)
 t0 = time.time()
-fit_2d = GAM(terms=[gp('u', 'v', k=60)], method='REML').fit(spatial, spatial['y'])
+fit_2d = GAM(terms=[gaussian_process('u', 'v', k=60)], method='REML').fit(spatial, spatial['y'])
 print(f'{time.time() - t0:.1f}s')
 fit_2d.summary()
 ```
@@ -205,7 +206,7 @@ Any family: presence or absence, with the log odds a surface:
 n = 800
 pres = pd.DataFrame({'u': rng.uniform(0, 1, n), 'v': rng.uniform(0, 1, n)})
 pres['y'] = rng.binomial(1, 1 / (1 + np.exp(-2 * surface(pres['u'], pres['v']))))
-fit_b = GAM(terms=[gp('u', 'v', k=40)], family=sm.families.Binomial(),
+fit_b = GAM(terms=[gaussian_process('u', 'v', k=40)], family=sm.families.Binomial(),
             method='REML').fit(pres, pres['y'])
 print(f"edf {fit_b.edf_.iloc[0]:.1f}")
 P = fit_b.predict(pd.DataFrame({'u': U.ravel(), 'v': V.ravel()})).reshape(U.shape)
@@ -228,7 +229,7 @@ sites = pd.DataFrame({'site': [f's{i:02d}' for i in range(60)],
                       'effect': 0.3 * rng.standard_normal(60)})
 obs = sites.loc[np.repeat(np.arange(60), 8)].reset_index(drop=True)
 obs['y'] = surface(obs['u'], obs['v']) + obs['effect'] + 0.2 * rng.standard_normal(obs.shape[0])
-fit_re = GAM(terms=[gp('u', 'v'), re('site')], method='REML').fit(obs, obs['y'])
+fit_re = GAM(terms=[gaussian_process('u', 'v'), re('site')], method='REML').fit(obs, obs['y'])
 fit_re.variance_components_
 ```
 
@@ -259,8 +260,8 @@ from sklearn.gaussian_process.kernels import ConstantKernel, Matern
 
 sigma2, lam, rho = 0.09, 1e-3, 0.05
 nk = curve['x'].nunique()
-ours = GAM(terms=[gp('x', range=rho, trend=False, k=nk + 1, lam=lam)]).fit(curve, curve['y'],
-                                                                             dispersion=sigma2)
+ours = GAM(terms=[gaussian_process('x', range=rho, trend=False, k=nk + 1, lam=lam)])
+ours = ours.fit(curve, curve['y'], dispersion=sigma2)
 tau2 = sigma2 / (lam * curve.shape[0])
 kernel = (ConstantKernel(tau2, 'fixed') * Matern(np.sqrt(3) * rho, nu=1.5, length_scale_bounds='fixed')
           + ConstantKernel(1e5, 'fixed'))
@@ -277,7 +278,7 @@ print(f'largest differences: mean {np.abs(mean - mean_R).max():.1e}, sd {np.abs(
   `lam * sum(weights) * S.scale`) the fits, the edf and the standard
   errors agree, and REML and ML estimate the same smoothing parameters
   (`tests/gam/test_gam_gp_r.py`). mgcv's `m = c(code, range, power)` can be
-  given as `gp(..., m=(code, range, power))`. mgcv finds the eigenvectors
+  given as `gaussian_process(..., m=(code, range, power))`. mgcv finds the eigenvectors
   by Lanczos iterations to a tolerance of about $10^{-8}$ (relative to the
   largest eigenvalue), so that its eigenvectors of small eigenvalues, and
   its fits, are accurate to about $10^{-6}$ to $10^{-4}$; ours are exact.

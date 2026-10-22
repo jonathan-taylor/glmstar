@@ -3,7 +3,7 @@ Plots of the fitted terms of a GAM, as R's `plot.Gam` (and mgcv's
 `plot.gam`): each term's centered fit against its column, with pointwise
 standard error bands from the Bayesian covariance when it is available (all
 terms but loess), and a rug of the training data. A term of two columns (a
-Gaussian process surface, `gp(u, v)`) is drawn as filled contours over the
+Gaussian process surface, `gaussian_process(u, v)`) is drawn as filled contours over the
 data's bounding box, as mgcv's `plot.gam` (`too.far`).
 """
 import numpy as np
@@ -84,7 +84,7 @@ def plot_term(gam,
     its curve over the range of the column (`n_grid` points); a factor or a
     random effect as one point per level (per group; for `re(g, by=x)` the
     groups' slopes). The fits are centered, as the GAM's terms. A term of
-    two columns (`gp(u, v)`) is drawn as filled contours on an `n_grid` by
+    two columns (`gaussian_process(u, v)`) is drawn as filled contours on an `n_grid` by
     `n_grid` grid over the data's bounding box, without bands, the data
     marked as points (`rug`).
 

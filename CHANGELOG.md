@@ -4,7 +4,8 @@
 
 ### New features
 
-- **Gaussian process smooths in `glmnet.gam`:** `gp(x)`, `gp(lon, lat)` (any
+- **Gaussian process smooths in `glmnet.gam`:** `gaussian_process(x)`,
+  `gaussian_process(lon, lat)` (any
   number of columns), the low rank Gaussian process (kriging) smoother of
   Kammann & Wand (2003), as mgcv's `s(..., bs="gp")`: its knots, linear
   trend (or none, `trend=False`), Matern, power exponential and spherical

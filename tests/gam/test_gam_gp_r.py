@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, gp, factor, re
+from glmnet.gam import GAM, GAMControl, gaussian_process as gp, factor, re
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 GROUPS = [f'g{i}' for i in range(10)]

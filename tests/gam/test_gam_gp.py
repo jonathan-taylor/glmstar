@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, gp, factor, re, linear, plot_term
+from glmnet.gam import GAM, GAMControl, gaussian_process as gp, factor, re, linear, plot_term
 from glmnet.gam.gp import gp_correlation, GPTerm
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -186,10 +186,11 @@ def test_errors(data):
 
 
 def test_names():
-    assert gp('x').name == 'gp(x)'
-    assert gp('u', 'v', nu=2.5, range=0.5, k=40).name == 'gp(u, v, nu=2.5, range=0.5, k=40)'
-    assert gp('x', trend=False, df=4).name == 'gp(x, trend=False, df=4)'
-    assert gp('x', kernel='spherical').name == "gp(x, kernel='spherical')"
+    assert gp('x').name == 'gaussian_process(x)'
+    assert (gp('u', 'v', nu=2.5, range=0.5, k=40).name ==
+            'gaussian_process(u, v, nu=2.5, range=0.5, k=40)')
+    assert gp('x', trend=False, df=4).name == 'gaussian_process(x, trend=False, df=4)'
+    assert gp('x', kernel='spherical').name == "gaussian_process(x, kernel='spherical')"
     assert gp('x', name='f').name == 'f'
     assert gp('u', 'v').columns == ['u', 'v']
 

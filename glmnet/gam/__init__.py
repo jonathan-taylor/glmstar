@@ -22,7 +22,8 @@ as mgcv): the same fit. When every term has a basis (all but loess) the fit
 has a Bayesian covariance (`posterior_covariance_`, as mgcv's `Vp`), with
 standard errors for predictions and the terms' curves.
 
-Gaussian process smooths (`gp(x)`, `gp(lon, lat)`: mgcv's `s(..., bs="gp")`,
+Gaussian process smooths (`gaussian_process(x)`, `gaussian_process(lon, lat)`:
+mgcv's `s(..., bs="gp")`,
 the low rank kriging of Kammann & Wand, 2003) are terms in one or more
 columns.
 
@@ -77,7 +78,7 @@ from .terms import (Term,
                     re,
                     linear,
                     factor)
-from .gp import GPTerm, gp
+from .gp import GPTerm, gaussian_process
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning

@@ -76,7 +76,7 @@ def _distances(x, y):
 class GPTerm(Term):
     """
     A Gaussian process smooth of one or more columns (`column`, a name or a
-    list of them): the term `gp(...)`, mgcv's `s(..., bs="gp")`; see
+    list of them): the term `gaussian_process(...)`, mgcv's `s(..., bs="gp")`; see
     `glmnet.gam.gp`.
 
     Parameters
@@ -134,7 +134,7 @@ class GPTerm(Term):
     max_knots: int = 2000
     seed: int = 1
 
-    _label = 'gp'
+    _label = 'gaussian_process'
     rank_tol = 1e-12       # the eigenvalues kept, relative to the largest
 
     def __post_init__(self):
@@ -374,15 +374,15 @@ class GPTerm(Term):
         return self.basis(x) @ self.coef_
 
 
-def gp(*columns, kernel='matern', nu=1.5, range=None, power=1., trend=True, k=None, knots=None,
-       m=None, df=None, lam=None, max_knots=2000, seed=1, name=None):
+def gaussian_process(*columns, kernel='matern', nu=1.5, range=None, power=1., trend=True, k=None,
+                     knots=None, m=None, df=None, lam=None, max_knots=2000, seed=1, name=None):
     """
     A Gaussian process smooth of the columns (see `GPTerm`): mgcv's
     `s(*columns, bs="gp", k=k, m=m)`. With neither `df` nor `lam`, its
     smoothing parameter is estimated (`GAM(method='REML')` or `'ML'`).
 
-    >>> gp('age', df=5)
-    >>> gp('lon', 'lat', nu=2.5, range=0.5)
+    >>> gaussian_process('age', df=5)
+    >>> gaussian_process('lon', 'lat', nu=2.5, range=0.5)
     """
     if not columns:
         raise ValueError('gp needs at least one column')
@@ -390,7 +390,7 @@ def gp(*columns, kernel='matern', nu=1.5, range=None, power=1., trend=True, k=No
     term = GPTerm(column, kernel=kernel, nu=nu, power=power, range=range, trend=trend, k=k,
                   knots=knots, m=m, df=df, lam=lam, max_knots=max_knots, seed=seed)
     label = ', '.join(str(c) for c in columns)
-    term.label = name or _name('gp', label,
+    term.label = name or _name('gaussian_process', label,
                                kernel=None if kernel == 'matern' else repr(kernel),
                                nu=None if nu == 1.5 or kernel != 'matern' else nu,
                                power=None if power == 1. else power,
