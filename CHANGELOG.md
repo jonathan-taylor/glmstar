@@ -40,6 +40,27 @@
   smoothing parameters are fixed or estimated, and the fit agrees with mgcv's
   `paraPen` under REML and ML (#160).
 
+- **`glmnet.gam`: random effects of combinations of columns.**
+  `re(['batch', 'cask'])` gives one effect per combination, labelled
+  `'batch:cask'`, so nested effects such as lme4's `(1 | batch/cask)` are
+  `re('batch') + re(['batch', 'cask'])`. `by=` slopes, new data (unseen
+  combinations predict 0) and positional columns work as for one column.
+  Checked against `lmer` under REML and ML (#161).
+
+### Documentation
+
+- **How REML and ML work in `glmnet.gam`** (`docs/gam_reml.md`): the
+  criterion, derived for statisticians, then written out in a few lines of
+  JAX for a Gaussian and a Poisson additive model and minimized by hand. It
+  matches `GAM(method='REML')`. The page checks the optimum's identities in
+  the residuals (REML's dispersion, and each term's prior size against its
+  penalized degrees of freedom) and the implicit derivative of the fitted
+  coefficients. It ends with the design of `glmnet.gam.reml`, and the
+  lessons from lme4, MixedModels.jl, AI-REML, TMB, mgcv's `bam` and
+  Fellner–Schall, matrix-free GP and genetics codes, and nlme that shape its
+  path to large problems. The same
+  checks are tests (`tests/gam/test_gam_reml_byhand.py`) (#158).
+
 ### Fixes
 
 - **`glmnet.gam` REML/ML for the Cox family converged short on Windows**
