@@ -22,8 +22,14 @@ as mgcv): the same fit. When every term has a basis (all but loess) the fit
 has a Bayesian covariance (`posterior_covariance_`, as mgcv's `Vp`), with
 standard errors for predictions and the terms' curves.
 
+Gaussian process smooths (`gaussian_process(x)`, `gaussian_process(lon, lat)`:
+mgcv's `s(..., bs="gp")`,
+the low rank kriging of Kammann & Wand, 2003) are terms in one or more
+columns.
+
 Smoothing parameters (and random effects' variances) can also be estimated
-(experimental: see `glmnet.gam.reml`), by REML or ML as mgcv's (`GAM(method='REML')`, with JAX: `pip install
+(experimental: see `glmnet.gam.reml`), by REML or ML as mgcv's
+(`GAM(method='REML')`, with JAX: `pip install
 glmstar[gam]`; not needed for the Cox family, glmstar's `CoxFamily`).
 
 The smoothing spline and loess terms use the `scatter_smooth` package.
@@ -49,6 +55,8 @@ References
   Statistical Association* 111(516), 1548–1563.
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
   (2nd ed.). Chapman & Hall/CRC.
+- Kammann, E. E. and Wand, M. P. (2003). Geoadditive models. *Journal of
+  the Royal Statistical Society, Series C* 52(1), 1–18.
 - Wahba, G. (1983). Bayesian "confidence intervals" for the cross-validated
   smoothing spline. *Journal of the Royal Statistical Society, Series B*
   45(1), 133–150.
@@ -72,6 +80,7 @@ from .terms import (Term,
                     penalized_columns,
                     linear,
                     factor)
+from .gp import GPTerm, gaussian_process
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning

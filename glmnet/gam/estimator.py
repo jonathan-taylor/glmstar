@@ -79,7 +79,7 @@ class GAM(BaseEstimator):
     `method='REML'` or `'ML'` with the smoothing parameters estimated, as
     mgcv (Wood, 2011, 2017). See the References of `glmnet.gam`.
 
-    The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `linear`,
+    The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `gaussian_process`, `linear`,
     `factor`, or a `ColumnsTerm` of several columns fitted as one parametric
     block), each naming a column of `X` (ISLP's `ISLP.gam` builds them from
     a ModelSpec). The smoothing of each term is fixed: by its smoothing parameter
@@ -122,7 +122,7 @@ class GAM(BaseEstimator):
         How the smoothing parameters are chosen: `'fixed'` (the default, as
         R's `gam`: each term's `lam` or `df`; `s()` without them has
         `df=4`), or `'REML'` or `'ML'` (as mgcv's `gam(method=...)`, with
-        JAX): the smoothing parameters of `s()` and `re()` terms without
+        JAX): the smoothing parameters of `s()`, `re()` and `gaussian_process()` terms without
         `lam` or `df` maximize the restricted (or full) marginal likelihood,
         by Laplace's method, the dispersion with them. Terms with `lam` keep
         it; terms with `df` have it matched at the prior weights, then fixed.
@@ -203,8 +203,8 @@ class GAM(BaseEstimator):
         terms = list(self.terms)
         for term in terms:
             if not isinstance(term, Term):
-                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), re(), linear(), '
-                                 'factor())')
+                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), re(), '
+                                 'gaussian_process(), linear(), factor())')
         return terms, X
 
     def _design(self, X):

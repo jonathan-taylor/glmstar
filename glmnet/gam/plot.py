@@ -2,11 +2,14 @@
 Plots of the fitted terms of a GAM, as R's `plot.Gam` (and mgcv's
 `plot.gam`): each term's centered fit against its column, with pointwise
 standard error bands from the Bayesian covariance when it is available (all
-terms but loess), and a rug of the training data.
+terms but loess), and a rug of the training data. A term of two columns (a
+Gaussian process surface, `gaussian_process(u, v)`) is drawn as filled contours over the
+data's bounding box, as mgcv's `plot.gam` (`too.far`).
 """
 import numpy as np
 
 from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm
+from .gp import GPTerm
 
 
 def _term_index(gam, term):
@@ -23,10 +26,43 @@ def _has_covariance(gam):
 
 
 def plottable(term):
-    """Can `plot_term` draw the term (all but blocks of several columns)?"""
+    """
+    Can `plot_term` draw the term (all but blocks of several columns, and
+    Gaussian processes in more than two)?
+    """
     if isinstance(term, ColumnsTerm):
         return term.X_.shape[1] == 1
+    if isinstance(term, GPTerm):
+        return term.dim_ <= 2
     return True
+
+
+def _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap):
+    """Filled contours of a term of two columns over the data's bounding box."""
+    term = gam.terms_[j]
+    X = term._X + term.shift_
+    lo, hi = X.min(0), X.max(0)
+    g1, g2 = np.linspace(lo[0], hi[0], n_grid), np.linspace(lo[1], hi[1], n_grid)
+    U, V = np.meshgrid(g1, g2)
+    grid = np.column_stack([U.ravel(), V.ravel()])
+    fit = gam.partial_effect(j, grid)
+    if too_far is not None and too_far > 0:
+        # (as mgcv's exclude.too.far: distances in the unit square)
+        from scipy.spatial import cKDTree
+        scale = np.where(hi > lo, hi - lo, 1.)
+        dist = cKDTree((X - lo) / scale).query((grid - lo) / scale)[0]
+        fit = np.where(dist > too_far, np.nan, fit)
+    Z = fit.reshape(U.shape)
+    cs = ax.contourf(U, V, Z, levels=15, cmap=cmap)
+    ax.contour(U, V, Z, levels=cs.levels, colors='k', linewidths=0.4, alpha=0.5)
+    ax.figure.colorbar(cs, ax=ax, label=term.name)
+    if rug:
+        ax.plot(X[:, 0], X[:, 1], '.', color='k', markersize=2, alpha=0.4)
+    names = term.columns
+    ax.set_xlabel(str(names[0]) if isinstance(names, list) else 'x0')
+    ax.set_ylabel(str(names[1]) if isinstance(names, list) else 'x1')
+    ax.set_title(term.name)
+    return ax
 
 
 def plot_term(gam,
@@ -37,7 +73,9 @@ def plot_term(gam,
               n_grid=100,
               multiplier=2.,
               color='C0',
-              se_color='C3'):
+              se_color='C3',
+              too_far=0.1,
+              cmap='viridis'):
     """
     Plot the fit of a term of a fitted GAM against its column, as R's
     `plot.Gam(fit, se=TRUE)`.
@@ -45,7 +83,10 @@ def plot_term(gam,
     A term of a numeric column (a spline, loess, a linear term) is drawn as
     its curve over the range of the column (`n_grid` points); a factor or a
     random effect as one point per level (per group; for `re(g, by=x)` the
-    groups' slopes). The fits are centered, as the GAM's terms.
+    groups' slopes). The fits are centered, as the GAM's terms. A term of
+    two columns (`gaussian_process(u, v)`) is drawn as filled contours on an `n_grid` by
+    `n_grid` grid over the data's bounding box, without bands, the data
+    marked as points (`rug`).
 
     Parameters
     ----------
@@ -67,6 +108,12 @@ def plot_term(gam,
         Of the standard errors (2, as R's `plot.Gam`).
     color, se_color:
         Colors of the fit and of the bands.
+    too_far: float
+        For a surface: grid points farther than this from the data (in the
+        bounding box scaled to the unit square) are not drawn, as mgcv's
+        `plot.gam(too.far=0.1)`; None draws all.
+    cmap:
+        The colormap of a surface.
 
     Returns
     -------
@@ -77,9 +124,14 @@ def plot_term(gam,
     j = _term_index(gam, term)
     term = gam.terms_[j]
     if not plottable(term):
+        if isinstance(term, GPTerm):
+            raise ValueError(f'{term.name} is a function of more than two columns: '
+                             'it has no curve or surface to plot')
         raise ValueError(f'{term.name} is a block of several columns: it has no curve to plot')
     if ax is None:
         _, ax = plt.subplots()
+    if isinstance(term, GPTerm) and term.dim_ == 2:
+        return _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap)
     se = se and _has_covariance(gam)
     column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
 
