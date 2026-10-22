@@ -16,8 +16,9 @@
   reparametrization), so a dominant penalty (a smoothing parameter going to
   infinity) does not cost the gradient its precision. Cox REML does not
   support them yet.
-- **`pen(columns, penalties, lam=None)`** (`PenalizedColumnsTerm`), a block
-  of columns with penalties on their coefficients, as mgcv's `paraPen`. Its
+- **`penalized_columns(columns, penalties, lam=None)`**
+  (`PenalizedColumnsTerm`), a block of columns with penalties on their
+  coefficients, as mgcv's `paraPen`. Its
   smoothing parameters are fixed or estimated, and the fit agrees with mgcv's
   `paraPen` under REML and ML (#160).
 

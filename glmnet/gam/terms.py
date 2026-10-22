@@ -613,7 +613,7 @@ class PenalizedColumnsTerm(Term):
     label: Optional[str] = None
 
     centered = False
-    _label = 'pen'
+    _label = 'penalized_columns'
 
     @property
     def has_objective(self):
@@ -836,7 +836,7 @@ def re(column, by=None, lam=None, df=None, name=None):
     return term
 
 
-def pen(columns, penalties, lam=None, name=None):
+def penalized_columns(columns, penalties, lam=None, name=None):
     """
     A block of columns with quadratic penalties on their coefficients (see
     `PenalizedColumnsTerm`), as mgcv's `paraPen`: `columns` a list of
@@ -846,7 +846,7 @@ def pen(columns, penalties, lam=None, name=None):
     columns = list(columns) if isinstance(columns, (list, tuple)) else [columns]
     term = PenalizedColumnsTerm(columns, penalties=list(penalties),
                                 lam=None if lam is None else list(np.atleast_1d(lam)))
-    term.label = name or f'pen({", ".join(str(c) for c in columns)})'
+    term.label = name or f'penalized_columns({", ".join(str(c) for c in columns)})'
     return term
 
 

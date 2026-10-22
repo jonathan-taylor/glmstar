@@ -1,5 +1,5 @@
 """
-Terms with several penalties (`pen()`, a block of columns with penalties
+Terms with several penalties (`penalized_columns()`, a block of columns with penalties
 `sum_m lam_m c' S_m c / 2`, as mgcv's `paraPen`): the fit at fixed
 smoothing parameters is that of their weighted sum; REML and ML for a term
 whose penalties split its columns are those of the separate terms (in a
@@ -13,7 +13,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, re, pen
+from glmnet.gam import GAM, GAMControl, s, re, penalized_columns
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 
@@ -62,7 +62,7 @@ def test_fixed_is_the_sum(data, family, solver):
     S1, S2 = _overlapping()
     lam = [0.02, 0.005]
     fits = []
-    for term in [pen(COLS, [S1, S2], lam=lam), pen(COLS, [lam[0] * S1 + lam[1] * S2], lam=[1.])]:
+    for term in [penalized_columns(COLS, [S1, S2], lam=lam), penalized_columns(COLS, [lam[0] * S1 + lam[1] * S2], lam=[1.])]:
         G = GAM(terms=[s('a', lam=1e-5), term], family=fam,
                 control=GAMControl(solver=solver, **TIGHT)).fit(data, data[y])
         fits.append(G)
@@ -73,14 +73,14 @@ def test_fixed_is_the_sum(data, family, solver):
 
 
 def test_one_identity_penalty_is_re(data):
-    # pen() on a group's indicators with the identity penalty is re()
+    # penalized_columns() on a group's indicators with the identity penalty is re()
     groups = sorted(data['g'].unique())
     D = data.copy()
     names = [f'is_{g}' for g in groups]
     for g, name in zip(groups, names):
         D[name] = (D['g'] == g).astype(float)
     G_re = GAM(terms=[s('a'), re('g')], method='REML', control=GAMControl(**TIGHT)).fit(D, D['y'])
-    G_pen = GAM(terms=[s('a'), pen(names, [np.identity(len(groups))])], method='REML',
+    G_pen = GAM(terms=[s('a'), penalized_columns(names, [np.identity(len(groups))])], method='REML',
                 control=GAMControl(**TIGHT)).fit(D, D['y'])
     np.testing.assert_allclose(G_pen.predict(D), G_re.predict(D), rtol=1e-6)
     np.testing.assert_allclose(G_pen.smoothing_.lam, G_re.smoothing_.lam, rtol=1e-5)
@@ -100,17 +100,17 @@ def test_split_penalties_are_separate_terms(data, family, method):
     D[rotated] = D[COLS].to_numpy() @ Q
     E1, E2 = np.diag([1., 1, 1, 0, 0, 0]), np.diag([0., 0, 0, 1, 1, 1])
     control = GAMControl(**TIGHT)
-    G_two = GAM(terms=[s('a'), pen(COLS[:3], [np.identity(3)]), pen(COLS[3:], [np.identity(3)])],
+    G_two = GAM(terms=[s('a'), penalized_columns(COLS[:3], [np.identity(3)]), penalized_columns(COLS[3:], [np.identity(3)])],
                 family=fam, method=method, control=control).fit(D, D[y])
-    G_one = GAM(terms=[s('a'), pen(rotated, [Q.T @ E1 @ Q, Q.T @ E2 @ Q])],
+    G_one = GAM(terms=[s('a'), penalized_columns(rotated, [Q.T @ E1 @ Q, Q.T @ E2 @ Q])],
                 family=fam, method=method, control=control).fit(D, D[y])
     np.testing.assert_allclose(G_one.smoothing_.lam, G_two.smoothing_.lam, rtol=1e-4)
     np.testing.assert_allclose(G_one.reml_score_, G_two.reml_score_, rtol=1e-9)
     np.testing.assert_allclose(G_one.predict(D), G_two.predict(D), rtol=1e-6, atol=1e-8)
     np.testing.assert_allclose(G_one.edf_.iloc[1], G_two.edf_.iloc[1:].sum(), rtol=1e-5)
     assert G_one.smoothing_.converged
-    assert list(G_one.smoothing_.terms) == ['s(a)', f'pen({", ".join(rotated)})[0]',
-                                            f'pen({", ".join(rotated)})[1]']
+    assert list(G_one.smoothing_.terms) == ['s(a)', f'penalized_columns({", ".join(rotated)})[0]',
+                                            f'penalized_columns({", ".join(rotated)})[1]']
     assert len(G_one.variance_components_) == 4
 
 
@@ -120,7 +120,7 @@ def test_gradient(data, family, method):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
     fam, y = FAMILIES[family]
-    G = GAM(terms=[s('a'), pen(COLS, _overlapping()), re('g')], family=fam, method=method,
+    G = GAM(terms=[s('a'), penalized_columns(COLS, _overlapping()), re('g')], family=fam, method=method,
             control=GAMControl(**TIGHT), weight_id='w', response_id=y).fit(data, data[[y, 'w']])
     estimated = [j for j, t in enumerate(G.terms_) if t.penalty_matrices()]
     with jax.enable_x64(True):
@@ -138,11 +138,11 @@ def test_gradient(data, family, method):
 
 def test_errors(data):
     with pytest.raises(ValueError, match='one lam per penalty'):
-        GAM(terms=[pen(COLS, _overlapping(), lam=[1.])]).fit(data, data['y'])
+        GAM(terms=[penalized_columns(COLS, _overlapping(), lam=[1.])]).fit(data, data['y'])
     with pytest.raises(ValueError, match='shape'):
-        GAM(terms=[pen(COLS, [np.identity(3)], lam=[1.])]).fit(data, data['y'])
+        GAM(terms=[penalized_columns(COLS, [np.identity(3)], lam=[1.])]).fit(data, data['y'])
     with pytest.raises(ValueError, match='give lam'):
-        GAM(terms=[pen(COLS, _overlapping())]).fit(data, data['y'])
+        GAM(terms=[penalized_columns(COLS, _overlapping())]).fit(data, data['y'])
 
 
 def test_cox_not_supported(data):
@@ -152,7 +152,7 @@ def test_cox_not_supported(data):
     D['time'] = np.exp(-0.3 * D['y']) * np.random.default_rng(1).exponential(1, D.shape[0])
     D['status'] = 1
     with pytest.raises(NotImplementedError, match='several penalties'):
-        GAM(terms=[s('a'), pen(COLS, _overlapping())],
+        GAM(terms=[s('a'), penalized_columns(COLS, _overlapping())],
             family=CoxFamily(event_id='time', status_id='status'), method='REML').fit(D, D)
 
 
@@ -168,7 +168,7 @@ def test_mgcv_parapen(Rinfo, data, family, method):
     D1 = np.diff(np.identity(4), axis=0)
     S1, S2 = D1.T @ D1, np.diag([0., 0., 1., 1.])
     bcols = [f'b{k}' for k in range(4)]
-    G = GAM(terms=[s('a'), pen(bcols, [S1, S2])], family=fam, method=method,
+    G = GAM(terms=[s('a'), penalized_columns(bcols, [S1, S2])], family=fam, method=method,
             control=GAMControl(**TIGHT)).fit(data, data[y])
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('D', data[['a', y] + bcols])
@@ -188,7 +188,7 @@ def test_mgcv_parapen(Rinfo, data, family, method):
         sp = np.asarray(rpy.r('as.numeric(m$sp)'))
         scale = float(np.asarray(rpy.r('m$smooth[[1]]$S.scale'))[0])
         edf = np.asarray(rpy.r('as.numeric(m$edf)'))
-    ours = G.smoothing_.lam_raw            # s(a), then the penalties of pen()
+    ours = G.smoothing_.lam_raw            # s(a), then the penalties of penalized_columns()
     theirs = np.array([sp[2] / scale, sp[0], sp[1]])
     # a smoothing parameter at infinity (in effect) in both: the difference
     # penalty's here, whose null space (equal coefficients) the data favour
