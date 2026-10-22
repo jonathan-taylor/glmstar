@@ -145,17 +145,6 @@ def test_errors(data):
         GAM(terms=[penalized_columns(COLS, _overlapping())]).fit(data, data['y'])
 
 
-def test_cox_not_supported(data):
-    pytest.importorskip('coxdev')
-    from glmnet.cox import CoxFamily
-    D = data.copy()
-    D['time'] = np.exp(-0.3 * D['y']) * np.random.default_rng(1).exponential(1, D.shape[0])
-    D['status'] = 1
-    with pytest.raises(NotImplementedError, match='several penalties'):
-        GAM(terms=[s('a'), penalized_columns(COLS, _overlapping())],
-            family=CoxFamily(event_id='time', status_id='status'), method='REML').fit(D, D)
-
-
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 @pytest.mark.parametrize('family', list(FAMILIES))
 def test_mgcv_parapen(Rinfo, data, family, method):

@@ -4,6 +4,13 @@
 
 ### New features
 
+- **Cox REML/ML for every kind of penalty:** tensor products, several
+  penalties per term and correlated random effects, on the penalty objects
+  and `DenseHessian`, as the other families. As in theirs, one Newton step
+  polishes the coefficients with the criterion's factorization, and the
+  inner fit stops at 1e-10. Against mgcv's `cox.ph` with
+  `te(x, z, bs="cr")`: our criterion is as low (mgcv stops sooner where
+  it is flat) (#166).
 - **Correlated random effects, `correlated_random_effect(group,
   slopes=[...])`** (`CorrelatedRandomEffectTerm`), lme4's `(1 + v | g)`: an
   intercept and slopes per group, their vectors `N(0, Sigma)` with
@@ -112,6 +119,18 @@
 
 ### Documentation
 
+- The REML design page describes the four operations, the penalty
+  objects (with the reason for the covariance-side Cholesky factor) and
+  the updated list of what is not supported yet. It adds ML and REML
+  versus ML: `V_REML - V_ML = log|C_F|/2 - M log(2 pi phi)/2`, `C_F` the
+  unpenalized coefficients' (GLS) information, checked on the by-hand
+  example. It also says what ML needs of the linear algebra: the four
+  operations plus `M` solves, a rank-`M` correction (#166).
+- The GAM page has a section on tensor products (`tensor_spline('age',
+  'year')` on the Wage data, its smoothing parameters and surface). The
+  mixed-models page has correlated intercepts and slopes
+  (`correlated_random_effect`, lme4's `(days|subject)`), and its list of
+  what is not supported is updated.
 - **Mixed models as GAMs:** a page, "Mixed models as GAMs", on fitting
   classical random-effects models with `glmnet.gam`'s `re()` terms: random
   intercepts (shrinkage, REML and ML), crossed and nested random effects,

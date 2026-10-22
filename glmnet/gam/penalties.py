@@ -236,8 +236,9 @@ class CholeskyPenalty(object):
     def theta(self, B):
         """The parameters of the precision `B` (on the prior weights' scale)."""
         L = np.linalg.cholesky(np.linalg.inv(np.asarray(B, float)))
-        values = L[self.rows, self.cols]
-        return np.where(self.diag, np.log(values), values)
+        theta = L[self.rows, self.cols].copy()
+        theta[self.diag] = np.log(theta[self.diag])
+        return theta
 
     def precision(self, theta):
         Linv = np.linalg.inv(self.factor(theta))

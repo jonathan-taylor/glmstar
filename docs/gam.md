@@ -44,7 +44,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor
+from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor, tensor_spline
 
 Wage = load_data('Wage')
 Wage[['wage', 'year', 'age', 'education']].head()
@@ -218,6 +218,38 @@ gam_reml.smoothing_.lam, gam_reml.reml_score_
 axes = gam_reml.plot()
 axes[0].figure.tight_layout()
 ```
+
+## Smooths of several columns: tensor products
+
+`tensor_spline('age', 'year')` is a smooth function of both columns, the
+tensor product of a cubic regression spline in each (mgcv's
+`te(age, year, bs="cr")`), with a penalty per column. Each column then has
+its own smoothing parameter, and the term does not depend on the columns'
+scales. In place of the two smooths, it models an interaction of age and
+year:
+
+```{code-cell} ipython3
+gam_te = GAM(terms=[tensor_spline('age', 'year', k=(6, 4)), factor('education')], method='REML')
+gam_te.fit(Wage, Wage['wage'])
+gam_te.summary()
+```
+
+The smoothing parameters, one per margin:
+
+```{code-cell} ipython3
+dict(zip(gam_te.smoothing_.terms, gam_te.smoothing_.lam))
+```
+
+A two-column term is drawn as filled contours:
+
+```{code-cell} ipython3
+ax = gam_te.plot(terms=[0])[0]
+ax.figure.tight_layout()
+```
+
+Its penalties' null space is spanned by $1$, age, year and their product:
+however large its smoothing parameters, the term keeps a linear
+age-by-year interaction.
 
 ## Random effects
 
