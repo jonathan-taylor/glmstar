@@ -102,6 +102,12 @@ class JointDesign(object):
         blocks = [self.block(j, x) for j, x in enumerate(xs)]
         return np.hstack([np.ones((blocks[0].shape[0], 1))] + blocks)
 
+    def _penalty_sets(self):
+        # a term whose penalty matrix changes (`penalty_varies`: a precision
+        # matrix estimated by REML) gives it at each use (it is not centered)
+        return [term.penalty_matrices() if getattr(term, 'penalty_varies', False) else Ss
+                for term, Ss in zip(self.terms, self.penalty_sets)]
+
     def penalty(self, lams):
         """
         The penalty matrix, `sum_j sum_m lams[j][m] S_jm` (on the coefficients
@@ -109,7 +115,7 @@ class JointDesign(object):
         penalties (a number for a term with one).
         """
         P = np.zeros((self.n_coef, self.n_coef))
-        for sl, Ss, lam in zip(self.slices, self.penalty_sets, lams):
+        for sl, Ss, lam in zip(self.slices, self._penalty_sets(), lams):
             for S, l in zip(Ss, np.atleast_1d(lam)):
                 P[sl, sl] += l * S
         return P
@@ -117,11 +123,12 @@ class JointDesign(object):
     def root(self, lams):
         """A square root `E` of the penalty matrix, `E' E = penalty(lams)`."""
         rows = []
-        for sl, Ss, R, lam in zip(self.slices, self.penalty_sets, self._roots, lams):
+        for term, sl, Ss, R, lam in zip(self.terms, self.slices, self._penalty_sets(),
+                                        self._roots, lams):
             lam = np.atleast_1d(lam)
             if not Ss or not np.any(lam > 0):
                 continue
-            if R is not None:
+            if R is not None and not getattr(term, 'penalty_varies', False):
                 R = np.sqrt(lam[0]) * R
             else:
                 R = _root(sum(l * S for l, S in zip(lam, Ss)))

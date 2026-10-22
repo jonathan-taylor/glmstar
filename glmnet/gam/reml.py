@@ -65,7 +65,7 @@ from statsmodels.genmod.families import family as sm_family, links as sm_links
 
 from .joint import JointDesign
 from .linalg import DenseHessian
-from .penalties import ScaledPenalty, SumPenalty
+from .penalties import ScaledPenalty, SumPenalty, CholeskyPenalty
 
 
 class ExperimentalWarning(UserWarning):
@@ -149,12 +149,16 @@ class SmoothingSelection(object):
     on the scale of the GAM's objective; `lam_raw`, on the scale of the
     prior weights, as mgcv's `sp` but for its rescaling of the penalties),
     the dispersion, the criterion at its minimum (`score`, mgcv's
-    `gcv.ubre`), its gradient and the optimizer's report.
+    `gcv.ubre`), its gradient and the optimizer's report. `theta` are the
+    estimated parameters of the penalties (`glmnet.gam.penalties`): the
+    logs of `lam_raw`, and for correlated random effects those of the
+    Cholesky factor of their precision, whose `lam` are NaN.
     """
     method: str
     terms: list
     lam: np.ndarray
     lam_raw: np.ndarray
+    theta: np.ndarray
     dispersion: float
     score: float
     gradient: np.ndarray
@@ -236,10 +240,22 @@ class LaplaceCriterion(object):
         P = D.n_coef
         T = np.identity(P)
         self.penalty_terms, self.penalty_names = [], []
-        single, multi, multi_terms = [], [], []
+        single, multi, multi_terms, cholesky = [], [], [], []
         range_coords = []
         for j, (sl, Ss) in enumerate(zip(D.slices, D.penalty_sets)):
             if not Ss:
+                continue
+            term = self.terms[j]
+            if getattr(term, 'penalty_varies', False):
+                # correlated random effects: their precision, by its Cholesky
+                # factor, on the coordinates as they are (group by group)
+                idx = np.arange(P)[sl]
+                range_coords.append(idx)
+                q = term.q_
+                names = [f'{term.name}[{a},{b}]' for a, b in zip(*np.tril_indices(q))]
+                cholesky.append((len(self.penalty_terms), idx.reshape((-1, q)), names))
+                self.penalty_terms.extend([j] * len(names))
+                self.penalty_names.extend(names)
                 continue
             total = sum(Ss)
             ev, V = np.linalg.eigh((total + total.T) / 2)
@@ -265,6 +281,7 @@ class LaplaceCriterion(object):
             T = T[:, 1:]
             single = [(k, idx - 1, ev) for k, idx, ev in single]
             multi = [(k, idx - 1, U) for k, idx, U in multi]
+            cholesky = [(k, idx - 1, names) for k, idx, names in cholesky]
             range_coords = [idx - 1 for idx in range_coords]
             P -= 1
         self.T = T
@@ -290,6 +307,9 @@ class LaplaceCriterion(object):
                                 SumPenalty(idx, [multi[self._multi_of[k]][2] for k in ks],
                                            [self.penalty_names[k] for k in ks]),
                                 slice(ks[0], ks[-1] + 1)))
+        for k, idx, names in cholesky:
+            self.models.append((self.penalty_terms[k], CholeskyPenalty(idx, names),
+                                slice(k, k + len(names))))
         self.models.sort(key=lambda m: m[2].start)
         self.penalized = (np.unique(np.concatenate(range_coords)) if range_coords
                           else np.zeros(0, int))
@@ -304,8 +324,16 @@ class LaplaceCriterion(object):
         lam_fixed = np.zeros(n_pen)
         for j in sorted(set(self.penalty_terms) - estimated):
             ks = [k for k in range(n_pen) if self.penalty_terms[k] == j]
-            lam_fixed[ks] = np.asarray(self.terms[j].penalty_lams(), float) * self.weight_total
+            if not getattr(self.terms[j], 'penalty_varies', False):
+                lam_fixed[ks] = np.asarray(self.terms[j].penalty_lams(), float) * self.weight_total
         self.lam_fixed = lam_fixed
+        # the parameters of the penalties (`glmnet.gam.penalties`): the logs
+        # of the smoothing parameters, or of a precision's Cholesky factor
+        theta = np.log(np.where(lam_fixed > 0, lam_fixed, 1.))
+        for j, model, sl in getattr(self, 'models', []):
+            if isinstance(model, CholeskyPenalty) and j not in estimated:
+                theta[sl] = model.theta(self.terms[j].precision * self.weight_total)
+        self.theta_fixed = theta
 
     def _evaluation(self, params, beta):
         """
@@ -318,23 +346,30 @@ class LaplaceCriterion(object):
         """
         lam, phi = self._split(params)
         lam, phi = np.asarray(lam, float), float(phi)
-        theta = np.log(lam)
+        theta = self._theta(params)
         X, beta = self.X.copy(), np.array(beta, float)
         P = X.shape[1]
         S = np.zeros((P, P))
-        pieces, logdet, dlogdet = {}, 0., np.zeros(len(lam))
+        pieces, logdet, dlogdet, logdet_V = {}, 0., np.zeros(len(lam)), 0.
         for _, model, sl in self.models:
             e = model.evaluate(theta[sl])
             if e.V is not None:
-                X[:, model.idx] = X[:, model.idx] @ e.V
-                beta[model.idx] = e.V.T @ beta[model.idx]
+                idx = model.idx
+                if idx.ndim == 1:
+                    X[:, idx] = X[:, idx] @ e.V
+                    beta[idx] = e.V_inverse @ beta[idx]
+                else:
+                    # the same change in each group's coordinates
+                    X[:, idx] = X[:, idx] @ e.V
+                    beta[idx] = beta[idx] @ e.V_inverse.T
+                logdet_V += e.logdet_V
             e.matrix.add_to(S)
             for k, piece in zip(range(sl.start, sl.stop), e.derivatives):
                 pieces[k] = piece
             logdet += e.logdet
             dlogdet[sl] = e.dlogdet
         return dict(lam=lam, phi=phi, X=X, beta=beta, S=S, pieces=pieces, logdet_S=logdet,
-                    dlogdet_S=dlogdet)
+                    dlogdet_S=dlogdet, logdet_V=logdet_V)
 
     def _split(self, params):
         params = np.asarray(params, float)
@@ -352,6 +387,8 @@ class LaplaceCriterion(object):
         eta = ev['X'] @ ev['beta'] + self.offset
         dev, d1, d2, d3 = (np.asarray(v, float)
                            for v in self._derivatives(jnp.asarray(eta), jnp.asarray(self.y)))
+        if not all(np.all(np.isfinite(v)) for v in (dev, d1, d2, d3)):
+            raise ValueError('the deviance or its derivatives are not finite')
         ev.update(dev=dev, d1=d1, d3=d3, H=self.Hessian(ev['X'], 0.5 * self.a * d2, ev['S']))
         ev['H_int'] = ev['H'].restrict(self.penalized) if self.method == 'ML' else ev['H']
         return ev
@@ -373,7 +410,9 @@ class LaplaceCriterion(object):
         Dp = float(np.sum(self.a * ev['dev']) + beta @ ev['S'] @ beta)
         jnp = self._jnp
         ls, dls = (float(v) for v in self._ls(jnp.asarray(self.y), jnp.asarray(self.a), phi))
-        value = Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - ev['logdet_S'] / 2
+        # (log|H| in the original coordinates: less that of the change of them)
+        value = (Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - ev['logdet_V'] -
+                 ev['logdet_S'] / 2)
         if self.method == 'REML':
             value -= self.null_dim * np.log(2 * np.pi * phi) / 2
         ev.update(Dp=Dp, dls=dls)
@@ -399,8 +438,16 @@ class LaplaceCriterion(object):
         beta = self.coef(params)
         if not self.gam.converged_:
             return self._unconverged(params)
-        ev = self._polish(self._factor(self._evaluation(params, beta)))
-        value = self._value(ev)
+        try:
+            ev = self._polish(self._factor(self._evaluation(params, beta)))
+            value = self._value(ev)
+        except (ValueError, np.linalg.LinAlgError):
+            # the fitted means at 0 or 1 in floating point (a separated
+            # binomial fit, far from the optimum): the deviance's derivatives
+            # are not finite there, as at an unconverged fit
+            return self._unconverged(params)
+        if not np.isfinite(value):
+            return self._unconverged(params)
         lam, phi, X, beta, H, H_int = (ev[k] for k in ('lam', 'phi', 'X', 'beta', 'H', 'H_int'))
         g = np.zeros(self.n_params)
         dS_beta = np.zeros((self.n_rho, beta.shape[0]))            # lam_k S_k beta
@@ -421,12 +468,34 @@ class LaplaceCriterion(object):
         self._max_value = max(getattr(self, '_max_value', -np.inf), value)
         return value, g
 
+    def off_diagonal(self):
+        """The positions, among the estimated parameters, of Cholesky factors' off-diagonal entries."""
+        position = {k: i for i, k in enumerate(self.est_index)}
+        off = []
+        for _, model, sl in self.models:
+            if isinstance(model, CholeskyPenalty):
+                for k, d in zip(range(sl.start, sl.stop), model.diag):
+                    if not d and k in position:
+                        off.append(position[k])
+        return np.array(off, int)
+
+    def _theta(self, params):
+        """The penalties' parameters: the fixed, and the estimated (`params`)."""
+        theta = self.theta_fixed.copy()
+        theta[self.est_index] = np.asarray(params, float)[:self.n_rho]
+        return theta
+
     def _set_lams(self, params):
-        lam, _ = self._split(params)
-        lam = np.asarray(lam)
-        terms = np.asarray(self.penalty_terms)
-        for j in sorted(set(terms[self.est_index])):
-            self.terms[j].set_penalty_lams(lam[terms == j] / self.weight_total)
+        """Set the estimated terms' smoothing parameters (or precisions) at `params`."""
+        theta = self._theta(params)
+        estimated = set(np.asarray(self.penalty_terms)[self.est_index])
+        for j, model, sl in self.models:
+            if j not in estimated:
+                continue
+            if isinstance(model, CholeskyPenalty):
+                self.terms[j].set_precision(model.precision(theta[sl]) / self.weight_total)
+            else:
+                self.terms[j].set_penalty_lams(np.exp(theta[sl]) / self.weight_total)
 
     def coef(self, params):
         """
@@ -437,8 +506,14 @@ class LaplaceCriterion(object):
         gam = self.gam
         # (a fit that does not converge, at smoothing parameters the search
         # tries far from the optimum, is not a warm start)
-        state = gam._local_scoring(state=deepcopy(self._warm), control=self._inner_control(),
-                                   warn=False)
+        try:
+            state = gam._local_scoring(state=deepcopy(self._warm), control=self._inner_control(),
+                                       warn=False)
+        except ValueError:
+            # (step halving cannot decrease the objective, at extreme
+            # parameters: as an unconverged fit)
+            gam.converged_ = False
+            return np.zeros(self.X.shape[1])
         if gam.converged_:
             self._warm = state
         return self.T.T @ self.design.gamma(state)
@@ -463,11 +538,18 @@ class LaplaceCriterion(object):
         very large coefficients (a smooth with as many knots as events, for
         Cox), and the criterion at an unconverged fit is meaningless (it can
         be very negative). A value larger than any seen, with a gradient
-        towards larger smoothing parameters, so that the search turns back.
+        towards more penalty (larger smoothing parameters; a smaller
+        covariance of correlated random effects: its penalty object's
+        `more_penalty`), so that the search turns back.
         """
         worst = getattr(self, '_max_value', 0.)
+        theta = self._theta(params)
+        direction = np.ones(len(theta))
+        for _, model, sl in self.models:
+            if hasattr(model, 'more_penalty'):
+                direction[sl] = model.more_penalty(theta[sl])
         g = np.zeros(len(params))
-        g[:self.n_rho] = -1e3
+        g[:self.n_rho] = -1e3 * direction[self.est_index]
         return abs(worst) + 1e6, g
 
     def start(self):
@@ -647,7 +729,7 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         return np.array(rho, float)
 
 
-def _newton(crit, x, bounds, maxit=20, tol=1e-8):
+def _newton(crit, x, bounds, maxit=100, tol=1e-8):
     """
     Newton's method from `x` (the quasi-Newton optimum), its Hessian by
     central differences of the gradient (step `crit.hess_eps`), with step
@@ -655,7 +737,10 @@ def _newton(crit, x, bounds, maxit=20, tol=1e-8):
     optimum a step's decrease of the criterion can be below its precision
     (`crit.value_tol`, relative): a step that does not increase it beyond
     that, and halves the gradient, is taken. Parameters on their bounds (a
-    smoothing parameter at 0 or infinity in effect) are held there.
+    smoothing parameter at 0 or infinity in effect) are held there. Towards
+    an optimum at infinity (a singular covariance of correlated random
+    effects: a log-Cholesky diagonal going to minus infinity) each step
+    moves the parameter by about 1, hence up to `maxit` steps.
     """
     lo = np.array([-np.inf if b[0] is None else b[0] for b in bounds])
     hi = np.array([np.inf if b[1] is None else b[1] for b in bounds])
@@ -713,6 +798,11 @@ def select_smoothing(gam, dispersion=None):
     for j, term in enumerate(terms):
         if term.penalty_matrix() is None:
             continue
+        if getattr(term, 'penalty_varies', False):
+            # a precision matrix: estimated unless given
+            if term.precision is None:
+                estimated.append(j)
+            continue
         if getattr(term, 'lam', None) is None and getattr(term, 'df', None) is None:
             estimated.append(j)
         elif getattr(term, 'df', None) is not None:
@@ -724,7 +814,10 @@ def select_smoothing(gam, dispersion=None):
                          '(every penalized term has lam or df)')
     # placeholders, set at each evaluation
     for j in estimated:
-        terms[j].set_penalty_lams(np.ones(len(terms[j].penalty_matrices())))
+        if getattr(terms[j], 'penalty_varies', False):
+            terms[j].set_precision(np.identity(terms[j].q_))
+        else:
+            terms[j].set_penalty_lams(np.ones(len(terms[j].penalty_matrices())))
     for term in terms:
         term.set_weights(normed)
 
@@ -739,11 +832,32 @@ def select_smoothing(gam, dispersion=None):
         x0 = crit.start()
         K = crit.n_rho
         bounds = [(r - 25, r + 25) for r in x0[:K]] + [(None, None)] * (len(x0) - K)
+        off = crit.off_diagonal() if hasattr(crit, 'off_diagonal') else np.zeros(0, int)
+        if len(off):
+            # correlated random effects: first with their covariances
+            # diagonal (the off-diagonal entries of their Cholesky factors
+            # held at 0), as independent random effects, then all. From the
+            # start, the off-diagonals' gradient can be large, and a first
+            # step to the edge of the box can lead the search into the basin
+            # of a singular covariance, a local minimum
+            diagonal = list(bounds)
+            for i in off:
+                diagonal[i] = (0., 0.)
+            x0 = x0.copy()
+            x0[off] = 0.
+            x0 = minimize(crit.value_and_grad, x0, jac=True, method='L-BFGS-B', bounds=diagonal,
+                          options=dict(maxiter=500, ftol=1e-12, gtol=1e-6)).x
         result = minimize(crit.value_and_grad, x0, jac=True, method='L-BFGS-B', bounds=bounds,
                           options=dict(maxiter=500, ftol=1e-14, gtol=1e-8))
         x, value, grad, converged = _newton(crit, result.x, bounds)
         lam, phi = crit._split(x)
         lam, phi = np.asarray(lam, float)[crit.est_index], float(phi)
+        theta = (crit._theta(x)[crit.est_index] if hasattr(crit, '_theta')
+                 else np.log(lam))
+        # (a precision's parameters are not smoothing parameters)
+        linear = np.array([not getattr(terms[crit.penalty_terms[k]], 'penalty_varies', False)
+                           for k in crit.est_index])
+        lam = np.where(linear, lam, np.nan)
         # the terms at the optimum
         crit.coef(x)
         converged = converged and gam.converged_
@@ -751,6 +865,7 @@ def select_smoothing(gam, dispersion=None):
                               terms=[crit.penalty_names[k] for k in crit.est_index],
                               lam=lam / crit.weight_total,
                               lam_raw=lam,
+                              theta=theta,
                               dispersion=phi,
                               score=value,
                               gradient=grad,

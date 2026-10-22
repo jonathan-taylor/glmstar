@@ -850,6 +850,171 @@ def _name(label, column, **kwargs):
     return f'{label}({column}{", " + args if args else ""})'
 
 
+@dataclass
+class CorrelatedRandomEffectTerm(Term):
+    """
+    Correlated random effects of the groups of `column` (a column, or a
+    list of them: their combinations): an intercept (`intercept=True`) and
+    a slope in each of the columns `slopes` per group, `f(g, v) = b_g0 +
+    sum_m b_gm v_m`, the vectors `b_g` of the groups independent
+    `N(0, Sigma)`, `Sigma` unstructured, as lme4's `(1 + v | g)`.
+
+    The penalty is `sum_g b_g' B b_g / 2`, `B` the precision on the scale
+    of the GAM's objective (`precision`, a `q x q` matrix, `q` the number of
+    effects per group; `Sigma = dispersion (sum(weights) B)^{-1}`). With
+    `precision` None it is estimated by `method='REML'` or `'ML'`, by the
+    log-Cholesky factor of `B` (`glmnet.gam.penalties.CholeskyPenalty`).
+
+    The penalty identifies the effects: the term is not centered. Groups
+    not seen in fitting predict 0.
+    """
+    slopes: list = field(default_factory=list)
+    intercept: bool = True
+    precision: Optional[np.ndarray] = None
+    label: Optional[str] = None
+
+    centered = False
+    penalty_varies = True        # its penalty matrix changes with B (REML, ML)
+    _label = 'correlated_random_effect'
+
+    @property
+    def has_objective(self):
+        return self.precision is not None
+
+    @property
+    def columns(self):
+        group = list(self.column) if _is_interaction(self.column) else [self.column]
+        return group + list(self.slopes)
+
+    @property
+    def effect_names(self):
+        return (['(Intercept)'] if self.intercept else []) + [str(v) for v in self.slopes]
+
+    def _split(self, x):
+        x = np.asarray(x)
+        x = x.reshape((x.shape[0], -1))
+        k = len(self.column) if _is_interaction(self.column) else 1
+        g = _interaction(x[:, :k]) if _is_interaction(self.column) else x[:, 0]
+        V = x[:, k:].astype(float)
+        if self.intercept:
+            V = np.column_stack([np.ones(x.shape[0]), V])
+        return g, V
+
+    def setup(self, x):
+        g, self.V_ = self._split(x)
+        self.q_ = self.V_.shape[1]
+        if self.q_ == 0:
+            raise ValueError(f'{self.name}: give an intercept or slopes')
+        self.levels_, self.codes_ = np.unique(g, return_inverse=True)
+        if self.precision is not None:
+            self.precision = np.asarray(self.precision, float).reshape((self.q_, self.q_))
+        self._coef = None
+        return self
+
+    def set_precision(self, B):
+        """Fix the precision `B` (on the scale of the GAM's objective)."""
+        self.precision = np.asarray(B, float)
+
+    def set_weights(self, w):
+        super().set_weights(w)
+        if self.precision is None:
+            raise ValueError(f'{self.name}: give precision (or estimate it, method="REML")')
+        G, q = len(self.levels_), self.q_
+        # each group's V' W V
+        outer = self.w_[:, None, None] * self.V_[:, :, None] * self.V_[:, None, :]
+        self._vwv = np.zeros((G, q, q))
+        np.add.at(self._vwv, self.codes_, outer)
+        self._A = self._vwv + self.precision[None]
+
+    def smooth(self, r):
+        G, q = len(self.levels_), self.q_
+        rhs = np.zeros((G, q))
+        np.add.at(rhs, self.codes_, (self.w_ * r)[:, None] * self.V_)
+        b = np.linalg.solve(self._A, rhs[:, :, None])[:, :, 0]
+        self._coef = b.reshape(-1)
+        return np.sum(b[self.codes_] * self.V_, axis=1)
+
+    # the smoother reproduces no function (the penalty is of full rank):
+    # modified backfitting smooths it whole
+    def smooth_nonlinear(self, r):
+        return self.smooth(r)
+
+    def combine_coef(self, beta, center):
+        return self._coef
+
+    def coef(self):
+        return self._coef
+
+    def penalty(self, f, coef=None):
+        if self.precision is None or coef is None:
+            return 0.
+        b = np.asarray(coef).reshape((-1, self.q_))
+        return float(np.einsum('gi,ij,gj->', b, self.precision, b)) / 2
+
+    def edf(self):
+        return float(np.trace(np.linalg.solve(self._A, self._vwv), axis1=1, axis2=2).sum())
+
+    def basis(self, x=None):
+        if x is None:
+            codes, V = self.codes_, self.V_
+        else:
+            g, V = self._split(x)
+            codes = _level_codes(self.levels_, g)
+        G, q = len(self.levels_), self.q_
+        B = np.zeros((V.shape[0], G * q))
+        seen = codes >= 0
+        rows = np.nonzero(seen)[0]
+        for m in range(q):
+            B[rows, codes[seen] * q + m] = V[seen, m]
+        return B
+
+    def penalty_matrices(self):
+        return [np.kron(np.identity(len(self.levels_)), self.precision)]
+
+    def penalty_matrix(self):
+        if self.precision is None:
+            # (its structure: of full rank)
+            return np.identity(len(self.levels_) * self.q_)
+        return self.penalty_matrices()[0]
+
+    def penalty_lams(self):
+        return [1.]
+
+    def penalty_lam(self):
+        return 1.
+
+    def set_penalty_lams(self, lams):
+        raise ValueError(f'{self.name}: its penalty is a precision matrix (set_precision)')
+
+    def finalize(self, f, r, coef=None):
+        G, q = len(self.levels_), self.q_
+        b = np.zeros((G, q)) if coef is None else np.asarray(coef, float).reshape((G, q))
+        self.effects_ = pd.DataFrame(b, index=self.levels_, columns=self.effect_names)
+        return self
+
+    def predict(self, x):
+        g, V = self._split(x)
+        codes = _level_codes(self.levels_, g)
+        b = self.effects_.to_numpy()
+        return np.where(codes >= 0, np.sum(b[np.maximum(codes, 0)] * V, axis=1), 0.)
+
+
+def correlated_random_effect(column, slopes=(), intercept=True, precision=None, name=None):
+    """
+    Correlated random effects per group of `column` (see
+    `CorrelatedRandomEffectTerm`): an intercept and slopes in the columns
+    `slopes`, with an unstructured covariance, lme4's `(1 + v | g)`; its
+    precision estimated by `method='REML'` or `'ML'` unless given.
+    """
+    if _is_interaction(column):
+        column = list(column)
+    term = CorrelatedRandomEffectTerm(column, slopes=list(slopes), intercept=intercept,
+                                      precision=precision)
+    effects = (['1'] if intercept else []) + [str(v) for v in slopes]
+    term.label = name or f'correlated_random_effect({" + ".join(effects)} | {_group_label(column)})'
+    return term
+
+
 def re(column, by=None, lam=None, df=None, name=None):
     """
     A random effect term (see `RandomEffectTerm`): a random intercept per

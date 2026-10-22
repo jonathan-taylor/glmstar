@@ -68,14 +68,22 @@ class Dense(object):
 class Evaluation(object):
     """
     A penalty at its parameters: `matrix` (a piece), `derivatives` (one
-    piece per parameter), `logdet` and `dlogdet` (its derivatives), and the
-    rotation `V` of its coordinates (None: none) in which they are given.
+    piece per parameter), `logdet` and `dlogdet` (its derivatives, of the
+    penalty in the original coordinates), and the change of its coordinates
+    in which the pieces are given: `beta = V beta~` on its coordinates (for
+    each group's, if they are a `(G, q)` array; None: none), `V_inverse`,
+    and `log|det V|` over all of them (`logdet_V`; 0 for a rotation). In
+    the new coordinates the design is `X V`, the penalty `V' S V`, and
+    `log|H|` is that of the original plus `2 logdet_V`.
     """
 
-    def __init__(self, matrix, derivatives, logdet, dlogdet, V=None):
+    def __init__(self, matrix, derivatives, logdet, dlogdet, V=None, V_inverse=None,
+                 logdet_V=0.):
         self.matrix, self.derivatives = matrix, derivatives
         self.logdet, self.dlogdet = float(logdet), np.asarray(dlogdet, float)
         self.V = V
+        self.V_inverse = V.T if V is not None and V_inverse is None else V_inverse
+        self.logdet_V = float(logdet_V)
 
 
 class ScaledPenalty(object):
@@ -171,3 +179,95 @@ class SumPenalty(object):
         mean = xwx[self.idx].mean()
         return np.array([np.log(mean / max(np.diag(U).mean(), np.finfo(float).tiny))
                          for U in self.Us])
+
+
+class Repeated(object):
+    """
+    The block diagonal matrix with the block `B` (`q x q`) on each group's
+    coordinates `idx[g]` (`idx` of shape `(G, q)`): `I_G (x) B`, never
+    formed.
+    """
+
+    def __init__(self, idx, B):
+        self.idx, self.B = np.asarray(idx), np.asarray(B, float)
+
+    def apply(self, beta):
+        out = np.zeros_like(beta)
+        out[self.idx] = beta[self.idx] @ self.B.T
+        return out
+
+    def add_to(self, S):
+        S[self.idx[:, :, None], self.idx[:, None, :]] += self.B
+
+    def trace(self, H):
+        return H.trace_blocks(self.idx, self.B)
+
+
+class CholeskyPenalty(object):
+    """
+    The precision `I_G (x) Sigma^{-1}` of `G` groups' vectors of `q`
+    correlated random effects (coordinates `idx`, `(G, q)`), the relative
+    covariance `Sigma = L L'` (lme4's relative covariance factor, the
+    covariance over the dispersion on the prior weights' scale), `L` lower
+    triangular, parametrized by the logs of its diagonal and its entries
+    below (the log-Cholesky parametrization, Pinheiro & Bates, 1996).
+
+    A singular covariance (a correlation of 1, or a variance of 0, lme4's
+    boundary fit) is a diagonal entry of `L` at 0, its log at its lower
+    bound, the others finite. So the evaluation is in the coordinates `u`
+    of `b = L u` in each group (as lme4's): there the penalty is the
+    identity, and its derivatives `-(L^{-1} E + E' L^{-T})` (`E` the
+    derivative of `L`), without the precision's large entries.
+    """
+
+    def __init__(self, idx, names):
+        self.idx = np.asarray(idx)
+        self.G, self.q = self.idx.shape
+        self.rows, self.cols = np.tril_indices(self.q)
+        self.diag = self.rows == self.cols
+        self.names = list(names)
+        self.n_params = len(self.rows)
+
+    def factor(self, theta):
+        L = np.zeros((self.q, self.q))
+        L[self.rows, self.cols] = np.where(self.diag, np.exp(theta), theta)
+        return L
+
+    def theta(self, B):
+        """The parameters of the precision `B` (on the prior weights' scale)."""
+        L = np.linalg.cholesky(np.linalg.inv(np.asarray(B, float)))
+        values = L[self.rows, self.cols]
+        return np.where(self.diag, np.log(values), values)
+
+    def precision(self, theta):
+        Linv = np.linalg.inv(self.factor(theta))
+        return Linv.T @ Linv
+
+    def evaluate(self, theta):
+        from scipy.linalg import solve_triangular
+        theta = np.asarray(theta, float)
+        L = self.factor(theta)
+        Linv = solve_triangular(L, np.identity(self.q), lower=True)
+        derivatives = []
+        for i, j, d, t in zip(self.rows, self.cols, self.diag, theta):
+            E = np.zeros((self.q, self.q))
+            E[i, j] = np.exp(t) if d else 1.
+            A = Linv @ E
+            derivatives.append(Repeated(self.idx, -(A + A.T)))
+        G = self.G
+        return Evaluation(Repeated(self.idx, np.identity(self.q)), derivatives,
+                          -2 * G * theta[self.diag].sum(), -2 * G * self.diag,
+                          V=L, V_inverse=Linv, logdet_V=G * theta[self.diag].sum())
+
+    def more_penalty(self, theta):
+        """
+        The direction of more penalty (a smaller covariance): the diagonal's
+        logs down, the entries below it towards 0.
+        """
+        theta = np.asarray(theta, float)
+        return np.where(self.diag, -1., -np.sign(theta))
+
+    def start(self, xwx):
+        """As mgcv's: the precision diagonal, matching the mean diagonal of each effect's `X' W X`."""
+        d = xwx[self.idx].mean(0)
+        return self.theta(np.diag(np.maximum(d, np.finfo(float).tiny)))

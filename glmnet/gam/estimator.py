@@ -371,6 +371,16 @@ class GAM(BaseEstimator):
             # scale of the prior weights
             names, variances = [], []
             for term in self.terms_:
+                if getattr(term, 'penalty_varies', False):
+                    # correlated random effects: their covariance's variances
+                    # (the covariances in `covariance_`)
+                    Sigma = self.dispersion_ * np.linalg.inv(term.precision * weight_total)
+                    term.covariance_ = pd.DataFrame(Sigma, index=term.effect_names,
+                                                    columns=term.effect_names)
+                    for name, v in zip(term.effect_names, np.diag(Sigma)):
+                        names.append(f'{term.name}[{name}]')
+                        variances.append(v)
+                    continue
                 lams = term.penalty_lams()
                 for m, lam in enumerate(lams):
                     names.append(term.name if len(lams) == 1 else f'{term.name}[{m}]')
