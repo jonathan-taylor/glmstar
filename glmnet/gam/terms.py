@@ -267,7 +267,9 @@ class SlopeTerm(Term):
 class FactorTerm(Term):
     """
     A categorical column, one effect per level: the term `factor(column)`.
-    Levels not seen in fitting predict 0. In modified backfitting its
+    Levels not seen in fitting predict 0. The levels are in the order of a
+    pandas categorical's categories (those seen in fitting), otherwise
+    sorted. In modified backfitting its
     indicators are fitted jointly with the other terms' linear columns when it
     has at most `max_joint_levels` levels; otherwise it is backfitted.
     """
@@ -275,9 +277,21 @@ class FactorTerm(Term):
     _label = 'factor'
     max_joint_levels = 50
 
+    categories = None        # the categories of a pandas categorical column (set by GAM)
+
     def setup(self, x):
-        self.levels_, self.codes_ = np.unique(np.asarray(x), return_inverse=True)
+        x = np.asarray(x)
+        if self.categories is None:
+            self.levels_, self.codes_ = np.unique(x, return_inverse=True)
+        else:
+            seen = set(pd.unique(x))
+            self.levels_ = np.array([c for c in self.categories if c in seen], dtype=object)
+            self.codes_ = pd.Index(self.levels_).get_indexer(x)
         return self
+
+    def _codes(self, x):
+        """The positions of the values `x` among the levels (-1: not seen in fitting)."""
+        return pd.Index(self.levels_).get_indexer(np.asarray(x).reshape(-1))
 
     def linear_columns(self):
         nl = len(self.levels_)
@@ -291,7 +305,7 @@ class FactorTerm(Term):
 
     def basis(self, x=None):
         # the indicators of all the levels (unseen levels: 0)
-        codes = self.codes_ if x is None else _level_codes(self.levels_, x)
+        codes = self.codes_ if x is None else self._codes(x)
         return (codes[:, None] == np.arange(len(self.levels_))[None, :]).astype(float)
 
     def smooth(self, r):
