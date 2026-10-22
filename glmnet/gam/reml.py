@@ -16,9 +16,13 @@ is exact: REML is the REML of the mixed model. A random effect term's
 variance is the dispersion over its smoothing parameter.
 
 The inner fit, the penalized likelihood at given smoothing parameters, is
-`GAM`'s local scoring with the joint solve; the criterion and its gradient,
-through the implicit derivative of the fitted coefficients, are computed by
-JAX (an optional dependency: `pip install glmstar[gam]`, or `pip install jax`).
+`GAM`'s local scoring with the joint solve. The criterion and its gradient,
+through the implicit derivative of the fitted coefficients, need only four
+operations on the Hessian `H`: its log determinant, solves, the traces
+`tr(H^{-1} S_k)` and the leverages `x_i' H^{-1} x_i` (`glmnet.gam.linalg`;
+`DenseHessian` forms `H`, and other implementations need not). JAX (an
+optional dependency: `pip install glmstar[gam]`, or `pip install jax`) gives
+the derivatives of the family's unit deviance.
 
 On the scale of the prior weights (`D` the deviance, `S` the penalty matrix,
 `sum_k lam_k S_k` over the terms' penalties, several for some terms,
@@ -60,6 +64,7 @@ from scipy.optimize import minimize
 from statsmodels.genmod.families import family as sm_family, links as sm_links
 
 from .joint import JointDesign
+from .linalg import DenseHessian
 
 
 class ExperimentalWarning(UserWarning):
@@ -203,6 +208,15 @@ class LaplaceCriterion(object):
         # information weight (Fisher's for canonical links)
         unit = lambda eta, y: dev(y, linkinv(eta))
         self._h = jax.vmap(jax.grad(jax.grad(unit)), in_axes=(0, 0))
+        # the first three derivatives of the unit deviance in eta, and that
+        # of the saturated log-likelihood in the dispersion: all the
+        # criterion needs of the family
+        d1 = jax.grad(unit)
+        d2 = jax.grad(d1)
+        d3 = jax.grad(d2)
+        self._derivatives = jax.jit(jax.vmap(lambda e, y: (unit(e, y), d1(e, y), d2(e, y), d3(e, y))))
+        ls = self.ls
+        self._ls = jax.jit(lambda y, a, phi: (ls(y, a, phi), jax.grad(ls, argnums=2)(y, a, phi)))
 
     def _set_structure(self, D, keep, intercept=True):
         """
@@ -279,76 +293,84 @@ class LaplaceCriterion(object):
             lam_fixed[ks] = np.asarray(self.terms[j].penalty_lams(), float) * self.weight_total
         self.lam_fixed = lam_fixed
 
-    def _penalty_matrix(self, lam, np_=None):
-        """The penalty matrix in the coordinates (jnp, or numpy with `np_=np`)."""
-        xp = self._jnp if np_ is None else np_
-        S = xp.diag(lam[self.single] @ self.M) if len(self.single) else xp.zeros((self.M.shape[1],) * 2)
-        for k, idx, U in self.multi:
-            if xp is np:
-                S[np.ix_(idx, idx)] += lam[k] * U
-            else:
-                S = S.at[xp.ix_(idx, idx)].add(lam[k] * U)
-        return S
-
     def _logdet_S(self, lam):
-        jnp = self._jnp
-        value = jnp.sum(self.rank * jnp.log(lam[self.single])) + jnp.sum(self.log_ev)
+        """`log|S|_+`, the terms' (block diagonal) penalties' log pseudo-determinant."""
+        lam = np.asarray(lam, float)
+        value = np.sum(self.rank * np.log(lam[self.single])) + np.sum(self.log_ev)
         for ks in self.multi_terms:
-            value = value + jnp.linalg.slogdet(sum(lam[k] * self.multi[self._multi_of[k]][2]
-                                                   for k in ks))[1]
-        return value
+            # in the stable basis, where each penalty is exact beyond its block
+            _, T = self._stable_basis(ks, lam)
+            value += np.linalg.slogdet(sum(lam[k] * T_k for k, T_k in zip(ks, T)))[1]
+        return float(value)
 
-    def _dS_beta(self, lam, beta):
-        """The derivatives of the penalty's gradient `S beta` in the estimated `rho_k`: (K, P)."""
-        out = np.zeros((self.n_rho, beta.shape[0]))
-        where = {k: i for i, k in enumerate(self.single)}
-        for i, k in enumerate(self.est_index):
-            if k in where:
-                out[i] = lam[k] * self.M[where[k]] * beta
-            else:
-                _, idx, U = self.multi[self._multi_of[k]]
-                out[i, idx] = lam[k] * U @ beta[idx]
-        return out
+    def _stable_basis(self, ks, lam):
+        """
+        Wood's (2011) stable reparametrization of the penalties `ks` of one
+        term (on its range coordinates) at `lam`: the range of the dominant
+        penalty (the largest `lam_k |U_k|`) first, then, in its null space,
+        that of the next, and so on. Each penalty is exactly 0 beyond the
+        block where it dominates (its null space there), so a large smoothing
+        parameter multiplies only its own block: its rounding does not reach
+        the directions it does not penalize. Returns the basis `V` and the
+        penalties `T_k = V' U_k V` in it.
+        """
+        Us = [self.multi[self._multi_of[k]][2] for k in ks]
+        r = Us[0].shape[0]
+        Q, cols, ends, active = np.identity(r), [], {}, list(range(len(ks)))
+        while active and Q.shape[1] > 0:
+            sizes = [lam[ks[i]] * np.linalg.norm(Q.T @ Us[i] @ Q) for i in active]
+            i = active[int(np.argmax(sizes))]
+            ev, W = np.linalg.eigh(Q.T @ Us[i] @ Q)
+            if len(active) == 1:
+                cols.append(Q @ W)
+                break
+            on = ev > max(ev.max(), 0) * 1e-10
+            cols.append(Q @ W[:, on])
+            ends[i] = sum(c.shape[1] for c in cols)
+            Q = Q @ W[:, ~on]
+            active.remove(i)
+        V = np.hstack(cols)
+        T = []
+        for i, U in enumerate(Us):
+            Ti = V.T @ U @ V
+            Ti = (Ti + Ti.T) / 2
+            if i in ends:
+                Ti[ends[i]:, :] = 0.
+                Ti[:, ends[i]:] = 0.
+            T.append(Ti)
+        return V, T
 
-    def _rotate(self, H, lam, np_=None):
+    def _evaluation(self, params, beta):
         """
-        `H` (jnp, or numpy with `np_=np`) in coordinates where the penalties
-        of each term with several are diagonal at `lam`: its range
-        coordinates rotated to the eigenvectors of their weighted sum (as
-        Wood's (2011) stable reparametrization; the criterion does not
-        change, so the rotation is held fixed for its derivatives). With a
-        dominant penalty, the scale of each direction is then on the
-        diagonal, and equilibration conditions `H`. The rotations are
-        returned, `(coordinates, eigenvectors)` per term.
+        The criterion's pieces at `params` and `beta`, in the coordinates
+        of the stable reparametrization (`_stable_basis`; the single
+        penalties as they are): the design `X`, coefficients `beta`, the
+        penalty matrix `S` and each penalty `k` as `(coordinates, matrix or
+        diagonal)` times its smoothing parameter.
         """
-        xp = self._jnp if np_ is None else np_
+        lam, phi = self._split(params)
+        lam, phi = np.asarray(lam, float), float(phi)
+        X, beta = self.X.copy(), np.array(beta, float)
+        P = X.shape[1]
+        S = np.zeros((P, P))
+        penalties = {}
+        where = {k: b for b, k in enumerate(self.single)}
+        for k, b in where.items():
+            idx = np.nonzero(self.M[b] > 0)[0]
+            penalties[k] = (idx, lam[k] * self.M[b][idx])
+            S[idx, idx] += lam[k] * self.M[b][idx]
         rotations = []
         for ks in self.multi_terms:
             idx = self.multi[self._multi_of[ks[0]]][1]
-            A = sum(lam[k] * self.multi[self._multi_of[k]][2] for k in ks)
-            if xp is np:
-                V = np.linalg.eigh(A)[1]
-                H = H.copy()
-                H[:, idx] = H[:, idx] @ V
-                H[idx, :] = V.T @ H[idx, :]
-            else:
-                V = self._jax.lax.stop_gradient(xp.linalg.eigh(A)[1])
-                H = H.at[:, idx].set(H[:, idx] @ V)
-                H = H.at[idx, :].set(V.T @ H[idx, :])
+            V, T = self._stable_basis(ks, lam)
+            X[:, idx] = X[:, idx] @ V
+            beta[idx] = V.T @ beta[idx]
+            for k, Tk in zip(ks, T):
+                penalties[k] = (idx, lam[k] * Tk)
+                S[np.ix_(idx, idx)] += lam[k] * Tk
             rotations.append((idx, V))
-        return H, rotations
-
-    def _solve_H(self, H, lam, b):
-        """`H^{-1} b` (numpy), in the rotated coordinates of `_rotate`, equilibrated."""
-        H, rotations = self._rotate(np.asarray(H), np.asarray(lam), np_=np)
-        b = np.array(b, float)
-        for idx, V in rotations:
-            b[idx] = V.T @ b[idx]
-        d = 1 / np.sqrt(np.abs(np.diag(H)))
-        x = d[:, None] * np.linalg.solve(d[:, None] * H * d[None, :], d[:, None] * b)
-        for idx, V in rotations:
-            x[idx] = V @ x[idx]
-        return x
+        return dict(lam=lam, phi=phi, X=X, beta=beta, S=S, penalties=penalties,
+                    rotations=rotations)
 
     def _penalty_diag(self, k):
         """The diagonal of the penalty `k` on its coordinates (for the starting values)."""
@@ -362,38 +384,98 @@ class LaplaceCriterion(object):
     # the smoothing parameters and dispersion from the parameters
 
     def _split(self, params):
-        jnp = self._jnp
-        rho = params[:self.n_rho]
-        lam = jnp.asarray(self.lam_fixed).at[self.est_index].set(jnp.exp(rho))
-        phi = jnp.exp(params[-1]) if self.free_dispersion else self.fixed_dispersion
+        params = np.asarray(params, float)
+        lam = self.lam_fixed.copy()
+        lam[self.est_index] = np.exp(params[:self.n_rho])
+        phi = float(np.exp(params[-1])) if self.free_dispersion else self.fixed_dispersion
         return lam, phi
 
-    def _hessian(self, params, beta):
+    # the factorization of H (a class with DenseHessian's operations)
+    Hessian = DenseHessian
+
+    def _factor(self, ev):
+        """Factor `H` at the evaluation `ev` (`_evaluation`): adds `H` and the family's pieces."""
         jnp = self._jnp
-        lam, _ = self._split(params)
-        eta = self.X @ beta + self.offset
-        h = 0.5 * self._h(eta, self.y) * self.a
-        return self.X.T @ (h[:, None] * self.X) + self._penalty_matrix(lam)
+        eta = ev['X'] @ ev['beta'] + self.offset
+        dev, d1, d2, d3 = (np.asarray(v, float)
+                           for v in self._derivatives(jnp.asarray(eta), jnp.asarray(self.y)))
+        ev.update(dev=dev, d1=d1, d3=d3, H=self.Hessian(ev['X'], 0.5 * self.a * d2, ev['S']))
+        ev['H_int'] = ev['H'].restrict(self.penalized) if self.method == 'ML' else ev['H']
+        return ev
+
+    def _polish(self, ev):
+        """
+        One Newton step from the inner fit's coefficients, in the stable
+        coordinates and with the criterion's factorization of `H`: the
+        coefficients to its precision, and independent of the inner fit's
+        path (its warm start), on which the criterion would otherwise depend
+        a little where a smoothing parameter is large.
+        """
+        grad = 0.5 * ev['X'].T @ (self.a * ev['d1']) + ev['S'] @ ev['beta']
+        ev['beta'] = ev['beta'] - ev['H'].solve(grad)
+        return self._factor(ev)
+
+    def _value(self, ev):
+        lam, phi, beta = ev['lam'], ev['phi'], ev['beta']
+        Dp = float(np.sum(self.a * ev['dev']) + beta @ ev['S'] @ beta)
+        jnp = self._jnp
+        ls, dls = (float(v) for v in self._ls(jnp.asarray(self.y), jnp.asarray(self.a), phi))
+        value = Dp / (2 * phi) - ls + ev['H_int'].logdet() / 2 - self._logdet_S(lam) / 2
+        if self.method == 'REML':
+            value -= self.null_dim * np.log(2 * np.pi * phi) / 2
+        ev.update(Dp=Dp, dls=dls)
+        return float(value)
 
     def criterion(self, params, beta):
         """The criterion at `params`, with the coefficients `beta` (in the criterion's coordinates)."""
-        jnp = self._jnp
-        lam, phi = self._split(params)
-        eta = self.X @ beta + self.offset
-        mu = self.linkinv(eta)
-        Dp = jnp.sum(self.a * self.dev(self.y, mu)) + beta @ self._penalty_matrix(lam) @ beta
-        H, _ = self._rotate(self._hessian(params, beta), lam)
-        if self.method == 'ML':
-            idx = self.penalized
-            H = H[jnp.ix_(idx, idx)]
-        # equilibrated: with a large smoothing parameter H is ill conditioned
-        d = 1 / jnp.sqrt(jnp.abs(jnp.diag(H)))
-        logdet_H = jnp.linalg.slogdet(d[:, None] * H * d[None, :])[1] - 2 * jnp.sum(jnp.log(d))
-        logdet_S = self._logdet_S(lam)
-        value = Dp / (2 * phi) - self.ls(self.y, self.a, phi) + logdet_H / 2 - logdet_S / 2
-        if self.method == 'REML':
-            value = value - self.null_dim * jnp.log(2 * np.pi * phi) / 2
-        return value
+        params = np.asarray(params, float)
+        return self._value(self._factor(self._evaluation(params, beta)))
+
+    def _dlogdet_S(self, lam, k):
+        """The derivative of `log|S|_+` in `rho_k = log lam_k`."""
+        if k not in self._multi_of:
+            return float(self.rank[list(self.single).index(k)])
+        ks = next(ks for ks in self.multi_terms if k in ks)
+        _, T = self._stable_basis(ks, lam)
+        A = sum(lam[k_] * T_k for k_, T_k in zip(ks, T))
+        return float(lam[k] * np.trace(np.linalg.solve(A, T[ks.index(k)])))
+
+    def value_and_grad(self, params):
+        """
+        The criterion and its gradient. In the smoothing parameters, with
+        `beta` held, and through `beta`, the implicit derivative of the
+        fitted coefficients, `d beta / d rho_k = -H^{-1} lam_k S_k beta`;
+        `log|H|` changes with `beta` through the weights `h`, whose
+        derivatives (`h'`, the third derivatives of the deviance) weight the
+        leverages `x_i' H^{-1} x_i`. Only `H`'s operations (`DenseHessian`)
+        are needed: its log determinant, solves, traces and leverages.
+        """
+        self.n_evaluations += 1
+        params = np.asarray(params, float)
+        beta = self.coef(params)
+        if not self.gam.converged_:
+            return self._unconverged(params)
+        ev = self._polish(self._factor(self._evaluation(params, beta)))
+        value = self._value(ev)
+        lam, phi, X, beta, H, H_int = (ev[k] for k in ('lam', 'phi', 'X', 'beta', 'H', 'H_int'))
+        g = np.zeros(self.n_params)
+        dS_beta = np.zeros((self.n_rho, beta.shape[0]))            # lam_k S_k beta
+        for i, k in enumerate(self.est_index):
+            idx, A = ev['penalties'][k]
+            dS_beta[i, idx] = A * beta[idx] if A.ndim == 1 else A @ beta[idx]
+            g[i] = (beta @ dS_beta[i] / (2 * phi) + H_int.trace(idx, A) / 2 -
+                    self._dlogdet_S(lam, k) / 2)
+        # through beta: the penalized deviance (0 at the minimum, up to the
+        # inner fit's convergence) and log|H|, through h
+        g_beta = (X.T @ (self.a * ev['d1']) + 2 * ev['S'] @ beta) / (2 * phi)
+        g_beta += X.T @ (0.5 * self.a * ev['d3'] * H_int.leverages()) / 2
+        dbeta = -H.solve(dS_beta.T)                                  # (P, K)
+        g[:self.n_rho] += g_beta @ dbeta
+        if self.free_dispersion:
+            g[-1] = (-ev['Dp'] / (2 * phi) - phi * ev['dls'] -
+                     (self.null_dim / 2 if self.method == 'REML' else 0.))
+        self._max_value = max(getattr(self, '_max_value', -np.inf), value)
+        return value, g
 
     def _set_lams(self, params):
         lam, _ = self._split(params)
@@ -420,31 +502,15 @@ class LaplaceCriterion(object):
     def _inner_control(self):
         from copy import copy
         control = copy(self.gam.control)
-        control.epsnr = min(control.epsnr, 1e-10)
+        # 1e-8, not tighter: the polish (`_polish`, a Newton step, which
+        # squares the error) gives the coefficients the criterion's
+        # precision, and a large smoothing parameter's rounding can move the
+        # linear predictor by more than 1e-10 at each step
+        control.epsnr = 1e-8
         control.convergence = 'eta'
         # (Fisher scoring converges linearly for non-canonical links)
         control.mxitnr = max(control.mxitnr, 500)
         return control
-
-    def value_and_grad(self, params):
-        """The criterion and its gradient (through the fitted coefficients' implicit derivative)."""
-        jax, jnp = self._jax, self._jnp
-        self.n_evaluations += 1
-        params = np.asarray(params, float)
-        beta = self.coef(params)
-        if not self.gam.converged_:
-            return self._unconverged(params)
-        value, (g_params, g_beta) = jax.value_and_grad(self.criterion, argnums=(0, 1))(params, beta)
-        H = np.asarray(self._hessian(params, beta))
-        lam, _ = self._split(params)
-        lam = np.asarray(lam)
-        g = np.array(g_params, float)
-        # d beta / d rho_k = -H^{-1} (lam_k S_k beta): the minimum's equations
-        # differentiated
-        dbeta = -self._solve_H(H, lam, self._dS_beta(lam, np.asarray(beta)).T)  # (P, K)
-        g[:self.n_rho] += np.asarray(g_beta) @ dbeta
-        self._max_value = max(getattr(self, '_max_value', -np.inf), float(value))
-        return float(value), g
 
     def _unconverged(self, params):
         """
