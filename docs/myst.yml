@@ -29,6 +29,7 @@ project:
         - file: gam.md
         - file: gam_reml.md
         - file: gam_gp.md
+        - file: gam_bikeshare.md
         - file: gam_mixed_models.md
     - title: GLMNet paths
       children:
