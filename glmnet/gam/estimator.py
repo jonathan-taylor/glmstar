@@ -32,7 +32,7 @@ from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .joint import JointDesign, JointRegularizer
 from .selection import resolve_method, SmoothingMethod
-from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm
+from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, FactorTerm
 
 
 @dataclass
@@ -294,6 +294,11 @@ class GAM(BaseEstimator):
         method = self._method = resolve_method(self.method)
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
+            if isinstance(term, FactorTerm) and isinstance(X, pd.DataFrame):
+                # a categorical's order of the levels (not the sorted one)
+                column = X[term.column] if isinstance(term.column, str) else X.iloc[:, term.column]
+                if isinstance(column.dtype, pd.CategoricalDtype):
+                    term.categories = list(column.cat.categories)
             term.setup(x)
         if linear_term is not None:
             linear_term = np.asarray(linear_term, float).reshape(-1)

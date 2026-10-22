@@ -43,13 +43,13 @@ Bike[['bikers', 'hr', 'mnth', 'weekday', 'workingday', 'weathersit', 'temp']].dt
 ```
 
 `hr` and `mnth` are categorical. A smooth needs the hour as a number,
-0 to 23. `factor()` orders its levels as sorted values, not by a
-categorical's order, so the month is coded by its number, 1 to 12. The
-temperature is normalized to lie between 0 and 1.
+0 to 23. `factor()` keeps a categorical's order of its levels, so the
+months stay in calendar order. The temperature is normalized to lie
+between 0 and 1.
 
 ```{code-cell} ipython3
 Bike['hour'] = Bike['hr'].astype(int)
-Bike['month'] = Bike['mnth'].cat.codes + 1
+Bike['month'] = Bike['mnth']
 Bike['weathersit'].value_counts()
 ```
 
@@ -320,7 +320,7 @@ difference between July's and January's effects (on the log scale), under
 each model:
 
 ```{code-cell} ipython3
-new = pd.DataFrame({'hour': [8, 13, 17], 'temp': 0.5, 'weather': 'clear', 'month': 4, 'day': -1})
+new = pd.DataFrame({'hour': [8, 13, 17], 'temp': 0.5, 'weather': 'clear', 'month': 'April', 'day': -1})
 rows = {}
 for name, fit in fits.items():
     mean, std = fit.predict(new, return_std=True)
@@ -362,7 +362,7 @@ hours = np.arange(24)
 fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
 for ax, wd in zip(axes, days):
     for temp in [0.3, 0.7]:
-        grid = pd.DataFrame({'hour': hours, 'temp': temp, 'weather': 'clear', 'month': 4, 'day': -1})
+        grid = pd.DataFrame({'hour': hours, 'temp': temp, 'weather': 'clear', 'month': 'April', 'day': -1})
         mean, std = final[wd].predict(grid, return_std=True)
         line, = ax.plot(hours, mean, marker='o', ms=3, label=f'temp {temp}')
         ax.fill_between(hours, mean - 2 * std, mean + 2 * std, color=line.get_color(), alpha=0.25)
