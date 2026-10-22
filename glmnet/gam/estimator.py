@@ -31,6 +31,7 @@ from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .joint import JointDesign, JointRegularizer
+from .selection import resolve_method, SmoothingMethod
 from .terms import SplineTerm, Term
 
 
@@ -118,12 +119,15 @@ class GAM(BaseEstimator):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
-    method: str
+    method: str or SmoothingMethod
         How the smoothing parameters are chosen: `'fixed'` (the default, as
         R's `gam`: each term's `lam` or `df`; `s()` without them has
-        `df=4`), or `'REML'` or `'ML'` (as mgcv's `gam(method=...)`, with
-        JAX): the smoothing parameters of `s()`, `re()` and `gaussian_process()` terms without
-        `lam` or `df` maximize the restricted (or full) marginal likelihood,
+        `df=4`), `'REML'` or `'ML'`, or a `glmnet.gam.selection.SmoothingMethod`
+        (such as `CrossedMoments()`, the method of moments for the variances
+        of crossed random effects in large data, or a user's). With `'REML'`
+        or `'ML'` (as mgcv's `gam(method=...)`, with JAX) the smoothing
+        parameters of the penalized terms without `lam` or `df` (or a given
+        precision) maximize the restricted (or full) marginal likelihood,
         by Laplace's method, the dispersion with them. Terms with `lam` keep
         it; terms with `df` have it matched at the prior weights, then fixed.
         The working problems are solved jointly, and `edf_`, `df_resid_`
@@ -287,6 +291,7 @@ class GAM(BaseEstimator):
         normed_weight = self._normed_weight = weight / weight_total
         self.weight_total_ = weight_total
 
+        method = self._method = resolve_method(self.method)
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
             term.setup(x)
@@ -298,7 +303,7 @@ class GAM(BaseEstimator):
         if self.control.solver not in ('backfit', 'joint'):
             raise ValueError("solver should be one of 'backfit' or 'joint'")
         # REML and ML: the joint solve, its design needed for the criterion
-        Regularizer = (JointRegularizer if self.control.solver == 'joint' or self.method != 'fixed'
+        Regularizer = (JointRegularizer if self.control.solver == 'joint' or method.joint
                        else GAMRegularizer)
         regularizer = self.regularizer_ = Regularizer(terms=self.terms_,
                                                       linear_term=linear_term,
@@ -325,13 +330,14 @@ class GAM(BaseEstimator):
         self._offset, self._normed_weight = offset, normed_weight
         self._null_state = GAMState(np.zeros((nobs, len(self.terms_))), null_intercept)
 
-        if self.method != 'fixed':
-            import warnings
-            from .reml import select_smoothing, ExperimentalWarning
-            warnings.warn(f"GAM(method='{self.method}') is experimental: the selection of the "
-                          "smoothing parameters may change, and its convergence should be "
-                          "checked (smoothing_.converged)", ExperimentalWarning, stacklevel=2)
-            self.smoothing_ = select_smoothing(self, dispersion)
+        if method.estimates:
+            if method.experimental:
+                import warnings
+                from .reml import ExperimentalWarning
+                warnings.warn(f"GAM(method='{method.name}') is experimental: the selection of the "
+                              "smoothing parameters may change, and its convergence should be "
+                              "checked (smoothing_.converged)", ExperimentalWarning, stacklevel=2)
+            self.smoothing_ = method.select(self, dispersion)
 
         state = self._local_scoring()
 
@@ -357,14 +363,15 @@ class GAM(BaseEstimator):
         self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
 
         self._estimated_dispersion = dispersion is None and not self._fixed_dispersion()
-        if self.method != 'fixed':
-            # mgcv's conventions: its edf and residual df, the REML (or ML)
-            # estimate of the dispersion
+        if method.estimates:
+            # the method's estimate of the dispersion; mgcv's conventions
+            # (its edf and residual df) if the method asks for them
             self.dispersion_ = (self.smoothing_.dispersion if self._estimated_dispersion
                                 else (1. if dispersion is None else dispersion))
             self._set_covariance(w)
-            self.edf_ = self.edf_influence_.rename('edf')
-            self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
+            if method.covariance_edf:
+                self.edf_ = self.edf_influence_.rename('edf')
+                self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
             self.reml_score_ = self.smoothing_.score
             # the variances of the penalized terms' coefficients (random
             # effects): the dispersion over the smoothing parameter, on the
@@ -394,7 +401,7 @@ class GAM(BaseEstimator):
                           if self.df_resid_ > 0 else np.nan)
         elif dispersion is None:
             dispersion = 1.
-        if self.method == 'fixed':
+        if not method.estimates:
             self.dispersion_ = dispersion
 
         # as R's gam (and glm): the dispersion, when free, counts as a
@@ -405,7 +412,7 @@ class GAM(BaseEstimator):
         self.aic_ = -2 * self.loglike_ + 2 * k
         self.bic_ = -2 * self.loglike_ + np.log(n) * k
 
-        if self.method == 'fixed':
+        if not method.estimates:
             self._set_covariance(w)
         return self
 
@@ -416,13 +423,22 @@ class GAM(BaseEstimator):
         smoothing parameter estimated with `'REML'` or `'ML'`, as `re()`
         without them.
         """
-        if self.method not in ('fixed', 'REML', 'ML'):
-            raise ValueError("method should be one of 'fixed', 'REML' or 'ML'")
+        method = resolve_method(self.method)
         for term in terms:
-            if (isinstance(term, SplineTerm) and self.method == 'fixed' and
+            if (isinstance(term, SplineTerm) and not method.estimates and
                 term.df is None and term.lam is None):
                 term.df = 4.
         return terms
+
+    def inner_fit(self, state=None, control=None):
+        """
+        For a `SmoothingMethod`: the fit (local scoring) at the terms' current
+        parameters, from `state` (by default the intercept-only fit), as a
+        `GAMState` (its fits, intercept and means; whether it converged in
+        `converged_`). The terms' parameters are set by the method (e.g.
+        `term.set_penalty_lams`).
+        """
+        return self._local_scoring(state=state, control=control, warn=False)
 
     def _local_scoring(self, state=None, control=None, warn=True):
         """

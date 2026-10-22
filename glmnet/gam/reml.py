@@ -783,23 +783,10 @@ def select_smoothing(gam, dispersion=None):
     if any(term.basis() is None for term in terms):
         raise ValueError('REML and ML need a basis for every term (not lo())')
     normed = gam._normed_weight
-    estimated = []
-    for j, term in enumerate(terms):
-        if term.penalty_matrix() is None:
-            continue
-        if getattr(term, 'penalty_varies', False):
-            # a precision matrix: estimated unless given
-            if term.precision is None:
-                estimated.append(j)
-            continue
-        if getattr(term, 'lam', None) is None and getattr(term, 'df', None) is None:
-            estimated.append(j)
-        elif getattr(term, 'df', None) is not None:
-            # df: matched at the prior weights, then fixed
-            term.set_weights(normed)
-            term.lam, term.df = float(term.penalty_lam()), None
+    from .selection import estimated_terms
+    estimated = estimated_terms(gam)
     if not estimated:
-        raise ValueError(f'method="{gam.method}": no smoothing parameter to estimate '
+        raise ValueError(f'method="{gam._method.name}": no smoothing parameter to estimate '
                          '(every penalized term has lam or df)')
     # placeholders, set at each evaluation
     for j in estimated:
@@ -817,7 +804,7 @@ def select_smoothing(gam, dispersion=None):
         jax, _ = _jax()
         context, Criterion = jax.enable_x64(True), LaplaceCriterion
     with context:
-        crit = Criterion(gam, estimated, method=gam.method, dispersion=dispersion)
+        crit = Criterion(gam, estimated, method=gam._method.name, dispersion=dispersion)
         x0 = crit.start()
         K = crit.n_rho
         bounds = [(r - 25, r + 25) for r in x0[:K]] + [(None, None)] * (len(x0) - K)
@@ -835,7 +822,7 @@ def select_smoothing(gam, dispersion=None):
         # the terms at the optimum
         crit.coef(x)
         converged = converged and gam.converged_
-    return SmoothingSelection(method=gam.method,
+    return SmoothingSelection(method=gam._method.name,
                               terms=[crit.penalty_names[k] for k in crit.est_index],
                               lam=lam / crit.weight_total,
                               lam_raw=lam,

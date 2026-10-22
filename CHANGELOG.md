@@ -4,6 +4,23 @@
 
 ### New features
 
+- **`glmnet.gam`: pluggable methods for the penalty parameters.**
+  `GAM(method=...)` takes a `SmoothingMethod` (`glmnet.gam.selection`)
+  as well as `'fixed'`, `'REML'` or `'ML'` (now the `Fixed` and `Laplace`
+  methods). Its `select(gam, dispersion)` sets the estimated terms'
+  parameters (`estimated_terms(gam)`), using fits at given parameters
+  (`GAM.inner_fit()`), and says whether `GAM` needs the joint solve and
+  mgcv's edf. Those form the dense covariance; a method for large data
+  can do without them.
+- **`CrossedMoments()`: the variances of crossed (or nested) random
+  intercepts by the method of moments**, in time linear in the number of
+  observations. These are Gao and Owen's U statistics, for any number of
+  factors, of the residuals of the fit without the random effects, as in
+  Ghosh, Hastie and Owen's backfitting for large crossed random effects.
+  `GAM` then fits by backfitting with them fixed: the GLS fit of the other
+  terms and the effects' predictions. On a balanced design they are the
+  ANOVA estimators. 200,000 observations of 2000 × 500 crossed levels take
+  about 2 seconds.
 - **Cox REML/ML for every kind of penalty:** tensor products, several
   penalties per term and correlated random effects, on the penalty objects
   and `DenseHessian`, as the other families. As in theirs, one Newton step
