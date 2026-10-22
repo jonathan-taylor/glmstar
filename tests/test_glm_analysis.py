@@ -402,7 +402,7 @@ def test_feature_names_modelspec():
     ModelSpec = pytest.importorskip('ISLP.models').ModelSpec
     df = pd.DataFrame(X, columns=list('abcd'))
     y = 3 + X[:, 0] + rng.standard_normal(n)
-    spec = ModelSpec(['a', 'b']).fit(df[:150])
+    spec = ModelSpec(['a', 'b'], intercept=True).fit(df[:150])
     with warnings.catch_warnings():
         warnings.simplefilter('error', UserWarning)  # the 'intercept' column is dropped silently
         g = GLM(summarize=True).fit(spec.transform(df[:150]), y[:150])
@@ -497,3 +497,59 @@ def test_loglike_zero_weights(family):
     assert np.isfinite(G.loglike_)
     np.testing.assert_allclose(G.loglike_, H.loglike_, rtol=1e-8)
     np.testing.assert_allclose(G.aic_, H.aic_, rtol=1e-8)
+
+
+@pytest.mark.parametrize('family', [sm.families.Gaussian(), sm.families.Binomial()],
+                         ids=['gaussian', 'binomial'])
+def test_islp_empty_design(family):
+    # ISLP's empty design (a ModelSpec with no terms, the null model of a
+    # stepwise search) is a single column of zeros named 'zero': the
+    # intercept-only model, as a lone 'intercept' column, without a warning
+    rng = np.random.default_rng(5)
+    n = 80
+    y = (rng.binomial(1, 0.3, n) if isinstance(family, sm.families.Binomial)
+         else rng.standard_normal(n) + 2.).astype(float)
+    Z = pd.DataFrame({'zero': np.zeros(n)})
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        G = GLM(family=family).fit(Z, y)
+        pred = G.predict(Z.iloc[:5])
+    I = GLM(family=family).fit(pd.DataFrame({'intercept': np.ones(n)}), y)
+    np.testing.assert_allclose(G.coef_, 0)
+    np.testing.assert_allclose(G.intercept_, I.intercept_, rtol=1e-10)
+    np.testing.assert_allclose(pred, np.full(5, family.link.inverse(I.intercept_)), rtol=1e-10)
+    np.testing.assert_allclose(G.deviance_, G.null_deviance_, rtol=1e-10)
+    # other constant columns still warn: zeros next to other columns, or zeros
+    # not named 'zero'
+    X = pd.DataFrame({'zero': np.zeros(n), 'x': rng.standard_normal(n)})
+    with pytest.warns(UserWarning, match='excluding the constant column'):
+        GLM(family=family).fit(X, y)
+    with pytest.warns(UserWarning, match='excluding the constant column'):
+        GLM(family=family).fit(pd.DataFrame({'nothing': np.zeros(n)}), y)
+
+
+def test_islp_empty_design_cox():
+    # the null model of a Cox stepwise search: no warning, coefficient 0
+    from glmnet.cox import CoxFamily, CoxLM
+    rng = np.random.default_rng(6)
+    n = 60
+    Y = pd.DataFrame({'event': rng.exponential(1, n), 'status': rng.binomial(1, 0.7, n)})
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        L = CoxLM(family=CoxFamily()).fit(pd.DataFrame({'zero': np.zeros(n)}), Y)
+    np.testing.assert_allclose(L.coef_, 0)
+
+
+def test_islp_stepwise_no_warning():
+    # ISLP's forward stepwise with glmstar's GLM (the Ch06 lab): no warnings
+    # from the null model's empty design
+    ISLP = pytest.importorskip('ISLP')
+    from ISLP.models import ModelSpec as MS, sklearn_selected
+    from ISLP.models.strategy import Stepwise
+    Hitters = ISLP.load_data('Hitters').dropna()
+    design = MS(Hitters.columns.drop('Salary'), intercept=False).fit(Hitters)
+    strategy = Stepwise.first_peak(design, direction='forward', max_terms=3)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)
+        selected = sklearn_selected(GLM(), strategy).fit(Hitters, Hitters['Salary'])
+    assert len(selected.selected_state_) > 0

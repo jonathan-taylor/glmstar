@@ -26,8 +26,9 @@ Gaussian process smooths (`gp(x)`, `gp(lon, lat)`: mgcv's `s(..., bs="gp")`,
 the low rank kriging of Kammann & Wand, 2003) are terms in one or more
 columns.
 
-Smoothing parameters (and random effects' variances) can also be estimated,
-by REML or ML as mgcv's (`GAM(method='REML')`, with JAX: `pip install
+Smoothing parameters (and random effects' variances) can also be estimated
+(experimental: see `glmnet.gam.reml`), by REML or ML as mgcv's
+(`GAM(method='REML')`, with JAX: `pip install
 glmstar[gam]`; not needed for the Cox family, glmstar's `CoxFamily`).
 
 The smoothing spline and loess terms use the `scatter_smooth` package.
@@ -79,6 +80,6 @@ from .terms import (Term,
 from .gp import GPTerm, gp
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
-from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection
+from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning
 from .estimator import GAM, GAMControl
 from .plot import plot_term, plot_terms
