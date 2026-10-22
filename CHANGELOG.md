@@ -200,7 +200,7 @@
   order** (those seen in fitting) for its effects, plots and baseline,
   instead of sorting the levels as strings: the months of ISLP's
   `Bikeshare` came out April, Aug, Dec. New data's levels are looked up
-  by value. The Bikeshare page now uses its categorical month.
+  by value. The Bikeshare page now uses its categorical month (#173).
 - **`glmnet.gam` REML/ML ignored a given dispersion for the binomial and
   Poisson:** `fit(X, y, dispersion=phi)` set `dispersion_` (and so the
   standard errors) to `phi`, but the criterion that chose the smoothing
