@@ -247,11 +247,20 @@ class GPTerm(Term):
             return np.hstack([np.ones((Xs.shape[0], 1)), Xs])
         return np.ones((Xs.shape[0], 1))
 
+    # rows of the basis computed at a time: the correlations with the knots
+    # are (rows, knots), the basis only (rows, k)
+    block_rows = 4096
+
     def _basis_values(self, X):
         Xs = X - self.shift_
-        C = gp_correlation(_distances(Xs, self.knots_ - self.shift_) / self.range_,
-                           self.kernel_code_, self.power_)
-        return np.hstack([C @ self._W, self._trend(Xs)])
+        K = self.knots_ - self.shift_
+        B = np.empty((Xs.shape[0], self._W.shape[1]))
+        for start in range(0, Xs.shape[0], self.block_rows):
+            rows = slice(start, start + self.block_rows)
+            C = gp_correlation(_distances(Xs[rows], K) / self.range_, self.kernel_code_,
+                               self.power_)
+            B[rows] = C @ self._W
+        return np.hstack([B, self._trend(Xs)])
 
     def basis(self, x=None):
         if x is None:
