@@ -78,8 +78,11 @@ Here is where the terms come from:
 
 This is **REML**. It integrates the unpenalized coefficients too, with a
 flat prior, as REML does for the fixed effects of a mixed model. **ML**
-integrates only the penalized coefficients. Its $H$ is restricted to them,
-and it has no last term.
+integrates only the penalized coefficients, and treats the unpenalized
+ones as parameters, at the same joint mode $\hat\beta$. Its $H$ is
+$H_{PP}$, the block of the penalized coordinates, and it has no last term.
+The difference between the two is the subject of the section "ML, and
+REML versus ML" below.
 
 With one penalty per term, the blocks of $S_\lambda$ do not overlap, so
 
@@ -216,6 +219,61 @@ pd.DataFrame({'lam b\'S b / phi': [lam[j] * beta[sl] @ S_j @ beta[sl] / phi
               'edf - 1': G.edf_.values - 1}, index=G.edf_.index)
 ```
 
+### ML, and REML versus ML
+
+Split the coordinates into the penalized ones, $P$, and the $M$
+unpenalized ones, $F$: the intercept, the linear terms, and the
+penalties' null spaces (here each spline's linear part). Then
+
+$$\log|H| = \log|H_{PP}| + \log|C_F|, \qquad
+C_F = H_{FF} - H_{FP}H_{PP}^{-1}H_{PF} = X_F^TW(I - \mathcal{S})X_F,$$
+
+with $\mathcal{S}$ the smoother of the penalized terms (their joint
+penalized fit), so that
+
+$$V_{\text{REML}} - V_{\text{ML}} = \tfrac12\log|C_F| - \tfrac{M}{2}\log(2\pi\phi).$$
+
+$C_F$ is the information about the unpenalized coefficients once the
+penalized ones are integrated out: for the Gaussian, the GLS information.
+$\tfrac12\log|C_F|$ is Harville's (1974) REML correction. At the same
+parameters the two criteria differ by it:
+
+```{code-cell} ipython3
+from glmnet.gam.reml import LaplaceCriterion
+
+C_reml = LaplaceCriterion(G, [0, 1], method='REML')
+C_ml = LaplaceCriterion(G, [0, 1], method='ML')
+params = np.r_[np.log(G.smoothing_.lam_raw), np.log(G.smoothing_.dispersion)]
+b_hat = C_reml.coef(params)
+ev = C_reml._evaluation(params, b_hat)       # (the criterion's coordinates)
+H_c = ev['X'].T @ ev['X'] + ev['S']
+P_c = C_reml.penalized
+F_c = np.setdiff1d(np.arange(H_c.shape[0]), P_c)
+C_F = H_c[np.ix_(F_c, F_c)] - H_c[np.ix_(F_c, P_c)] @ np.linalg.solve(
+    H_c[np.ix_(P_c, P_c)], H_c[np.ix_(P_c, F_c)])
+phi_hat = G.smoothing_.dispersion
+(C_reml.criterion(params, b_hat) - C_ml.criterion(params, b_hat),
+ np.linalg.slogdet(C_F)[1] / 2 - len(F_c) * np.log(2 * np.pi * phi_hat) / 2)
+```
+
+What this means in practice:
+
+- **The dispersion.** REML's $\hat\phi = D_p/(n - M)$ accounts for the $M$
+  degrees of freedom of the unpenalized coefficients; ML's is $D_p/n$.
+  Likewise REML's smoothing parameters and variances account for them,
+  which is why REML is the usual choice for estimating them (Wood, 2011).
+- **Comparing models.** $\log|C_F|$ changes with the parametrization of
+  the unpenalized coefficients, and with which of them are in the model.
+  So REML criteria can be compared only between models with the same
+  unpenalized part (and agree with mgcv's or lme4's only up to a constant
+  when a factor's effects are parametrized differently). ML criteria are
+  log-likelihoods of the models, comparable across them, as for a
+  likelihood ratio or AIC between models with different fixed effects.
+- **Non-Gaussian families.** ML is the Laplace approximation with the
+  unpenalized coefficients at the mode, glmer's `nAGQ=0`. glmer's default,
+  `nAGQ=1`, also optimizes the approximation in them, and differs a
+  little.
+
 ## By hand: a Poisson additive model
 
 For a Poisson response, $\hat\beta(\rho)$ is not linear in $y$, and $W$
@@ -303,22 +361,43 @@ the same local scoring (IRLS) that `method='fixed'` uses, with the joint
 penalized least squares solve (`GAMControl(solver='joint')`). It is in
 numpy, warm started from the last fit, with a tighter tolerance. So the
 REML fit at its optimum *is* the fixed-$\lambda$ fit at those $\lambda$s,
-and the final `GAM` has all of the usual attributes. JAX never sees the
-iterations. It evaluates $V(\rho, \beta)$ with $\beta$ given
-(`LaplaceCriterion.criterion`), and its two partial derivatives, combined
-by the implicit derivative as above (`value_and_grad`).
+and the final `GAM` has all of the usual attributes. The criterion then
+takes one Newton step from the inner fit's $\hat\beta$ with its own
+factorization of $H$. That gives $\hat\beta$ the criterion's precision,
+independent of the inner fit's warm start, so the inner fit can stop at
+a looser tolerance.
 
-**Coordinates.** Each penalized block is rotated to the eigenvectors of
-its $S_j$ (the matrix `T`, and the criterion's `X` is $XT$). Then:
+**The four operations.** $V$ and its gradient (the formula in the next
+section, through the implicit derivative as above) need only $\log|H|$,
+solves, the traces $\operatorname{tr}(H^{-1}S_k)$ and the leverages
+$x_i^TH^{-1}x_i$, from `glmnet.gam.linalg.DenseHessian`. ML needs the
+same quantities for $H_{PP}$ (`DenseHessian.restrict`), and solves with
+the full $H$ for the implicit derivative. A sparse or matrix-free
+implementation can replace it (see "What ML needs" below). JAX gives only
+the derivatives of the family's unit deviance.
 
-- $S_\lambda$ is diagonal, `lam @ M`, where row $j$ of `M` holds the
-  eigenvalues of $S_j$ in its block's coordinates;
-- $\log|S_\lambda|_+$ is the closed form above (`rank`, `log_ev`);
-- the null space is a set of coordinates (`penalized` is the rest), so
-  ML's restriction of $H$ is a submatrix.
+**Penalties as objects** (`glmnet.gam.penalties`). Each term's penalty is
+a function $S(\theta)$ of its parameters. At each evaluation it gives its
+matrix, its derivatives in $\theta$, $\log|S|_+$ and its derivatives, and
+possibly a change of its coordinates. There are three kinds:
 
-The fit and the criterion are invariant to this rotation, and $\beta$ is
-rotated back when needed.
+- `ScaledPenalty`, one penalty $\lambda S$ ($\theta = \log\lambda$),
+  diagonal in the eigenvectors of $S$. Each penalized block is rotated to
+  them once (the matrix `T`), so the null space is a set of coordinates
+  (`penalized` is the rest) and ML's restriction of $H$ is a submatrix.
+- `SumPenalty`, several penalties $\sum_k\lambda_kS_k$ (a tensor product,
+  `penalized_columns`), in Wood's (2011) stable reparametrization at each
+  evaluation. The dominant penalty's range is split off, with its null
+  space set exactly to 0, then the next's in that null space, and so on.
+  A $\lambda$ going to infinity then multiplies only its own block.
+- `CholeskyPenalty`, the precision of correlated random effects,
+  $I_G \otimes \Sigma^{-1}$, with $\Sigma = LL^T$ in log-Cholesky form
+  (lme4's relative covariance factor). It is evaluated in the coordinates
+  of $b = Lu$ in each group, where the penalty is the identity, so a
+  singular $\Sigma$ is a diagonal entry of $L$ going to 0.
+
+The fit and the criterion are invariant to these changes of coordinates.
+For a non-orthogonal one, $\log|H|$ is corrected by its log determinant.
 
 **The family** is a small table in JAX (`_jax_family`). It holds the
 inverse link, the unit deviance $d$, the saturated log-likelihood
@@ -328,8 +407,9 @@ link in the table. Families are Gaussian, binomial, Poisson, Gamma and
 inverse Gaussian. Links are identity, log, logit, probit, cloglog,
 inverse and inverse squared.
 
-**Parameters and scale.** The parameters are $\rho_j = \log\lambda_j$ for
-the estimated terms, then $\log\phi$ when the dispersion is free.
+**Parameters and scale.** The parameters are the penalties' $\theta$ for
+the estimated terms ($\rho_j = \log\lambda_j$, or a log-Cholesky
+factor), then $\log\phi$ when the dispersion is free.
 
 - Terms given `lam` keep it.
 - Terms given `df` have their $\lambda$ matched to the df at the prior
@@ -347,7 +427,8 @@ the estimated terms, then $\log\phi$ when the dispersion is free.
    intercept-only fit. $\phi$ starts at that fit's deviance over $n$.
 2. L-BFGS-B runs with the analytic gradient, in a box of $\pm 25$ around
    the start.
-3. A few steps of Newton's method follow (`_newton`). The Hessian is a
+3. Newton's method follows (`_newton`, up to 100 steps: towards an optimum
+   at infinity, a singular covariance, each moves a parameter by about 1). The Hessian is a
    central difference of the gradient. The steps are halved as needed, and
    parameters at the box's edge (a $\lambda$ at 0 or $\infty$, in effect)
    are held there.
@@ -359,8 +440,10 @@ the estimated terms, then $\log\phi$ when the dispersion is free.
    below `grad_tol`.
 4. If the inner fit does not converge, $V$ is meaningless there. This
    happens at a $\lambda$ near 0 with nearly as many coefficients as
-   observations. The search then gets a value larger than any seen, with
-   a gradient towards larger $\lambda$ (`_unconverged`), so it turns back.
+   observations, and at a separated binomial fit, whose deviance's
+   derivatives are not finite. The search then gets a value larger than
+   any seen, with a gradient towards larger $\lambda$ (`_unconverged`),
+   so it turns back.
 
 **Outputs.**
 
@@ -373,7 +456,8 @@ the estimated terms, then $\log\phi$ when the dispersion is free.
   `frequentist_covariance_` (`Ve`).
 - `edf_`, the block traces of $H^{-1}X^TWX$ (mgcv's edf).
 - `variance_components_`, which is $\phi/\lambda_j$ for each penalized
-  term and $\phi$ (as `gam.vcomp`).
+  term, the variances of correlated random effects (their covariance in
+  the term's `covariance_`), and $\phi$ (as `gam.vcomp`).
 
 The covariances are at the last IRLS step's working weights. They ignore
 the uncertainty in $\hat\rho$ (mgcv's `Vc` correction is not
@@ -382,16 +466,18 @@ implemented).
 **Cox.** For `family='cox'` the likelihood is the partial likelihood (as
 mgcv's `cox.ph`), with no intercept and no $\phi$. Its $W$ is not
 diagonal, and coxdev gives it as an operator. `CoxLaplaceCriterion` is in
-numpy. The derivative of $\log|H|$ along $d\hat\beta/d\rho_k$ needs the
-partial likelihood's third derivatives, and the code takes it as a central
-difference of the information along $X\,d\hat\beta/d\rho_k$. So its
-tolerances are looser.
+numpy, on the same penalty objects and `DenseHessian`. The derivative of
+$\log|H|$ along $d\hat\beta/d\rho_k$ needs the partial likelihood's third
+derivatives, and the code takes it as a central difference of the
+information along $X\,d\hat\beta/d\rho_k$. So its tolerances are looser,
+and at a singular covariance of correlated random effects its gradient
+is not precise enough to converge.
 
 **Not yet.**
 
-- Several penalties per term (tensor products, correlated random
-  effects). With several penalties per term, $\log|S_\lambda|_+$ no
-  longer separates; this is Wood's (2011) stable transform.
+- Sparse and matrix-free implementations of the four operations (below).
+- Structured covariances of correlated random effects (compound symmetry,
+  AR(1)).
 - The `Vc` correction.
 - `lo()` terms, which have no basis.
 
@@ -461,6 +547,30 @@ the dense one used now. Two others can sit behind the same interface:
   The estimates are noisy, so the outer optimizer must tolerate noise in
   the gradient.
 
+### What ML needs
+
+ML's criterion and gradient are REML's with $H_{PP}$ in place of $H$ in
+the log determinant, the traces and the leverages. The implicit
+derivative still solves with the full $H$, because $\hat\beta$ is the
+joint mode of all the coefficients. `DenseHessian` factors $H_{PP}$ a
+second time (`restrict`). A sparse or matrix-free backend need not. With
+the $M$ columns $H^{-1}e_f$ of the unpenalized coordinates, $M$ more
+solves, and $B = (H^{-1})_{FF} = C_F^{-1}$:
+
+$$\log|H_{PP}| = \log|H| + \log|B|, \qquad
+H_{PP}^{-1} = (H^{-1})_{PP} - (H^{-1})_{PF}\,B^{-1}(H^{-1})_{FP}.$$
+
+The second is a rank-$M$ correction. So ML's traces and leverages are
+REML's less small corrections built from those columns. **REML needs the
+four operations; ML needs the four and $M$ solves.** $M$ is usually small:
+the intercept, the linear terms, and one or two per spline.
+
+In the backfitting picture of large problems, those $M$ solves are
+backfitting the penalized terms on the columns of $X_F$. That is also how
+`GAM.fixed_effects_` computes the GLS covariance $C_F^{-1}$ without the
+dense design. So ML, REML and the fixed effects' standard errors share
+one computation.
+
 ### The outer optimizer can avoid the Hessian of $V$
 
 Newton's method needs the Hessian of $V$ in $\rho$, which takes many more
@@ -479,18 +589,26 @@ for small problems, where it converges fastest.
 A term's prior precision is $S(\theta)/\phi$ for a few parameters $\theta$:
 
 - one $\lambda$ times a fixed matrix (a spline, `re()`);
-- a sum $\sum_m\lambda_mS_m$ (a tensor product, `pen()`);
-- the inverse of an unstructured covariance, $\Sigma^{-1}\otimes I$, for
-  correlated random effects;
+- a sum $\sum_m\lambda_mS_m$ (`tensor_spline()`, `penalized_columns()`);
+- the inverse of an unstructured covariance, $I\otimes\Sigma^{-1}$, for
+  correlated random effects (`correlated_random_effect()`);
 - later, AR(1) or compound symmetry.
 
-nlme's `pdMat` classes (Pinheiro and Bates, 2000) are the pattern. Each
-penalty gives $S(\theta)$, its derivatives in $\theta$, and
-$\log|S(\theta)|_+$, so the criterion does not care which kind it is. For
-an unstructured $\Sigma$ we use the log-Cholesky parametrization (Pinheiro
-and Bates, 1996). As lme4 does, we keep the relative Cholesky factor's
-diagonal bounded below at 0 rather than on the log scale, so that a
-variance estimated at 0 is a boundary the optimizer can reach.
+nlme's `pdMat` classes (Pinheiro and Bates, 2000) are the pattern, and
+`glmnet.gam.penalties` implements it. Each penalty gives $S(\theta)$, its
+derivatives in $\theta$, and $\log|S(\theta)|_+$, so the criterion does
+not care which kind it is.
+
+For an unstructured $\Sigma$ we use the log-Cholesky parametrization
+(Pinheiro and Bates, 1996) of lme4's relative covariance factor $L$, the
+*covariance's* Cholesky factor, not the precision's. A singular $\Sigma$
+(lme4's boundary fit, a correlation of $\pm1$) is then a diagonal entry
+of $L$ going to 0, with the other parameters finite. A factor of the
+precision would have to go to infinity along a direction that is not a
+coordinate, and the search stops short: we tried it, and against `glmer`
+it stopped at a correlation of 0.73, with a worse likelihood, where the
+optimum is 1. As in lme4, the evaluation is in the coordinates of
+$b = Lu$, where the penalty is the identity.
 
 ### Smaller lessons
 
@@ -535,6 +653,8 @@ variance estimated at 0 is a boundary the optimizer can reach.
 - Gilmour, A. R., Thompson, R. and Cullis, B. R. (1995). Average
   information REML: an efficient algorithm for variance parameter
   estimation in linear mixed models. *Biometrics* 51(4), 1440–1450.
+- Harville, D. A. (1974). Bayesian inference for variance components
+  using only error contrasts. *Biometrika* 61(2), 383–385.
 - Harville, D. A. (1977). Maximum likelihood approaches to variance
   component estimation and to related problems. *Journal of the American
   Statistical Association* 72(358), 320–338.
