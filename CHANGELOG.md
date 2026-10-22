@@ -112,6 +112,12 @@
 
 ### Documentation
 
+- **A page translating R models**, "GAMs and mixed models from R": tables
+  from `gam::gam`, `mgcv` and `lme4`/`nlme` to `glmnet.gam` terms and
+  attributes, with what each translation is checked against in the tests
+  and how closely it agrees. Also the differences in parametrization (the
+  smoothing parameters' scale, the REML criterion's constant, the standard
+  errors of random effects) and what has no translation yet.
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
   the updated list of what is not supported yet (#166).
