@@ -115,3 +115,5 @@ no-build-isolation-package = ["glmstar"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# glmnet.gam's REML/ML is experimental, and warns (tested in test_gam_reml.py)
+filterwarnings = ["ignore:GAM\\(method=:UserWarning"]
