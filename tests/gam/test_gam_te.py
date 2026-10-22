@@ -158,3 +158,22 @@ def test_mgcv(Rinfo, data, family, method):
         # scale), mgcv's further: theirs can be lower, by about 1e-9
         assert G.reml_score_ <= score + 1e-8 * abs(score)
         np.testing.assert_allclose(G.reml_score_, score, rtol=1e-7)
+
+
+def test_plot(data):
+    pytest.importorskip('matplotlib')
+    import matplotlib
+    matplotlib.use('Agg')
+    from glmnet.gam import plot_term
+    from glmnet.gam.plot import plottable
+    G = GAM(terms=[te('x', 'z', lam=[1e-3, 1e-2]), te('x', 'z', 'u', k=4, lam=[1e-2] * 3),
+                   s('u', lam=1e-3)]).fit(data, data['y'])
+    assert [plottable(t) for t in G.terms_] == [True, False, True]
+    ax = plot_term(G, 0)
+    assert ax.get_xlabel() == 'x' and ax.get_ylabel() == 'z'
+    # the surface is the term's fit on the grid (filled contours)
+    assert len(ax.collections) > 0
+    with pytest.raises(ValueError, match='more than two columns'):
+        plot_term(G, 1)
+    axes = G.plot()
+    assert len(axes) == 2

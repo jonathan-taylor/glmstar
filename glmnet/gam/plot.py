@@ -3,12 +3,13 @@ Plots of the fitted terms of a GAM, as R's `plot.Gam` (and mgcv's
 `plot.gam`): each term's centered fit against its column, with pointwise
 standard error bands from the Bayesian covariance when it is available (all
 terms but loess), and a rug of the training data. A term of two columns (a
-Gaussian process surface, `gaussian_process(u, v)`) is drawn as filled contours over the
-data's bounding box, as mgcv's `plot.gam` (`too.far`).
+surface: `gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn as filled
+contours over the data's bounding box, as mgcv's `plot.gam` (`too.far`).
 """
 import numpy as np
 
-from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm
+from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
+from .tensor import TensorTerm
 from .gp import GPTerm
 
 
@@ -28,19 +29,34 @@ def _has_covariance(gam):
 def plottable(term):
     """
     Can `plot_term` draw the term (all but blocks of several columns, and
-    Gaussian processes in more than two)?
+    functions of more than two: Gaussian processes, tensor products)?
     """
-    if isinstance(term, ColumnsTerm):
+    if isinstance(term, (ColumnsTerm, PenalizedColumnsTerm)):
         return term.X_.shape[1] == 1
     if isinstance(term, GPTerm):
         return term.dim_ <= 2
+    if isinstance(term, TensorTerm):
+        return term.X_.shape[1] == 2
     return True
+
+
+def _surface(term):
+    """Is the term a function of two columns (drawn as a surface)?"""
+    return ((isinstance(term, GPTerm) and term.dim_ == 2) or
+            (isinstance(term, TensorTerm) and term.X_.shape[1] == 2))
+
+
+def _surface_data(term):
+    """The training rows of the columns of a surface's term."""
+    if isinstance(term, GPTerm):
+        return term._X + term.shift_
+    return term.X_
 
 
 def _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap):
     """Filled contours of a term of two columns over the data's bounding box."""
     term = gam.terms_[j]
-    X = term._X + term.shift_
+    X = _surface_data(term)
     lo, hi = X.min(0), X.max(0)
     g1, g2 = np.linspace(lo[0], hi[0], n_grid), np.linspace(lo[1], hi[1], n_grid)
     U, V = np.meshgrid(g1, g2)
@@ -84,9 +100,9 @@ def plot_term(gam,
     its curve over the range of the column (`n_grid` points); a factor or a
     random effect as one point per level (per group; for `re(g, by=x)` the
     groups' slopes). The fits are centered, as the GAM's terms. A term of
-    two columns (`gaussian_process(u, v)`) is drawn as filled contours on an `n_grid` by
-    `n_grid` grid over the data's bounding box, without bands, the data
-    marked as points (`rug`).
+    two columns (`gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn
+    as filled contours on an `n_grid` by `n_grid` grid over the data's
+    bounding box, without bands, the data marked as points (`rug`).
 
     Parameters
     ----------
@@ -124,13 +140,13 @@ def plot_term(gam,
     j = _term_index(gam, term)
     term = gam.terms_[j]
     if not plottable(term):
-        if isinstance(term, GPTerm):
+        if isinstance(term, (GPTerm, TensorTerm)):
             raise ValueError(f'{term.name} is a function of more than two columns: '
                              'it has no curve or surface to plot')
         raise ValueError(f'{term.name} is a block of several columns: it has no curve to plot')
     if ax is None:
         _, ax = plt.subplots()
-    if isinstance(term, GPTerm) and term.dim_ == 2:
+    if _surface(term):
         return _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap)
     se = se and _has_covariance(gam)
     column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
