@@ -161,7 +161,7 @@
   Clayton found, the fixed effects close, and it is much faster. It also
   shows a naive logistic regression's standard errors, and run times up
   to 100,000 ratings, about linear. The tests copy the method and check
-  the trace approximation against the exact traces.
+  the trace approximation against the exact traces (#176).
 - **"Crossed random effects at scale"**, a page following Ghosh, Hastie and
   Owen on simulated ratings (customers × items, very unbalanced). It
   writes the method-of-moments variances as a `SmoothingMethod`, with a
