@@ -51,6 +51,19 @@ class DenseHessian(object):
         self._H = X.T @ (h[:, None] * X) + S
         self._factor(np.arange(X.shape[1]))
 
+    @classmethod
+    def from_matrix(cls, H, X=None):
+        """
+        The factorization of the matrix `H` (as `X' diag(h) X + S`, for a
+        likelihood whose Hessian in the linear predictor is not diagonal,
+        Cox's); its `leverages` need `X` and are not available.
+        """
+        new = object.__new__(cls)
+        new.X, new.h, new.rotations = X, None, []
+        new._H = np.asarray(H, float)
+        new._factor(np.arange(new._H.shape[0]))
+        return new
+
     def _factor(self, coords):
         self.coords = coords
         H = self._rotate_matrix(self._H)[np.ix_(coords, coords)]
