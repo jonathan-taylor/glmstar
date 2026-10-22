@@ -259,6 +259,14 @@ class CholeskyPenalty(object):
                           -2 * G * theta[self.diag].sum(), -2 * G * self.diag,
                           V=L, V_inverse=Linv, logdet_V=G * theta[self.diag].sum())
 
+    def more_penalty(self, theta):
+        """
+        The direction of more penalty (a smaller covariance): the diagonal's
+        logs down, the entries below it towards 0.
+        """
+        theta = np.asarray(theta, float)
+        return np.where(self.diag, -1., -np.sign(theta))
+
     def start(self, xwx):
         """As mgcv's: the precision diagonal, matching the mean diagonal of each effect's `X' W X`."""
         d = xwx[self.idx].mean(0)

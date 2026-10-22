@@ -23,7 +23,14 @@
 - REML/ML: an evaluation where the deviance or its derivatives are not
   finite, or the inner fit cannot decrease its objective (far from the
   optimum), counts as an unconverged fit. Newton's method runs up to 100
-  steps, for an optimum at infinity such as a singular covariance (#165).
+  steps, for an optimum at infinity such as a singular covariance. The
+  search fits a correlated random effect's covariance diagonal first, with
+  the Cholesky factor's off-diagonals at 0, then all of it. From the start
+  the off-diagonals' gradient can be large, and a first step to the edge
+  of the box led a binomial REML fit into a singular covariance's basin, a
+  local minimum. At an unconverged inner fit the search turns towards
+  more penalty, which for a correlated random effect means a smaller
+  covariance, where it had turned towards a larger one (#165).
 - **`glmnet.gam` REML/ML: penalties as objects** (`glmnet.gam.penalties`).
   A term's penalty is a function `S(theta)` of its parameters. Each
   evaluation gives its matrix, its derivatives in the parameters,
