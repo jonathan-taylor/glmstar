@@ -81,6 +81,7 @@ the design".
 | `s(x, bs="cr", k=..., knots=...)` | `s('x')`, mgcv given our knots | fits to rounding at fixed `sp`; REML/ML fits to 1e-4 (5e-5 on Wage), edf to 1e-3 |
 | `s(x, sp=...)` | `s('x', lam=...)`, `lam = sp / (sum(w) * S.scale)` | to rounding |
 | `te(x, z, bs="cr")` | `tensor_spline('x', 'z')` (mgcv's `place.knots`) | REML/ML fits to 1e-3 with other terms, edf to 1e-3, ML criterion to 1e-7 |
+| `s(x, bs="cc", k=k)` | `cyclic_spline('x', k=k)`, with `period=(a, b)` for the cycle's ends | REML/ML fits to 1e-8, criterion to 1e-9 |
 | `s(x, z, bs="gp", m=...)` | `gaussian_process('x', 'z', m=...)` | at fixed `sp` to rounding; REML/ML to mgcv's convergence |
 | `s(g, bs="re")` | `re('g')` | `gam.vcomp` to 1e-4 |
 | `s(g, x, bs="re")` | `re('g', by='x')` | |
@@ -147,7 +148,7 @@ Two differences in what is reported:
 These have no translation yet:
 
 - mgcv's `by=` factor smooths (one smooth per level of a factor), shrinkage
-  bases (`bs="ts"`, `select=TRUE`), cyclic and P-spline bases, and
+  bases (`bs="ts"`, `select=TRUE`), P-spline bases, and
   thin-plate splines (`bs="tp"`; `gaussian_process` and `tensor_spline` are
   the multi-column smooths);
 - mgcv's `Vc` correction of the covariance for the uncertainty in the
