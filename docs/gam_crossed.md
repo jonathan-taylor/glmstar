@@ -219,6 +219,12 @@ fit = GAM(terms=terms, method=CrossedMoments()).fit(D, D['y'])
 fit.variance_components_, time.time() - start
 ```
 
+The model, as `GAM` displays it, with the variances chosen by the method of moments:
+
+```{code-cell} ipython3
+fit
+```
+
 The variances' estimates are near the true values: 1 for the customers, 4
 for the errors, and 0.16 for the items, which are the hardest to estimate
 because most items have few ratings. The fixed effects, with their GLS

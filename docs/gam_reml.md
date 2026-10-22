@@ -116,6 +116,12 @@ G = GAM(terms=[s('x1'), s('x2')], method='REML').fit(data, data['y'])
 G.summary()
 ```
 
+The model, as `GAM` displays it:
+
+```{code-cell} ipython3
+G
+```
+
 We take the design and the penalties from the fit. `design_` is the
 intercept, then each spline's basis with its sum-to-zero constraint
 absorbed. `penalties` are the $S_j$ on those columns. Everything else we

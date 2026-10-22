@@ -31,6 +31,7 @@ from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
+from .display import model_latex
 from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning
@@ -652,6 +653,19 @@ class GAM(BaseEstimator):
         see `glmnet.gam.plot.plot_terms` and `plot_term`. Returns the axes.
         """
         return plot_terms(self, terms=terms, axes=axes, **kwargs)
+
+    def model_latex(self):
+        """
+        The model this GAM specifies, in LaTeX (an `aligned` block): the
+        response's distribution and link, the linear predictor and a line
+        per term (`glmnet.gam.display`). Jupyter shows it for a `GAM`.
+        """
+        return model_latex(self)
+
+    def _repr_mimebundle_(self, **kwargs):
+        # the model in LaTeX, and the text (not scikit-learn's HTML diagram,
+        # which a notebook would show instead)
+        return {'text/plain': repr(self), 'text/latex': '$$' + self.model_latex() + '$$'}
 
     def summary(self):
         """

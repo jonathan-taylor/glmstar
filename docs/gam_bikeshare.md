@@ -152,6 +152,12 @@ print(f'{time.time() - t0:.1f}s')
 compare({'additive': additive_ml, 'tensor': tensor})
 ```
 
+The tensor product model, as `GAM` displays it:
+
+```{code-cell} ipython3
+tensor
+```
+
 ```{code-cell} ipython3
 ax = tensor.plot(terms=[0])[0]
 ax.set_xlabel('hour'); ax.set_ylabel('temp')
