@@ -267,6 +267,23 @@ class LaplaceCriterion(object):
                 self.penalty_terms.extend([j] * model.n_params)
                 self.penalty_names.extend(model.names)
                 continue
+            supports = [np.flatnonzero(np.abs(S).sum(0) > 0) for S in Ss]
+            if len(Ss) > 1 and len(np.unique(np.concatenate(supports))) == sum(map(len, supports)):
+                # penalties on disjoint coefficients (a factor-by smooth's
+                # levels): each a single penalty, diagonal in the
+                # eigenvectors of its own block
+                V = np.identity(Ss[0].shape[0])
+                for m, (S, sup) in enumerate(zip(Ss, supports)):
+                    ev, W = np.linalg.eigh((S[np.ix_(sup, sup)] + S[np.ix_(sup, sup)].T) / 2)
+                    V[np.ix_(sup, sup)] = W
+                    on = ev > ev.max() * 1e-10
+                    idx = np.arange(P)[sl][sup[on]]
+                    range_coords.append(idx)
+                    single.append((len(self.penalty_terms), idx, ev[on]))
+                    self.penalty_terms.append(j)
+                    self.penalty_names.append(f'{term.name}[{m}]')
+                T[sl, sl] = V
+                continue
             total = sum(Ss)
             ev, V = np.linalg.eigh((total + total.T) / 2)
             on = ev > ev.max() * 1e-10
@@ -498,14 +515,16 @@ class LaplaceCriterion(object):
     def _set_lams(self, params):
         """Set the estimated terms' smoothing parameters (or precisions) at `params`."""
         theta = self._theta(params)
-        estimated = set(np.asarray(self.penalty_terms)[self.est_index])
+        terms = np.asarray(self.penalty_terms)
+        estimated = set(terms[self.est_index])
         for j, model, sl in self.models:
-            if j not in estimated:
-                continue
-            if isinstance(model, COVARIANCE):
+            if j in estimated and isinstance(model, COVARIANCE):
                 self.terms[j].set_precision(model.precision(theta[sl]) / self.weight_total)
-            else:
-                self.terms[j].set_penalty_lams(np.exp(theta[sl]) / self.weight_total)
+        # (a term's smoothing parameters together: some terms' penalties are
+        # several objects)
+        for j in sorted(estimated):
+            if not getattr(self.terms[j], 'penalty_varies', False):
+                self.terms[j].set_penalty_lams(np.exp(theta[terms == j]) / self.weight_total)
 
     def coef(self, params):
         """
