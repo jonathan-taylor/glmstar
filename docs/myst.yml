@@ -24,6 +24,7 @@ project:
         - file: penalty_factor.md
         - file: relax.md
         - file: gam.md
+        - file: gam_gp.md
         - file: glmnet_vs_R.md
     - title: GLMNet paths
       children:
