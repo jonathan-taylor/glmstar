@@ -14,7 +14,7 @@
   a positive correlation, compound symmetry is exactly `re(g) + re([g,
   condition])`, and diagonal is exactly independent `re()` terms. Against
   `nlme::lme` with `pdCompSymm`: covariance to 1e-4, log-likelihood to
-  1e-7.
+  1e-7 (#178).
 - **`GAM.fixed_effects_`, with GLS standard errors for large data.** It
   gives the intercept and the coefficients of linear terms and blocks of
   columns, with standard errors from the posterior covariance (for the
