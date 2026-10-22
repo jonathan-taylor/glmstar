@@ -189,8 +189,10 @@ class LaplaceCriterion(object):
         jax, jnp = _jax()
         self._jax, self._jnp = jax, jnp
         self.linkinv, self.dev, self.ls, fixed = _jax_family(gam._family.base)
+        # a given dispersion is used for every family (for the binomial and
+        # Poisson, a quasi-likelihood's); otherwise 1 for those
         self.free_dispersion = not fixed and dispersion is None
-        self.fixed_dispersion = 1. if fixed else dispersion
+        self.fixed_dispersion = dispersion if dispersion is not None else (1. if fixed else None)
 
         D = self.design = JointDesign(self.terms)
         y = np.asarray(gam._response, float)

@@ -151,6 +151,32 @@ def test_weights_scale_and_rows(data):
     np.testing.assert_allclose(G0.predict(W[keep]), G1.predict(W[keep]), rtol=1e-6, atol=1e-7)
 
 
+@pytest.mark.parametrize('method', ['REML', 'ML'])
+@pytest.mark.parametrize('family', ['binomial', 'poisson'])
+def test_given_dispersion_fixed_family(data, family, method):
+    # a dispersion given for the binomial or Poisson (a quasi-likelihood's)
+    # is used by the criterion, not only by the covariance: the fit is that
+    # with prior weights 1 / phi and dispersion 1, its smoothing parameters
+    # (on the prior weights' scale) phi times those
+    fam, y = FAMILIES[family]
+    phi = 3.
+    terms = [s('a'), factor('c'), re('g')]
+    G = GAM(terms=terms, family=fam, method=method,
+            control=GAMControl(**TIGHT)).fit(data, data[y], dispersion=phi)
+    W = GAM(terms=terms, family=fam, method=method, control=GAMControl(**TIGHT),
+            response_id=y, weight_id='w').fit(data, data[[y]].assign(w=1 / phi))
+    assert G.smoothing_.dispersion == phi and G.dispersion_ == phi
+    np.testing.assert_allclose(G.state_.linear_predictor, W.state_.linear_predictor,
+                               rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(G.smoothing_.lam_raw, phi * W.smoothing_.lam_raw, rtol=1e-4)
+    np.testing.assert_allclose(G.posterior_covariance_, W.posterior_covariance_,
+                               rtol=1e-3, atol=1e-6)
+    # and differs from the fit at dispersion 1
+    D = GAM(terms=terms, family=fam, method=method,
+            control=GAMControl(**TIGHT)).fit(data, data[y])
+    assert not np.allclose(D.smoothing_.lam_raw, G.smoothing_.lam_raw, rtol=1e-2)
+
+
 def test_df_and_lam_terms_are_fixed(data):
     # a term with lam keeps it, one with df has it matched at the prior
     # weights; the others are estimated
