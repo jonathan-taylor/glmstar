@@ -69,7 +69,7 @@ from .terms import (Term,
                     s,
                     lo,
                     re,
-                    pen,
+                    penalized_columns,
                     linear,
                     factor)
 from .backfit import GAMState, GAMRegularizer
