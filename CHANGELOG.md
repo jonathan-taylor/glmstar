@@ -10,7 +10,7 @@
   polishes the coefficients with the criterion's factorization, and the
   inner fit stops at 1e-10. Against mgcv's `cox.ph` with
   `te(x, z, bs="cr")`: our criterion is as low (mgcv stops sooner where
-  it is flat).
+  it is flat) (#166).
 - **Correlated random effects, `correlated_random_effect(group,
   slopes=[...])`** (`CorrelatedRandomEffectTerm`), lme4's `(1 + v | g)`: an
   intercept and slopes per group, their vectors `N(0, Sigma)` with
@@ -114,7 +114,7 @@
 
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
-  the updated list of what is not supported yet.
+  the updated list of what is not supported yet (#166).
 - The GAM page has a section on tensor products (`tensor_spline('age',
   'year')` on the Wage data, its smoothing parameters and surface). The
   mixed-models page has correlated intercepts and slopes
