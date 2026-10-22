@@ -58,7 +58,14 @@
 - REML/ML: an evaluation where the deviance or its derivatives are not
   finite, or the inner fit cannot decrease its objective (far from the
   optimum), counts as an unconverged fit. Newton's method runs up to 100
-  steps, for an optimum at infinity such as a singular covariance (#165).
+  steps, for an optimum at infinity such as a singular covariance. The
+  search fits a correlated random effect's covariance diagonal first, with
+  the Cholesky factor's off-diagonals at 0, then all of it. From the start
+  the off-diagonals' gradient can be large, and a first step to the edge
+  of the box led a binomial REML fit into a singular covariance's basin, a
+  local minimum. At an unconverged inner fit the search turns towards
+  more penalty, which for a correlated random effect means a smaller
+  covariance, where it had turned towards a larger one (#165).
 - **`glmnet.gam` REML/ML: penalties as objects** (`glmnet.gam.penalties`).
   A term's penalty is a function `S(theta)` of its parameters. Each
   evaluation gives its matrix, its derivatives in the parameters,
@@ -149,7 +156,11 @@
   small problem (#171).
 - The REML design page describes the four operations, the penalty
   objects (with the reason for the covariance-side Cholesky factor) and
-  the updated list of what is not supported yet (#166).
+  the updated list of what is not supported yet. It adds ML and REML
+  versus ML: `V_REML - V_ML = log|C_F|/2 - M log(2 pi phi)/2`, `C_F` the
+  unpenalized coefficients' (GLS) information, checked on the by-hand
+  example. It also says what ML needs of the linear algebra: the four
+  operations plus `M` solves, a rank-`M` correction (#166).
 - The GAM page has a section on tensor products (`tensor_spline('age',
   'year')` on the Wage data, its smoothing parameters and surface). The
   mixed-models page has correlated intercepts and slopes
