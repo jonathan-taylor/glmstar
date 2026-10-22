@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-10-22)
 
 ### New features
 
@@ -178,8 +178,8 @@
   range of their sum. Each evaluation rotates the term to the eigenvectors
   of that sum and equilibrates H (as Wood's, 2011, stable
   reparametrization), so a dominant penalty (a smoothing parameter going to
-  infinity) does not cost the gradient its precision. Cox REML does not
-  support them yet.
+  infinity) does not cost the gradient its precision (#160; Cox REML with
+  several penalties followed, below).
 - **`penalized_columns(columns, penalties, lam=None)`**
   (`PenalizedColumnsTerm`), a block of columns with penalties on their
   coefficients, as mgcv's `paraPen`. Its
@@ -260,7 +260,7 @@
   'year')` on the Wage data, its smoothing parameters and surface). The
   mixed-models page has correlated intercepts and slopes
   (`correlated_random_effect`, lme4's `(days|subject)`), and its list of
-  what is not supported is updated.
+  what is not supported is updated (#166).
 - **Mixed models as GAMs:** a page, "Mixed models as GAMs", on fitting
   classical random-effects models with `glmnet.gam`'s `re()` terms: random
   intercepts (shrinkage, REML and ML), crossed and nested random effects,
