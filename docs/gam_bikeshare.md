@@ -397,7 +397,8 @@ working day: commuters ride anyway.
   factor. Here the model was split by the working day, so every term
   interacts with it.
 - **Cyclic splines,** mgcv's `bs="cc"`: the hour's curve should join at
-  midnight; here 11pm and midnight are not tied.
+  midnight, and here 11pm and midnight are not tied. `cyclic_spline('hour',
+  period=(0, 24))` ties them; this page keeps `s('hour')`.
 - **Quasi families and the negative binomial under REML:** the dispersion
   of a Poisson fit can be fixed (`dispersion=`), not estimated with the
   smoothing parameters.

@@ -439,10 +439,11 @@ axes[0].figure.tight_layout()
 
 ## What is not supported yet
 
-- **Structured covariances of correlated random effects.**
+- **Other structured covariances of correlated random effects.**
   `correlated_random_effect` has an unstructured covariance (nlme's
-  `pdSymm`, lme4's `(x|g)`). Compound symmetry, `pdCompSymm`, and other
-  structures are not available.
+  `pdSymm`, lme4's `(x|g)`) by default, or `covariance='compound_symmetry'`
+  (`pdCompSymm`) or `'diagonal'` (`pdDiag`). Banded, AR(1) or factor-analytic
+  covariances of the effects are not available.
 - **Different variances by group,** e.g. nlme's `pdDiag` with one
   variance per level of another factor, or a random effect whose variance
   differs between strata (a nested sum of `re()` terms with different
