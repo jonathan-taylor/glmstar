@@ -13,7 +13,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import (GAM, GAMControl, s, factor, QuasiPoisson, QuasiBinomial,
+from glmnet.gam import (GAM, GLMM, GAMControl, s, factor, QuasiPoisson, QuasiBinomial,
                         NegativeBinomial)
 from glmnet.gam.reml import LaplaceCriterion
 
@@ -66,10 +66,10 @@ def _mgcv(rpy, D, formula_y, Rfamily, method, weights=''):
 
 def _fit(D, family, method, y):
     if y == 'pb':
-        return GAM(terms=[s('a'), s('b'), factor('c')], family=family, method=method,
+        return GLMM(terms=[s('a'), s('b'), factor('c')], family=family, method=method,
                    control=GAMControl(**TIGHT), response_id='pb', weight_id='trials',
                    offset_id='o').fit(D, D[['pb', 'trials', 'o']])
-    return GAM(terms=[s('a'), s('b'), factor('c')], family=family, method=method,
+    return GLMM(terms=[s('a'), s('b'), factor('c')], family=family, method=method,
                control=GAMControl(**TIGHT), response_id=y,
                offset_id='o').fit(D, D[[y, 'o']])
 

@@ -59,7 +59,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, gaussian_process, s, re, factor, plot_term
+from glmnet.gam import GAM, GLMM, gaussian_process, s, re, factor, plot_term
 
 rng = np.random.default_rng(0)
 ```
@@ -81,8 +81,8 @@ A GP term and a cubic smoothing spline, each with its smoothing parameter
 chosen by REML:
 
 ```{code-cell} ipython3
-fit_gp = GAM(terms=[gaussian_process('x', k=30)], method='REML').fit(curve, curve['y'])
-fit_s = GAM(terms=[s('x')], method='REML').fit(curve, curve['y'])
+fit_gp = GLMM(terms=[gaussian_process('x', k=30)], method='REML').fit(curve, curve['y'])
+fit_s = GLMM(terms=[s('x')], method='REML').fit(curve, curve['y'])
 pd.DataFrame({'edf': [fit_gp.edf_.iloc[0], fit_s.edf_.iloc[0]],
               'REML': [fit_gp.reml_score_, fit_s.reml_score_]},
              index=['gp(x, k=30)', 's(x)'])
@@ -116,7 +116,7 @@ smooth as its trend, with the smoothing parameter estimated in each case.
 fig, ax = plt.subplots(figsize=(7, 4))
 ax.plot(curve['x'], curve['y'], '.', color='0.7')
 for rho in [0.02, 0.1, 0.5, 2.]:
-    fit = GAM(terms=[gaussian_process('x', k=30, range=rho)], method='REML').fit(curve, curve['y'])
+    fit = GLMM(terms=[gaussian_process('x', k=30, range=rho)], method='REML').fit(curve, curve['y'])
     ax.plot(grid['x'], fit.predict(grid), label=f'range {rho}: edf {fit.edf_.iloc[0]:.1f}')
 ax.legend();
 ```
@@ -132,7 +132,7 @@ ranges = np.geomspace(0.01, 0.5, 15)
 kernels = {'Matern 1.5': dict(nu=1.5), 'Matern 2.5': dict(nu=2.5),
            'Matern 3.5': dict(nu=3.5), 'exponential': dict(nu=0.5)}
 t0 = time.time()
-profile = pd.DataFrame({name: [GAM(terms=[gaussian_process('x', k=20, range=rho, **kw)],
+profile = pd.DataFrame({name: [GLMM(terms=[gaussian_process('x', k=20, range=rho, **kw)],
                                    method='REML')
                                .fit(curve, curve['y']).reml_score_ for rho in ranges]
                         for name, kw in kernels.items()}, index=ranges)
@@ -168,7 +168,7 @@ n = 500
 spatial = pd.DataFrame({'u': rng.uniform(0, 1, n), 'v': rng.uniform(0, 1, n)})
 spatial['y'] = surface(spatial['u'], spatial['v']) + 0.2 * rng.standard_normal(n)
 t0 = time.time()
-fit_2d = GAM(terms=[gaussian_process('u', 'v', k=60)], method='REML').fit(spatial, spatial['y'])
+fit_2d = GLMM(terms=[gaussian_process('u', 'v', k=60)], method='REML').fit(spatial, spatial['y'])
 print(f'{time.time() - t0:.1f}s')
 fit_2d.summary()
 ```
@@ -212,7 +212,7 @@ Any family: presence or absence, with the log odds a surface:
 n = 800
 pres = pd.DataFrame({'u': rng.uniform(0, 1, n), 'v': rng.uniform(0, 1, n)})
 pres['y'] = rng.binomial(1, 1 / (1 + np.exp(-2 * surface(pres['u'], pres['v']))))
-fit_b = GAM(terms=[gaussian_process('u', 'v', k=40)], family=sm.families.Binomial(),
+fit_b = GLMM(terms=[gaussian_process('u', 'v', k=40)], family=sm.families.Binomial(),
             method='REML').fit(pres, pres['y'])
 print(f"edf {fit_b.edf_.iloc[0]:.1f}")
 P = fit_b.predict(pd.DataFrame({'u': U.ravel(), 'v': V.ravel()})).reshape(U.shape)
@@ -235,7 +235,7 @@ sites = pd.DataFrame({'site': [f's{i:02d}' for i in range(60)],
                       'effect': 0.3 * rng.standard_normal(60)})
 obs = sites.loc[np.repeat(np.arange(60), 8)].reset_index(drop=True)
 obs['y'] = surface(obs['u'], obs['v']) + obs['effect'] + 0.2 * rng.standard_normal(obs.shape[0])
-fit_re = GAM(terms=[gaussian_process('u', 'v'), re('site')], method='REML').fit(obs, obs['y'])
+fit_re = GLMM(terms=[gaussian_process('u', 'v'), re('site')], method='REML').fit(obs, obs['y'])
 fit_re.variance_components_
 ```
 

@@ -29,7 +29,7 @@ columns.
 
 Smoothing parameters (and random effects' variances) can also be estimated
 (experimental: see `glmnet.gam.reml`), by REML or ML as mgcv's
-(`GAM(method='REML')`, with JAX: `pip install
+(`GLMM(method='REML')`, with JAX: `pip install
 glmstar[gam]`; not needed for the Cox family, glmstar's `CoxFamily`).
 
 The smoothing spline and loess terms use the `scatter_smooth` package.
@@ -90,7 +90,7 @@ from .by_factor import FactorSplineTerm, by_factor_spline
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning
-from .estimator import GAM, GAMControl
+from .estimator import GAM, GLMM, GAMControl
 from .selection import SmoothingMethod, Fixed, Laplace
 from .moments import moment_equations
 from .plot import plot_term, plot_terms

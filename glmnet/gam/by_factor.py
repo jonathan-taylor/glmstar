@@ -214,7 +214,7 @@ def by_factor_spline(column, by, k=10, knots=None, lam=None, pooled_lam=False, n
     `by` (see `FactorSplineTerm`): mgcv's `s(column, by=by, bs="cr", k=k)`,
     or with `pooled_lam=True` one smoothing parameter for all the levels
     (mgcv's `id`). Include `factor(by)` too, for the levels' means. With
-    `lam` None the smoothing parameters are estimated (`GAM(method='REML')`
+    `lam` None the smoothing parameters are estimated (`GLMM(method='REML')`
     or `'ML'`).
 
     >>> by_factor_spline('age', by='sex', pooled_lam=True)

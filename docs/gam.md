@@ -44,7 +44,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor, tensor_spline, by_factor_spline
+from glmnet.gam import GAM, GLMM, GAMControl, s, lo, re, linear, factor, tensor_spline, by_factor_spline
 
 Wage = load_data('Wage')
 Wage[['wage', 'year', 'age', 'education']].head()
@@ -195,7 +195,7 @@ pd.DataFrame({'age': new['age'], 'P(wage > 250)': prob, 'std err': std})
 REML and ML are **experimental** in glmstar 0.5: the fits, smoothing
 parameters and variance components agree with mgcv, lme4 and nlme in the
 tests, but the interface may change and the optimization is less tested than
-the rest of `glmnet.gam`. `GAM(method='REML')` warns
+the rest of `glmnet.gam`. `GLMM(method='REML')` warns
 (`glmnet.gam.ExperimentalWarning`); check `smoothing_.converged`, and
 compare with fixed smoothing parameters or with R.
 :::
@@ -209,7 +209,7 @@ the coefficients integrated out by Laplace's method, as mgcv (Wood, 2011).
 `pip install glmstar[gam]`.)
 
 ```{code-cell} ipython3
-gam_reml = GAM(terms=[s('year'), s('age'), factor('education')], method='REML')
+gam_reml = GLMM(terms=[s('year'), s('age'), factor('education')], method='REML')
 gam_reml.fit(Wage, Wage['wage'])
 gam_reml.summary()
 ```
@@ -237,7 +237,7 @@ scales. In place of the two smooths, it models an interaction of age and
 year:
 
 ```{code-cell} ipython3
-gam_te = GAM(terms=[tensor_spline('age', 'year', k=(6, 4)), factor('education')], method='REML')
+gam_te = GLMM(terms=[tensor_spline('age', 'year', k=(6, 4)), factor('education')], method='REML')
 gam_te.fit(Wage, Wage['wage'])
 gam_te.summary()
 ```
@@ -270,7 +270,7 @@ Each level has its own smoothing parameter:
 ```{code-cell} ipython3
 by_class = [factor('jobclass'), by_factor_spline('age', by='jobclass'), s('year'),
             factor('education')]
-gam_by = GAM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
+gam_by = GLMM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
 gam_by.smoothing_.lam, gam_by.terms_[1].level_edf()
 ```
 
@@ -281,7 +281,7 @@ by REML as well (mgcv's `id`): the curves are taken to be equally smooth.
 
 ```{code-cell} ipython3
 by_class[1] = by_factor_spline('age', by='jobclass', pooled_lam=True)
-gam_pooled = GAM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
+gam_pooled = GLMM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
 gam_pooled.smoothing_.lam, gam_pooled.terms_[1].level_edf()
 ```
 
@@ -307,7 +307,7 @@ Here marital status is a random effect, its levels' effects shrunk
 towards 0, next to the fixed effect of education:
 
 ```{code-cell} ipython3
-gam_re = GAM(terms=[s('year'), s('age'), factor('education'), re('maritl')], method='REML')
+gam_re = GLMM(terms=[s('year'), s('age'), factor('education'), re('maritl')], method='REML')
 gam_re.fit(Wage, Wage['wage'])
 gam_re.variance_components_
 ```
@@ -316,7 +316,7 @@ The fixed effects of a factor are centered, the random effects are not,
 so compare each level with the married workers:
 
 ```{code-cell} ipython3
-gam_fe = GAM(terms=[s('year'), s('age'), factor('education'), factor('maritl')],
+gam_fe = GLMM(terms=[s('year'), s('age'), factor('education'), factor('maritl')],
              method='REML').fit(Wage, Wage['wage'])
 random, fixed = gam_re.terms_[3].effects_, gam_fe.terms_[3].effects_
 pd.DataFrame({'workers': Wage['maritl'].value_counts().sort_index(),
@@ -342,7 +342,7 @@ parameter by REML, as mgcv's `cox.ph` (Wood, Pya and Säfken, 2016):
 from glmnet.cox import CoxFamily
 
 Brain = load_data('BrainCancer').dropna()
-cox = GAM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
+cox = GLMM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
           family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
           method='REML')
 cox.fit(Brain, Brain[['time', 'status']])

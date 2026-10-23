@@ -34,12 +34,12 @@ import numpy as np
 import pandas as pd
 from ISLP import load_data
 
-from glmnet.gam import GAM, s, factor, ExperimentalWarning
+from glmnet.gam import GAM, GLMM, s, factor, ExperimentalWarning
 
 warnings.simplefilter('ignore', ExperimentalWarning)
 
 Wage = load_data('Wage')
-fit = GAM(terms=[s('year'), s('age'), factor('education')], method='REML')
+fit = GLMM(terms=[s('year'), s('age'), factor('education')], method='REML')
 fit.fit(Wage, Wage['wage'])
 fit.summary()
 ```

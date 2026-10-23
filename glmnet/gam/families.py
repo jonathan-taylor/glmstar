@@ -1,5 +1,5 @@
 """
-Families with a parameter that `GAM(method='REML')` or `'ML'` estimates
+Families with a parameter that `GLMM(method='REML')` or `'ML'` estimates
 with the smoothing parameters, beyond statsmodels':
 
 - `QuasiPoisson` and `QuasiBinomial` (R's `quasipoisson`, `quasibinomial`):
@@ -34,7 +34,7 @@ class NegativeBinomial(sm_family.NegativeBinomial):
     """
     The negative binomial, variance `mu + mu^2 / theta` (statsmodels'
     `alpha = 1 / theta`), log link by default. With `theta` None it is
-    estimated by `GAM(method='REML')` or `'ML'` (as mgcv's `nb()`; the fitted
+    estimated by `GLMM(method='REML')` or `'ML'` (as mgcv's `nb()`; the fitted
     value is the GAM's `theta_`); otherwise fixed (mgcv's `negbin(theta)`).
     """
 

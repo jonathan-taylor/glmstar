@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip('scatter_smooth')
 
 from glmnet.cox import CoxFamily, CoxLM
-from glmnet.gam import GAM, GAMControl, s, linear, factor
+from glmnet.gam import GAM, GLMM, GAMControl, s, linear, factor
 
 # the parametric fits converge on the objective; with df terms (matched at
 # each step's weights) local scoring stops on the change in eta
@@ -249,7 +249,7 @@ def test_cox_reml_gradient(data, method, ties, option):
     # the gradient (through the implicit derivative of the coefficients and
     # a difference of the information) against central differences of the
     # criterion (refitted at each point), away from the optimum
-    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family(ties, option), method=method,
+    G = GLMM(terms=[s('x'), s('z'), factor('c')], family=_family(ties, option), method=method,
             weight_id='w', offset_id='o').fit(data, data)
     assert G.smoothing_.converged
     crit = _criterion(G, method)
@@ -268,7 +268,7 @@ def test_cox_reml_fit(data, method, option):
     # with those smoothing parameters given, and the criterion's gradient is
     # 0 there; ML and REML differ
     terms = [s('x'), s('z'), factor('c')]
-    G = GAM(terms=terms, family=_family('efron', option), method=method,
+    G = GLMM(terms=terms, family=_family('efron', option), method=method,
             weight_id='w', offset_id='o').fit(data, data)
     sel = G.smoothing_
     assert sel.converged
@@ -283,7 +283,7 @@ def test_cox_reml_fit(data, method, option):
     np.testing.assert_allclose(G.edf_.values, F.edf_influence_.values, rtol=2e-5)
     assert G.dispersion_ == 1 and G.intercept_ == 0
     np.testing.assert_allclose(G.df_resid_, data.shape[0] - G.edf_.sum())
-    other = GAM(terms=terms, family=_family('efron', option),
+    other = GLMM(terms=terms, family=_family('efron', option),
                 method='ML' if method == 'REML' else 'REML',
                 weight_id='w', offset_id='o').fit(data, data)
     assert abs(other.smoothing_.lam[0] / lam[0] - 1) > 1e-3
@@ -310,7 +310,7 @@ def test_cox_reml_mgcv(Rinfo, data, use_offset):
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('D', D)
     rpy.r('D$c <- factor(D$c); D$g <- factor(D$g)')
-    G = GAM(terms=[s('x'), s('z'), factor('c'), re('g')], family=_family('breslow', 'plain'),
+    G = GLMM(terms=[s('x'), s('z'), factor('c'), re('g')], family=_family('breslow', 'plain'),
             method='REML', offset_id='o' if use_offset else None).fit(D, D)
     kx, kz = G.terms_[0].knots_, G.terms_[1].knots_
     with Rinfo['np_cv_rules'].context():
@@ -358,7 +358,7 @@ def test_cox_reml_converges_under_rounding(data, method, k):
     D = data.copy()
     D['w'] = D['w'] * (1 + 1e-13 * k)
     D['o'] = D['o'] + 1e-13 * k
-    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family('efron', 'all'), method=method,
+    G = GLMM(terms=[s('x'), s('z'), factor('c')], family=_family('efron', 'all'), method=method,
             weight_id='w', offset_id='o').fit(D, D)
     sel = G.smoothing_
     assert sel.converged
@@ -380,7 +380,7 @@ def test_cox_reml_brain_cancer(method):
     with warnings.catch_warnings():
         warnings.simplefilter('error', UserWarning)
         warnings.simplefilter('ignore', ExperimentalWarning)
-        G = GAM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
+        G = GLMM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
                 family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
                 method=method).fit(B, B[['time', 'status']])
     assert G.smoothing_.converged
@@ -390,7 +390,7 @@ def test_cox_reml_brain_cancer(method):
 def test_criterion_unconverged(data):
     # where the inner fit does not converge, the criterion is larger than
     # any seen and its gradient points to larger smoothing parameters
-    G = GAM(terms=[s('x'), s('z'), factor('c')], family=_family('breslow', 'plain'),
+    G = GLMM(terms=[s('x'), s('z'), factor('c')], family=_family('breslow', 'plain'),
             method='REML').fit(data, data)
     crit = _criterion(G, 'REML')
     x = np.log(G.smoothing_.lam_raw)

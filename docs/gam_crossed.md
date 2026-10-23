@@ -47,14 +47,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, re, linear, ExperimentalWarning
+from glmnet.gam import GAM, GLMM, GAMControl, re, linear, ExperimentalWarning
 
 warnings.simplefilter('ignore', ExperimentalWarning)
 ```
 
 ## Writing the method
 
-`GAM(method=...)` takes a string (`'fixed'`, `'REML'`, `'ML'`) or a
+`GLMM(method=...)` takes a string (`'fixed'`, `'REML'`, `'ML'`) or a
 `SmoothingMethod`. A method chooses the penalty parameters of the terms
 that `GAM` was not given: smoothing parameters, random effects' variances.
 Ghosh, Hastie and Owen's first step is such a method.
@@ -215,7 +215,7 @@ The model is two linear terms and two crossed random intercepts:
 ```{code-cell} ipython3
 terms = [linear('x'), linear('z'), re('customer'), re('item')]
 start = time.time()
-fit = GAM(terms=terms, method=CrossedMoments()).fit(D, D['y'])
+fit = GLMM(terms=terms, method=CrossedMoments()).fit(D, D['y'])
 fit.variance_components_, time.time() - start
 ```
 
@@ -272,7 +272,7 @@ rows = []
 for N in [25000, 50000, 100000, 200000, 400000]:
     D_N = ratings(N, N // 10, N // 50)
     start = time.time()
-    G = GAM(terms=terms, method=CrossedMoments()).fit(D_N, D_N['y'])
+    G = GLMM(terms=terms, method=CrossedMoments()).fit(D_N, D_N['y'])
     fit_time = time.time() - start
     start = time.time()
     se = G.fixed_effects_['std_error']
@@ -316,10 +316,10 @@ forms the dense $P \times P$ matrices:
 ```{code-cell} ipython3
 small = ratings(4000, 400, 100)
 start = time.time()
-reml = GAM(terms=terms, method='REML').fit(small, small['y'])
+reml = GLMM(terms=terms, method='REML').fit(small, small['y'])
 reml_time = time.time() - start
 start = time.time()
-moments = GAM(terms=terms, method=CrossedMoments()).fit(small, small['y'])
+moments = GLMM(terms=terms, method=CrossedMoments()).fit(small, small['y'])
 moments_time = time.time() - start
 pd.DataFrame({'REML': reml.variance_components_['variance'],
               'moments': moments.variance_components_['variance']}).assign(
@@ -424,10 +424,10 @@ def binary_ratings(N, R, C, seed=0):
 binomial = sm.families.Binomial()
 small = binary_ratings(3000, 300, 75, seed=1)
 start = time.time()
-schall = GAM(terms=terms, family=binomial, method=Schall()).fit(small, small['y'])
+schall = GLMM(terms=terms, family=binomial, method=Schall()).fit(small, small['y'])
 schall_time = time.time() - start
 start = time.time()
-laplace = GAM(terms=terms, family=binomial, method='ML').fit(small, small['y'])
+laplace = GLMM(terms=terms, family=binomial, method='ML').fit(small, small['y'])
 laplace_time = time.time() - start
 pd.DataFrame({'Schall (PQL)': schall.variance_components_['variance'].iloc[:2],
               'Laplace ML': laplace.variance_components_['variance'].iloc[:2],
@@ -464,7 +464,7 @@ rows = []
 for N in [25000, 50000, 100000]:
     D_N = binary_ratings(N, N // 10, N // 50)
     start = time.time()
-    G = GAM(terms=terms, family=binomial, method=Schall()).fit(D_N, D_N['y'])
+    G = GLMM(terms=terms, family=binomial, method=Schall()).fit(D_N, D_N['y'])
     rows.append({'N': N, 'fit (s)': time.time() - start,
                  'iterations': G.smoothing_.n_evaluations,
                  'customers': G.variance_components_['variance'].iloc[0],

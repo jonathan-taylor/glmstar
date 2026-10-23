@@ -3,7 +3,7 @@
 are checked against mgcv, lme4 and nlme, but the interface may change and
 the optimization of the criterion is less tested than the rest of
 `glmnet.gam`: check `GAM.smoothing_.converged` and compare with fixed
-smoothing parameters or with R. `GAM(method='REML')` warns
+smoothing parameters or with R. `GLMM(method='REML')` warns
 (`ExperimentalWarning`).
 
 Smoothing parameter selection by (Laplace approximate) REML or ML, as mgcv's
@@ -484,14 +484,27 @@ class LaplaceCriterion(object):
         estimated = set(self.estimated)
         if not estimated <= set(self.penalty_terms):
             raise ValueError('only penalized terms have smoothing parameters to estimate')
-        self.est_index = np.array([k for k in range(n_pen) if self.penalty_terms[k] in estimated], int)
-        self.n_rho = len(self.est_index)
-        # the fixed smoothing parameters (on the prior weights' scale)
+        # the fixed smoothing parameters (on the prior weights' scale): of
+        # the terms not estimated, and those given of the estimated terms
+        # with several (`given_lams`)
         lam_fixed = np.zeros(n_pen)
-        for j in sorted(set(self.penalty_terms) - estimated):
+        free = np.zeros(n_pen, bool)
+        for j in sorted(set(self.penalty_terms)):
             ks = [k for k in range(n_pen) if self.penalty_terms[k] == j]
-            if not getattr(self.terms[j], 'penalty_varies', False):
-                lam_fixed[ks] = np.asarray(self.terms[j].penalty_lams(), float) * self.weight_total
+            if getattr(self.terms[j], 'penalty_varies', False):
+                free[ks] = j in estimated
+                continue
+            given = (getattr(self.terms[j], 'lam_given_', None) if j in estimated else
+                     self.terms[j].penalty_lams())
+            if given is None:
+                given = [None] * len(ks)
+            for k, g in zip(ks, given):
+                if g is None:
+                    free[k] = True
+                else:
+                    lam_fixed[k] = float(g) * self.weight_total
+        self.est_index = np.flatnonzero(free)
+        self.n_rho = len(self.est_index)
         self.lam_fixed = lam_fixed
         # the parameters of the penalties (`glmnet.gam.penalties`): the logs
         # of the smoothing parameters, or of a precision's Cholesky factor
@@ -1110,13 +1123,34 @@ def _blocked_term(gam):
     return large_random_effect(gam.terms_, control.max_dense_coef)
 
 
+def given_lams(term):
+    """
+    The given smoothing parameters of a penalized term, one per penalty: a
+    float (fixed) or None (to estimate). `lam` None estimates them all; a
+    number fixes them all; a list (a term with several penalties) gives each,
+    None (or NaN) for those to estimate.
+    """
+    n = term.n_penalties()
+    lam = getattr(term, 'lam', None)
+    if lam is None:
+        return [None] * n
+    values = list(np.atleast_1d(np.asarray(lam, dtype=object)))
+    if len(values) == 1:
+        values = values * n
+    if len(values) != n:
+        raise ValueError(f'{term.name}: give one lam per penalty ({n})')
+    return [None if v is None or np.isnan(float(v)) else float(v) for v in values]
+
+
 def estimated_terms(gam):
     """
     The indices of the terms of the set-up `gam` whose penalty parameters a
     method is to choose: the penalized terms with neither `lam` nor `df`
-    (nor, for correlated random effects, a given `precision`). Terms given
-    `df` have their smoothing parameter matched at the prior weights, then
-    fixed (as mgcv's `sp`).
+    (nor, for correlated random effects, a given `precision`), and those
+    whose `lam` is a list with some None, whose other smoothing parameters
+    are held fixed (`given_lams`, kept as the term's `lam_given_`). Terms
+    given `df` have their smoothing parameter matched at the prior weights,
+    then fixed (as mgcv's `sp`).
     """
     normed = gam._normed_weight
     estimated = []
@@ -1127,11 +1161,13 @@ def estimated_terms(gam):
             if term.precision is None:
                 estimated.append(j)
             continue
-        if getattr(term, 'lam', None) is None and getattr(term, 'df', None) is None:
-            estimated.append(j)
-        elif getattr(term, 'df', None) is not None:
+        if getattr(term, 'df', None) is not None:
             term.set_weights(normed)
             term.lam, term.df = float(term.penalty_lam()), None
+            continue
+        given = term.lam_given_ = given_lams(term)
+        if any(g is None for g in given):
+            estimated.append(j)
     return estimated
 
 
@@ -1164,8 +1200,7 @@ def select_smoothing(gam, dispersion=None):
         if getattr(terms[j], 'penalty_varies', False):
             terms[j].set_precision(np.identity(terms[j].q_))
         else:
-            # (counted without forming them: a random effect's is levels squared)
-            terms[j].set_penalty_lams(np.ones(terms[j].n_penalties()))
+            terms[j].set_penalty_lams([1. if g is None else g for g in terms[j].lam_given_])
     for term in terms:
         term.set_weights(normed)
 

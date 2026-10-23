@@ -121,7 +121,7 @@ class GPTerm(Term):
         The smoothing, as `s()`: `lam` fixed (on the scale of the GAM's
         objective, `lam / 2` times the penalty), or `df` matched at each
         working problem's weights (the trace of the smoother less 1); with
-        neither, estimated by `GAM(method='REML')` or `'ML'`. (mgcv's `sp`
+        neither, estimated by `GLMM(method='REML')` or `'ML'`. (mgcv's `sp`
         is `lam * sum(weights) * S.scale`.)
     """
     kernel: str = 'matern'
@@ -378,7 +378,7 @@ def gaussian_process(*columns, kernel='matern', nu=1.5, range=None, power=1., tr
     """
     A Gaussian process smooth of the columns (see `GPTerm`): mgcv's
     `s(*columns, bs="gp", k=k, m=m)`. With neither `df` nor `lam`, its
-    smoothing parameter is estimated (`GAM(method='REML')` or `'ML'`).
+    smoothing parameter is estimated (`GLMM(method='REML')` or `'ML'`).
 
     >>> gaussian_process('age', df=5)
     >>> gaussian_process('lon', 'lat', nu=2.5, range=0.5)

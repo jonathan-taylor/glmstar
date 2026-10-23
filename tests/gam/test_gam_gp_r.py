@@ -18,10 +18,15 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, gaussian_process as gp, factor, re
+from glmnet.gam import GAM, GLMM, GAMControl, gaussian_process as gp, factor, re
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 GROUPS = [f'g{i}' for i in range(10)]
+
+
+def _model(method, **kwargs):
+    # fixed smoothing is a GAM; estimated, a GLMM
+    return GAM(**kwargs) if method == 'fixed' else GLMM(method=method, **kwargs)
 
 
 def _R(Rinfo, D):
@@ -146,7 +151,7 @@ def _fit_both(Rinfo, D, family, method, lam=None, eigen=False):
     terms = [gp('x', k=k1, lam=lam[0], **kw[0]), gp('u', 'v', k=k2, lam=lam[1], **kw[1]),
              factor('c'), re('g', lam=lam[2])]
     cols = [y] + (['w'] if weights else []) + (['o'] if offset else [])
-    G = GAM(terms=terms, family=klass, method=method, response_id=y,
+    G = _model(method, terms=terms, family=klass, response_id=y,
             weight_id='w' if weights else None, offset_id='o' if offset else None,
             control=GAMControl(**TIGHT)).fit(D, D[cols])
     sw = D['w'].sum() if weights else D.shape[0]

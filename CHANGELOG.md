@@ -15,6 +15,22 @@
   that many. The inner fit is then by backfitting, polished. A random
   intercept of 5 x 10^4 levels in 1.5 x 10^5 rows: REML in under 5 minutes
   and about 3 GB, where the dense Hessian alone would be 18 GB (#190).
+- **`GLMM`: a GAM whose smoothing parameters are estimated.** It has a
+  `GAM`'s terms, its penalized terms random effects, and `method='REML'`
+  (the default), `'ML'` or a `SmoothingMethod`; `smoothing_`,
+  `variance_components_` and `reml_score_` are its own. A `GAM`'s smoothing
+  is fixed (#PR).
+- **Some smoothing parameters held fixed in a GLMM:** besides a term given
+  `lam`, a term with several penalties takes a list with `None` for those
+  to estimate (`tensor_spline('x', 'z', lam=[1e-2, None])`, a varying
+  term's levels, `penalized_columns`) (#PR).
+
+### Deprecated
+
+- **`GAM(method=...)`:** `'fixed'` is a GAM's only smoothing (drop it);
+  `'REML'`, `'ML'` and a `SmoothingMethod` are a `GLMM`'s
+  (`GLMM(method=...)`). Both still work, with a FutureWarning, as does
+  `GLMM(method='fixed')` (#PR).
 
 ### Fixes
 
