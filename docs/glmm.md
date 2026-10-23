@@ -269,7 +269,9 @@ REML and ML factor the Hessian of the coefficients. It is dense, `P x P`,
 up to `GAMControl(max_dense_coef=20000)` coefficients; above that, when
 one random effect has all but at most that many of them, it is factored by
 blocks, without the dense matrix (`GAMControl(reml_backend='blocked')`,
-`glmnet.gam.blocked`). [Mixed models](gam_mixed_models.md) compares the
+`glmnet.gam.blocked`): MixedModels.jl's blocked Cholesky for its first
+grouping factor, the random effect's block diagonal and the other
+coefficients' Schur complement dense ([the design](gam_reml.md)). [Mixed models](gam_mixed_models.md) compares the
 fits with lme4's, and [REML and ML for GAMs: the design](gam_reml.md)
 derives the criterion and its gradient.
 
