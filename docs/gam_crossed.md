@@ -485,7 +485,7 @@ customer, PQL's bias does not shrink with more data.
 - Schall's PQL estimates the variances of binary random effects too small.
   Composite likelihood estimators of probit models with crossed random
   effects (Bellio et al., 2023) are consistent, and also scale.
-- `fixed_effects_` is for linear terms and blocks of columns; a factor
+- `fixed_effects_` is for linear terms and blocks of columns; a categorical
   among the fixed effects is given as a block of its indicator columns.
 - Standard errors of predictions, `predict(..., return_std=True)`, form the
   dense covariance.

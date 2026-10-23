@@ -4,8 +4,8 @@ glmstar's IRLS.
 
 A list of terms, each naming a column of `X`:
 
->>> from glmnet.gam import GAM, s, lo, factor, linear
->>> GAM(terms=[s('age', df=4), s('year', lam=1e-3), factor('education')]).fit(X, y)
+>>> from glmnet.gam import GAM, s, lo, categorical, linear
+>>> GAM(terms=[s('age', df=4), s('year', lam=1e-3), categorical('education')]).fit(X, y)
 
 Random effects (`re(group)`, `re(group, by=x)`) are terms like the smooths,
 penalized by their sum of squares, so mixed models are GAMs:
@@ -70,6 +70,7 @@ from .terms import (Term,
                     SplineTerm,
                     LoessTerm,
                     SlopeTerm,
+                    CategoricalTerm,
                     FactorTerm,
                     ColumnsTerm,
                     RandomEffectTerm,
@@ -81,6 +82,7 @@ from .terms import (Term,
                     correlated_random_effect,
                     penalized_columns,
                     linear,
+                    categorical,
                     factor)
 from .gp import GPTerm, gaussian_process
 from .tensor import TensorTerm, tensor_spline

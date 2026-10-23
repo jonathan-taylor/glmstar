@@ -2,8 +2,8 @@
 Varying-coefficient terms (`varying(term, by=...)`, mgcv's `by=`) and the
 cubic regression spline (`cubic_regression_spline()`, mgcv's `bs="cr"`):
 the per-level constraints, backfitting against the joint solve, identities
-(a pooled random effect by a factor and the interaction random effect,
-`lo()` by a factor and separate loess fits), the REML
+(a pooled random effect by a categorical and the interaction random
+effect, `lo()` by a categorical and separate loess fits), the REML
 gradient, prediction, plots, the display, and against mgcv (factor and
 numeric `by`, with `s()`, cyclic splines and tensor products; pooled
 smoothing parameters, mgcv's `id`).
@@ -16,7 +16,7 @@ from scipy.optimize import minimize_scalar
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import (GAM, GAMControl, s, lo, re, factor, linear, varying, cyclic_spline,
+from glmnet.gam import (GAM, GAMControl, s, lo, re, categorical, linear, varying, cyclic_spline,
                         tensor_spline, cubic_regression_spline)
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -49,9 +49,9 @@ def _fit(D, terms, family='gaussian', method='fixed', solver='backfit'):
 # the terms, and the constraints
 
 def test_level_curves(data):
-    G = _fit(data, [factor('f'), varying(s('x'), by='f', lam=1e-3)])
+    G = _fit(data, [categorical('f'), varying(s('x'), by='f', lam=1e-3)])
     term = G.terms_[1]
-    assert term.is_factor_ and list(term.levels_) == ['a', 'b', 'c']
+    assert term.is_categorical_ and list(term.levels_) == ['a', 'b', 'c']
     fit = term.predict(data[['x', 'f']].to_numpy())
     for level in term.levels_:
         rows = (data['f'] == level).to_numpy()
@@ -66,9 +66,9 @@ def test_level_curves(data):
 
 
 def test_numeric_by(data):
-    G = _fit(data, [varying(s('x'), by='z', lam=1e-3, as_factor=False)])
+    G = _fit(data, [varying(s('x'), by='z', lam=1e-3, as_categorical=False)])
     term = G.terms_[0]
-    assert not term.is_factor_
+    assert not term.is_categorical_
     # z f(x): the coefficient function at z = 1, times z
     f1 = term.predict(np.column_stack([data['x'], np.ones(len(data))]))
     np.testing.assert_allclose(term.predict(data[['x', 'z']].to_numpy()), data['z'] * f1, rtol=1e-12)
@@ -76,27 +76,27 @@ def test_numeric_by(data):
     assert abs(f1.mean()) > 0.1
 
 
-def test_by_is_a_factor_by_default(data):
-    # a factor coded 0 and 1 (or any numbers) is a factor unless as_factor=False
+def test_by_is_categorical_by_default(data):
+    # a categorical coded 0 and 1 (or any numbers) is categorical unless as_categorical=False
     D = data.assign(k=(data['f'] == 'a').astype(int))
-    G = _fit(D, [factor('k'), varying(s('x'), by='k', lam=1e-3)])
-    assert G.terms_[1].is_factor_ and list(G.terms_[1].levels_) == [0, 1]
-    H = _fit(D, [varying(s('x'), by='k', lam=1e-3, as_factor=False)])
-    assert not H.terms_[0].is_factor_
-    assert H.terms_[0].name == 'varying(s(x), by=k, lam=0.001, as_factor=False)'
+    G = _fit(D, [categorical('k'), varying(s('x'), by='k', lam=1e-3)])
+    assert G.terms_[1].is_categorical_ and list(G.terms_[1].levels_) == [0, 1]
+    H = _fit(D, [varying(s('x'), by='k', lam=1e-3, as_categorical=False)])
+    assert not H.terms_[0].is_categorical_
+    assert H.terms_[0].name == 'varying(s(x), by=k, lam=0.001, as_categorical=False)'
 
 
 def test_inner_lam(data):
     # the inner term's lam is every level's
-    G = _fit(data, [factor('f'), varying(s('x', lam=1e-3), by='f')])
-    H = _fit(data, [factor('f'), varying(s('x'), by='f', lam=1e-3)])
+    G = _fit(data, [categorical('f'), varying(s('x', lam=1e-3), by='f')])
+    H = _fit(data, [categorical('f'), varying(s('x'), by='f', lam=1e-3)])
     np.testing.assert_allclose(G.predict(data), H.predict(data), rtol=1e-12)
     assert G.terms_[1].lam == [1e-3] * 3
     # a tensor product's lams (one per margin) for each level, or pooled
-    T = _fit(data, [factor('f'), varying(tensor_spline('x', 'u', k=(5, 4), lam=[1e-3, 1e-2]),
+    T = _fit(data, [categorical('f'), varying(tensor_spline('x', 'u', k=(5, 4), lam=[1e-3, 1e-2]),
                                          by='f')], solver='joint')
     assert T.terms_[1].lam == [1e-3, 1e-2] * 3
-    P = _fit(data, [factor('f'), varying(tensor_spline('x', 'u', k=(5, 4), lam=[1e-3, 1e-2]),
+    P = _fit(data, [categorical('f'), varying(tensor_spline('x', 'u', k=(5, 4), lam=[1e-3, 1e-2]),
                                          by='f', pooled_lam=True)], solver='joint')
     np.testing.assert_allclose(P.predict(data), T.predict(data), rtol=1e-10)
 
@@ -109,26 +109,26 @@ def test_backfit_is_joint(data, inner, family):
             'cyclic': lambda: cyclic_spline('h', period=(0, 24), lam=1e-3),
             'tensor': lambda: tensor_spline('x', 'u', k=(5, 4), lam=[1e-3, 1e-2])}[inner]
     for by in ['f', 'z']:
-        terms = [factor('f'), varying(make(), by=by, as_factor=by == 'f'), s('u', lam=1e-2)]
+        terms = [categorical('f'), varying(make(), by=by, as_categorical=by == 'f'), s('u', lam=1e-2)]
         fits = [_fit(data, terms, family, solver=solver) for solver in ['backfit', 'joint']]
         np.testing.assert_allclose(fits[0].predict(data), fits[1].predict(data), rtol=1e-7)
         np.testing.assert_allclose(fits[0].edf_, fits[1].edf_, rtol=1e-6)
 
 
 def test_pooled_random_effect_is_interaction(data):
-    # re(g) by a factor, the levels sharing the variance: the random effect
+    # re(g) by a categorical, the levels sharing the variance: the random effect
     # of the combinations of g and f
-    G = _fit(data, [factor('f'), varying(re('g'), by='f', lam=0.05, pooled_lam=True)],
+    G = _fit(data, [categorical('f'), varying(re('g'), by='f', lam=0.05, pooled_lam=True)],
              solver='joint')
-    H = _fit(data, [factor('f'), re(['g', 'f'], lam=0.05)], solver='joint')
+    H = _fit(data, [categorical('f'), re(['g', 'f'], lam=0.05)], solver='joint')
     np.testing.assert_allclose(G.predict(data), H.predict(data), rtol=1e-10)
     np.testing.assert_allclose(G.edf_.sum(), H.edf_.sum(), rtol=1e-10)
 
 
-def test_loess_by_factor(data):
-    # lo() by a factor: a loess per level, fitted to that level's data (the
-    # factor gives the means)
-    G = GAM(terms=[factor('f'), varying(lo('x', span=0.6), by='f')],
+def test_loess_by_categorical(data):
+    # lo() by a categorical: a loess per level, fitted to that level's data
+    # (the categorical gives the means)
+    G = GAM(terms=[categorical('f'), varying(lo('x', span=0.6), by='f')],
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.converged_
     for level in ['a', 'b', 'c']:
@@ -141,7 +141,7 @@ def test_loess_by_factor(data):
 
 def test_loess_by_number(data):
     # Hastie and Tibshirani's update: z times the loess of r / z with weights w z^2
-    G = GAM(terms=[varying(lo('x', span=0.6), by='z', as_factor=False), s('u', df=3)],
+    G = GAM(terms=[varying(lo('x', span=0.6), by='z', as_categorical=False), s('u', df=3)],
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.converged_
     term = G.terms_[0]
@@ -154,7 +154,7 @@ def test_loess_by_number(data):
 def test_gradient(data, method, pooled):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
-    G = _fit(data, [factor('f'), varying(s('x'), by='f', pooled_lam=pooled), s('u')],
+    G = _fit(data, [categorical('f'), varying(s('x'), by='f', pooled_lam=pooled), s('u')],
              'poisson', method)
     assert G.smoothing_.converged
     with jax.enable_x64(True):
@@ -170,8 +170,8 @@ def test_gradient(data, method, pooled):
 
 def test_predict_and_order(data):
     D = data.assign(f=pd.Categorical(data['f'], categories=['c', 'a', 'b', 'd']))
-    G = _fit(D, [factor('f'), varying(s('x'), by='f', lam=[1e-4, 1e-3, 1e-2])])
-    H = _fit(data, [factor('f'), varying(s('x'), by='f', lam=[1e-3, 1e-2, 1e-4])])
+    G = _fit(D, [categorical('f'), varying(s('x'), by='f', lam=[1e-4, 1e-3, 1e-2])])
+    H = _fit(data, [categorical('f'), varying(s('x'), by='f', lam=[1e-3, 1e-2, 1e-4])])
     assert list(G.terms_[1].levels_) == ['c', 'a', 'b']
     np.testing.assert_allclose(G.predict(D), H.predict(data), rtol=1e-8)
     # new data: the fit, and 0 for a level not seen
@@ -188,7 +188,7 @@ def test_errors(data):
     with pytest.raises(ValueError, match='give lam'):
         _fit(data, [varying(s('x'), by='f')])
     with pytest.raises(ValueError, match='need a basis'):
-        _fit(data, [factor('f'), varying(lo('x'), by='f'), s('u')], method='REML')
+        _fit(data, [categorical('f'), varying(lo('x'), by='f'), s('u')], method='REML')
     with pytest.raises(ValueError, match='has no basis'):
         _fit(data, [varying(lo('x'), by='f', lam=1.)])
 
@@ -197,7 +197,7 @@ def test_plot(data):
     pytest.importorskip('matplotlib')
     import matplotlib
     matplotlib.use('Agg')
-    G = _fit(data, [factor('f'), varying(s('x'), by='f', lam=1e-3), varying(s('u'), by='z', lam=1e-2, as_factor=False),
+    G = _fit(data, [categorical('f'), varying(s('x'), by='f', lam=1e-3), varying(s('u'), by='z', lam=1e-2, as_categorical=False),
                     varying(tensor_spline('x', 'u', k=(4, 4), lam=[1., 1.]), by='f')], solver='joint')
     axes = G.plot()
     assert len(axes) == 3                         # (not the tensor product's)
@@ -207,8 +207,8 @@ def test_plot(data):
 
 
 def test_display(data):
-    g = GAM([factor('f'), varying(s('x'), by='f', pooled_lam=True),
-             varying(s('u'), by='z', as_factor=False), varying(lo('h'), by='f'),
+    g = GAM([categorical('f'), varying(s('x'), by='f', pooled_lam=True),
+             varying(s('u'), by='z', as_categorical=False), varying(lo('h'), by='f'),
              cubic_regression_spline('u')], method='REML')
     latex = g.model_latex()
     assert r'f_{2,\text{f}[i]}(\text{x}_i)' in latex
@@ -275,9 +275,9 @@ def _compare(Rinfo, G, family, method, n_smooth_params, exact):
 @pytest.mark.parametrize('pooled', [False, True])
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 @pytest.mark.parametrize('family', ['gaussian', 'poisson'])
-def test_mgcv_factor_by(Rinfo, data, family, method, pooled):
+def test_mgcv_categorical_by(Rinfo, data, family, method, pooled):
     rpy = _R(Rinfo, data)
-    G = _fit(data, [factor('f'), varying(s('x'), by='f', pooled_lam=pooled)], family, method)
+    G = _fit(data, [categorical('f'), varying(s('x'), by='f', pooled_lam=pooled)], family, method)
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('kn', G.terms_[1].inner_.knots_)
@@ -294,7 +294,7 @@ def test_mgcv_factor_by(Rinfo, data, family, method, pooled):
 @pytest.mark.parametrize('family', ['gaussian', 'poisson'])
 def test_mgcv_numeric_by(Rinfo, data, family, method):
     rpy = _R(Rinfo, data)
-    G = _fit(data, [varying(s('x'), by='z', as_factor=False), s('u')], family, method)
+    G = _fit(data, [varying(s('x'), by='z', as_categorical=False), s('u')], family, method)
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('kn', G.terms_[0].inner_.knots_)
@@ -309,7 +309,7 @@ def test_mgcv_numeric_by(Rinfo, data, family, method):
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 def test_mgcv_cyclic_by(Rinfo, data, method):
     rpy = _R(Rinfo, data)
-    G = _fit(data, [factor('f'), varying(cyclic_spline('h', k=8, period=(0, 24)), by='f')],
+    G = _fit(data, [categorical('f'), varying(cyclic_spline('h', k=8, period=(0, 24)), by='f')],
              'gaussian', method)
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():
@@ -324,7 +324,7 @@ def test_mgcv_tensor_by(Rinfo, data):
     # (mgcv's te sp are on the scale of its reparametrization: the ML
     # criteria, which have no constant of the parametrization, and the fits)
     rpy = _R(Rinfo, data)
-    G = _fit(data, [factor('f'), varying(tensor_spline('x', 'u', k=(5, 4)), by='f')],
+    G = _fit(data, [categorical('f'), varying(tensor_spline('x', 'u', k=(5, 4)), by='f')],
              'gaussian', 'ML')
     assert G.smoothing_.converged
     margins = G.terms_[1].inner_.margins_
@@ -344,7 +344,7 @@ def test_mgcv_tensor_by(Rinfo, data):
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 def test_mgcv_cubic_regression_spline(Rinfo, data, method):
     rpy = _R(Rinfo, data)
-    G = _fit(data, [cubic_regression_spline('u', k=12), factor('f')], 'poisson', method)
+    G = _fit(data, [cubic_regression_spline('u', k=12), categorical('f')], 'poisson', method)
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('ku', G.terms_[0].spline_.knots)

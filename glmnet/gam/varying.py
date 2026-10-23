@@ -2,17 +2,18 @@
 Varying-coefficient terms (Hastie and Tibshirani, 1993): `varying(term,
 by=...)` lets any smooth term vary with another column, as mgcv's `by=`.
 
-- A factor `by` (`varying(s('x'), by='f')`, mgcv's `s(x, by=f)`): a curve
-  of the term's columns for each level, `sum_l 1[f_i = l] f_l(x_i)`, zero on
-  the other levels' rows. When the term is centered (a smooth) each
-  level's curve is constrained as the term alone, as mgcv's: it sums to 0
-  over all the training rows' values of its columns. The levels' means are
-  then the model's: it includes `factor(f)`, as mgcv's `y ~ f + s(x, by=f)`.
-- A numeric `by` (`varying(s('x'), by='z', as_factor=False)`, mgcv's
+- A categorical `by` (`varying(s('x'), by='f')`, mgcv's `s(x, by=f)`): a
+  curve of the term's columns for each level, `sum_l 1[f_i = l] f_l(x_i)`,
+  zero on the other levels' rows. When the term is centered (a smooth)
+  each level's curve is constrained as the term alone, as mgcv's: it sums
+  to 0 over all the training rows' values of its columns. The levels' means
+  are then the model's: it includes `categorical(f)`, as mgcv's
+  `y ~ f + s(x, by=f)`.
+- A numeric `by` (`varying(s('x'), by='z', as_categorical=False)`, mgcv's
   `s(x, by=z)`): the varying coefficient `z_i f(x_i)`, not centered (`z
-  f(x)` is not confounded with the intercept). `by` is a factor unless
-  `as_factor=False`, whatever its values' type (a factor coded 0 and 1 is
-  a factor).
+  f(x)` is not confounded with the intercept). `by` is categorical
+  unless `as_categorical=False`, whatever its values' type (a categorical
+  coded 0 and 1 is categorical).
 
 A term with a basis and penalties (`s()`, `cubic_regression_spline()`,
 `cyclic_spline()`, `tensor_spline()`, `gaussian_process()`, `re()`,
@@ -193,8 +194,8 @@ class VaryingTerm(Term):
         ...); its own `lam` (if given) is that of every level, and it should
         not be given `df`.
     by : str or int
-        The modifying column: a factor (by default), or with
-        `as_factor=False` a number.
+        The modifying column: categorical (by default), or with
+        `as_categorical=False` a number.
     lam : float or list, optional
         The smoothing parameters, on the scale of the GAM's objective: one
         for all, or one for each penalty of each level (the level's
@@ -202,17 +203,17 @@ class VaryingTerm(Term):
         penalty of `inner`. None: `inner`'s, else estimated (`method='REML'`
         or `'ML'`).
     pooled_lam : bool
-        A factor `by`: the levels share the smoothing parameters (mgcv's
+        A categorical `by`: the levels share the smoothing parameters (mgcv's
         `id`); by default each level has its own.
-    as_factor : bool
-        Whether `by` is a factor (a curve per level, its values the levels,
+    as_categorical : bool
+        Whether `by` is categorical (a curve per level, its values the levels,
         whatever their type), or a number (`z f(x)`).
     """
     inner: Term = None
     by: Union[str, int] = None
     lam: Optional[Union[float, list]] = None
     pooled_lam: bool = False
-    as_factor: bool = True
+    as_categorical: bool = True
 
     centered = False          # (the constraints are absorbed in the basis)
     categories = None         # the categories of a pandas categorical `by` (set by GAM)
@@ -235,9 +236,9 @@ class VaryingTerm(Term):
         return self._inner_columns + [self.by]
 
     @property
-    def factor_column(self):
+    def categorical_column(self):
         # (GAM records a categorical's categories; a numeric `by` has none)
-        return self.by if self.as_factor else None
+        return self.by if self.as_categorical else None
 
     @property
     def has_objective(self):
@@ -259,8 +260,8 @@ class VaryingTerm(Term):
 
     def setup(self, x):
         xi, by = self._split(x)
-        self.is_factor_ = bool(self.as_factor)
-        if self.is_factor_:
+        self.is_categorical_ = bool(self.as_categorical)
+        if self.is_categorical_:
             if self.categories is None:
                 self.levels_ = np.unique(by)
             else:
@@ -285,7 +286,7 @@ class VaryingTerm(Term):
         Ss = [np.asarray(S, float) for S in self.inner_.penalty_matrices()]
         self._n_inner_penalties = len(Ss)
         self.Z_, self.means_, self._offsets = [], [], [0]
-        if self.is_factor_:
+        if self.is_categorical_:
             # each level's curve is constrained as the term alone would be,
             # over all the training rows (as mgcv's): it sums to 0 over the
             # rows' values of the columns, 1' B Z = 0, as if every row were of
@@ -326,7 +327,8 @@ class VaryingTerm(Term):
             lam = np.atleast_1d(np.asarray(lam, float))
             if lam.shape[0] == 1:
                 lam = np.repeat(lam, n_lam)
-            elif not self.pooled_lam and self.is_factor_ and lam.shape[0] == self._n_inner_penalties:
+            elif (not self.pooled_lam and self.is_categorical_ and
+                  lam.shape[0] == self._n_inner_penalties):
                 # (the inner term's lams, for every level)
                 lam = np.tile(lam, len(self.Z_))
             if lam.shape[0] != n_lam:
@@ -336,14 +338,17 @@ class VaryingTerm(Term):
         self._basis = self._basis_values(self.inner_.basis(), self._by_rows())
 
     def _by_rows(self, by=None):
-        """The levels' codes (a factor) or the values of `by` (a number), at the training rows or `by`."""
+        """
+        The levels' codes (categorical) or the values of `by` (a number), at
+        the training rows or at `by`.
+        """
         if by is None:
-            return self.codes_ if self.is_factor_ else self.z_
-        return self._codes(by) if self.is_factor_ else np.asarray(by, float)
+            return self.codes_ if self.is_categorical_ else self.z_
+        return self._codes(by) if self.is_categorical_ else np.asarray(by, float)
 
     def _basis_values(self, B, by):
         B = np.asarray(B, float)
-        if not self.is_factor_:
+        if not self.is_categorical_:
             return by[:, None] * B
         X = np.zeros((B.shape[0], self._offsets[-1]))
         for l, (Z, mean) in enumerate(zip(self.Z_, self.means_)):
@@ -357,7 +362,7 @@ class VaryingTerm(Term):
         if self.lam is not None:
             raise ValueError(f'{self.name}: {self.inner.name} has no basis: give its own '
                              'smoothing (as lo(span=...))')
-        if self.is_factor_:
+        if self.is_categorical_:
             self._rows = [self.codes_ == l for l in range(len(self.levels_))]
         else:
             self._rows = [self.z_ != 0]
@@ -378,7 +383,7 @@ class VaryingTerm(Term):
             self._xwx = self._basis.T @ (self.w_[:, None] * self._basis)
             self._A = self._xwx + sum(l * S for l, S in zip(self.lam_, self.penalty_matrices()))
         else:
-            weight = self.w_ if self.is_factor_ else self.w_ * self.z_**2
+            weight = self.w_ if self.is_categorical_ else self.w_ * self.z_**2
             for copy, rows in zip(self.copies_, self._rows):
                 copy.set_weights(weight[rows])
 
@@ -388,7 +393,7 @@ class VaryingTerm(Term):
             return self._basis @ self._coef
         f = np.zeros_like(r)
         for copy, rows in zip(self.copies_, self._rows):
-            if self.is_factor_:
+            if self.is_categorical_:
                 g = copy.smooth(r[rows])
                 # (each level's curve sums to 0 on its rows)
                 f[rows] = g - g.mean()
@@ -417,12 +422,15 @@ class VaryingTerm(Term):
         if self.has_basis_:
             return float(np.trace(np.linalg.lstsq(self._A, self._xwx, rcond=None)[0]))
         # (a copy's edf is without its constant: kept for a number)
-        return float(sum(copy.edf() for copy in self.copies_) + (not self.is_factor_))
+        return float(sum(copy.edf() for copy in self.copies_) + (not self.is_categorical_))
 
     def level_edf(self):
-        """A factor `by`: the degrees of freedom of each level's curve, at the current weights (a Series)."""
-        if not self.is_factor_:
-            raise ValueError(f'{self.name}: by is not a factor')
+        """
+        A categorical `by`: the degrees of freedom of each level's curve, at
+        the current weights (a Series).
+        """
+        if not self.is_categorical_:
+            raise ValueError(f'{self.name}: by is not categorical')
         if not self.has_basis_:
             return pd.Series([copy.edf() for copy in self.copies_], index=self.levels_)
         d = np.diag(np.linalg.lstsq(self._A, self._xwx, rcond=None)[0])
@@ -442,7 +450,7 @@ class VaryingTerm(Term):
     def penalty_matrices(self):
         if not self.has_basis_:
             return []
-        if self.pooled_lam and self.is_factor_:
+        if self.pooled_lam and self.is_categorical_:
             return [sum(level[m] for level in self._level_penalties)
                     for m in range(self._n_inner_penalties)]
         return [S for level in self._level_penalties for S in level]
@@ -470,7 +478,7 @@ class VaryingTerm(Term):
                           else np.asarray(coef, float))
             return self
         for copy, rows in zip(self.copies_, self._rows):
-            if self.is_factor_:
+            if self.is_categorical_:
                 copy.finalize(f[rows], r[rows])
             else:
                 z = self.z_[rows]
@@ -481,7 +489,7 @@ class VaryingTerm(Term):
         if self.has_basis_:
             return self.basis(x) @ self.coef_
         xi, by = self._split(x)
-        if not self.is_factor_:
+        if not self.is_categorical_:
             return np.asarray(by, float) * self.copies_[0].predict(xi)
         codes = self._codes(by)
         out = np.zeros(codes.shape[0])
@@ -492,11 +500,11 @@ class VaryingTerm(Term):
         return out
 
 
-def varying(term, by, lam=None, pooled_lam=False, as_factor=True, name=None):
+def varying(term, by, lam=None, pooled_lam=False, as_categorical=True, name=None):
     """
     The term `term` varying with the column `by` (see `VaryingTerm`): a curve
-    per level of the factor `by` (mgcv's `s(x, by=f)`; include `factor(by)`
-    too), or with `as_factor=False`, `z f(x)` for a number `by` (mgcv's
+    per level of the categorical `by` (mgcv's `s(x, by=f)`; include `categorical(by)`
+    too), or with `as_categorical=False`, `z f(x)` for a number `by` (mgcv's
     `s(x, by=z)`). With
     `pooled_lam=True` the levels share the smoothing parameters (mgcv's
     `id`). With `lam` None (and none in `term`) they are estimated
@@ -505,9 +513,9 @@ def varying(term, by, lam=None, pooled_lam=False, as_factor=True, name=None):
     >>> varying(s('age'), by='sex', pooled_lam=True)
     """
     vterm = VaryingTerm(term.column, inner=term, by=by, lam=lam, pooled_lam=pooled_lam,
-                        as_factor=as_factor)
-    args = ''.join(f', {a}={v}' for a, v in [('lam', lam), ('pooled_lam', pooled_lam or None),
-                                               ('as_factor', None if as_factor else False)]
-                   if v is not None)
+                        as_categorical=as_categorical)
+    options = [('lam', lam), ('pooled_lam', pooled_lam or None),
+               ('as_categorical', None if as_categorical else False)]
+    args = ''.join(f', {a}={v}' for a, v in options if v is not None)
     vterm.label = name or f'varying({term.name}, by={by}{args})'
     return vterm

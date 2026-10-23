@@ -9,7 +9,7 @@ contours over the data's bounding box, as mgcv's `plot.gam` (`too.far`).
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
+from .terms import CategoricalTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
 from .tensor import TensorTerm
 from .gp import GPTerm
 from .varying import VaryingTerm
@@ -158,8 +158,8 @@ def plot_term(gam,
     se = se and _has_covariance(gam)
     column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
 
-    if isinstance(term, VaryingTerm) and term.is_factor_:
-        # a curve per level of the factor, over that level's range
+    if isinstance(term, VaryingTerm) and term.is_categorical_:
+        # a curve per level of the categorical, over that level's range
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
         values_all = np.asarray(term.xi_, float)
         for l, level in enumerate(term.levels_):
@@ -201,7 +201,7 @@ def plot_term(gam,
         ax.set_xlabel(str(xlabel))
         ax.set_ylabel(f'coefficient of {term.by}: {term.name}')
         return ax
-    elif isinstance(term, (FactorTerm, RandomEffectTerm)):
+    elif isinstance(term, (CategoricalTerm, RandomEffectTerm)):
         levels = np.asarray(term.levels_)
         if isinstance(term, RandomEffectTerm) and term.by is not None:
             x = np.column_stack([levels, np.ones(len(levels))])

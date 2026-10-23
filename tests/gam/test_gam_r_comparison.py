@@ -19,7 +19,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, lo, linear, factor
+from glmnet.gam import GAM, GAMControl, s, lo, linear, categorical
 
 CONTROL = GAMControl(epsnr=1e-12, mxitnr=100)
 FAMILIES = {'gaussian': (sm.families.Gaussian, 'y'),
@@ -61,7 +61,7 @@ def test_fixed_lambda_mgcv(Rinfo, data, family, use_offset):
     klass, yname = FAMILIES[family]
     lam = (1e-4, 3e-3)
     cols = [yname, 'w'] + (['o'] if use_offset else [])
-    G = GAM(terms=[s('a', lam=lam[0]), s('b', lam=lam[1]), factor('c')],
+    G = GAM(terms=[s('a', lam=lam[0]), s('b', lam=lam[1]), categorical('c')],
             family=klass(), control=CONTROL, response_id=yname, weight_id='w',
             offset_id='o' if use_offset else None).fit(data, data[cols])
 
@@ -94,7 +94,7 @@ def test_fixed_lambda_mgcv(Rinfo, data, family, use_offset):
 def test_fixed_df_gam(Rinfo, data, family):
     rpy = _R(Rinfo, data, 'gam')
     klass, yname = FAMILIES[family]
-    G = GAM(terms=[s('a', df=4), s('b', df=3), factor('c')], family=klass(),
+    G = GAM(terms=[s('a', df=4), s('b', df=3), categorical('c')], family=klass(),
             control=CONTROL, response_id=yname, weight_id='w').fit(data, data[[yname, 'w']])
     # gam's s() is a special of its formulas only by name: attach the package
     rpy.r('suppressPackageStartupMessages(library(gam))')
@@ -125,7 +125,7 @@ def test_many_distinct_values_gam(Rinfo, family):
     D['yb'] = rng.binomial(1, 1 / (1 + np.exp(-eta)))
     rpy = _R(Rinfo, D, 'gam')
     klass, yname = FAMILIES[family]
-    G = GAM(terms=[s('a', df=4), s('b', df=3), factor('c')], family=klass(),
+    G = GAM(terms=[s('a', df=4), s('b', df=3), categorical('c')], family=klass(),
             control=GAMControl(epsnr=1e-10, mxitnr=100)).fit(D, D[yname])
     assert len(G.terms_[0].knots_) < 200
     rpy.r('suppressPackageStartupMessages(library(gam))')
@@ -229,7 +229,7 @@ def test_families_gam(Rinfo, data_gam, case):
     D = data_gam
     rpy = _R(Rinfo, D, 'gam')
     cols = [yname] + (['w'] if weights else []) + (['o'] if offset else [])
-    terms = [s('a', df=4), s('b', df=3)] + ([factor('c')] if 'inverse' not in case else [])
+    terms = [s('a', df=4), s('b', df=3)] + ([categorical('c')] if 'inverse' not in case else [])
     G = GAM(terms=terms, family=family, control=CONTROL, response_id=yname,
             weight_id='w' if weights else None,
             offset_id='o' if offset else None).fit(D, D[cols])
@@ -287,7 +287,7 @@ def test_lo_mixed_gam(Rinfo, data_gam, family):
     D = data_gam
     rpy = _R(Rinfo, D, 'gam')
     klass, yname = FAMILIES[family]
-    G = GAM(terms=[lo('d', span=0.5), s('b', df=3), factor('c')], family=klass(),
+    G = GAM(terms=[lo('d', span=0.5), s('b', df=3), categorical('c')], family=klass(),
             control=CONTROL).fit(D, D[yname])
     R = _gam(rpy, f'{yname} ~ lo(d, span=0.5) + s(b, 3) + c', family)
     np.testing.assert_allclose(G.state_.link_parameter, R['eta'], atol=5e-2)
@@ -314,7 +314,7 @@ def test_covariance_mgcv(Rinfo, data, family):
     lam = (1e-4, 3e-3, 0.02)
     use_offset = family != 'gaussian'
     cols = [yname, 'w'] + (['o'] if use_offset else [])
-    G = GAM(terms=[s('a', lam=lam[0]), s('b', lam=lam[1]), factor('c'), re('g', lam=lam[2])],
+    G = GAM(terms=[s('a', lam=lam[0]), s('b', lam=lam[1]), categorical('c'), re('g', lam=lam[2])],
             family=klass(), control=GAMControl(epsnr=1e-12, mxitnr=100, solver='joint'),
             response_id=yname, weight_id='w',
             offset_id='o' if use_offset else None).fit(D, D[cols])

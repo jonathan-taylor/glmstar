@@ -13,7 +13,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import (GAM, GAMControl, s, factor, QuasiPoisson, QuasiBinomial,
+from glmnet.gam import (GAM, GAMControl, s, categorical, QuasiPoisson, QuasiBinomial,
                         NegativeBinomial)
 from glmnet.gam.reml import LaplaceCriterion
 
@@ -66,10 +66,10 @@ def _mgcv(rpy, D, formula_y, Rfamily, method, weights=''):
 
 def _fit(D, family, method, y):
     if y == 'pb':
-        return GAM(terms=[s('a'), s('b'), factor('c')], family=family, method=method,
+        return GAM(terms=[s('a'), s('b'), categorical('c')], family=family, method=method,
                    control=GAMControl(**TIGHT), response_id='pb', weight_id='trials',
                    offset_id='o').fit(D, D[['pb', 'trials', 'o']])
-    return GAM(terms=[s('a'), s('b'), factor('c')], family=family, method=method,
+    return GAM(terms=[s('a'), s('b'), categorical('c')], family=family, method=method,
                control=GAMControl(**TIGHT), response_id=y,
                offset_id='o').fit(D, D[[y, 'o']])
 
@@ -155,9 +155,9 @@ def test_quasi_mgcv(Rinfo, data, family, method):
 def test_quasi_fixed_smoothing(data):
     # with fixed smoothing parameters, Pearson's estimate (as R's glm)
     D = data
-    G = GAM(terms=[s('a', lam=1e-3), s('b', lam=1e-2), factor('c')], family=QuasiPoisson(),
+    G = GAM(terms=[s('a', lam=1e-3), s('b', lam=1e-2), categorical('c')], family=QuasiPoisson(),
             response_id='ynb', offset_id='o').fit(D, D[['ynb', 'o']])
-    P = GAM(terms=[s('a', lam=1e-3), s('b', lam=1e-2), factor('c')], family=sm.families.Poisson(),
+    P = GAM(terms=[s('a', lam=1e-3), s('b', lam=1e-2), categorical('c')], family=sm.families.Poisson(),
             response_id='ynb', offset_id='o').fit(D, D[['ynb', 'o']])
     mu = np.asarray(P.state_.mu)
     np.testing.assert_allclose(np.asarray(G.state_.mu), mu, rtol=1e-10)

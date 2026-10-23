@@ -54,8 +54,7 @@ def _varying(term, j, method):
     chosen_inner, chosen = _chosen(inner, method), _chosen(term, method)
     if description is not None and description.endswith(chosen_inner):
         description = description[:-len(chosen_inner)] + chosen
-    is_factor = term.as_factor
-    if is_factor:
+    if term.as_categorical:
         level = rf'{j},{by}[i]'
         contribution = contribution.replace(f + '(', rf'f_{{{level}}}(', 1)
         sharing = ('' if not hasattr(inner, 'lam') else
@@ -81,7 +80,7 @@ def _term(term, j, method):
     f = rf'f_{{{j}}}'
     if kind == 'SlopeTerm':
         return rf'\beta_{{{j}}}\, {x(cols[0])}', None
-    if kind == 'FactorTerm':
+    if kind in ('CategoricalTerm', 'FactorTerm'):
         return rf'\alpha^{{({j})}}_{{{_tex(cols[0])}[i]}}', \
             rf'\alpha^{{({j})}}: \text{{an effect per level of }} {_tex(cols[0])}'
     if kind == 'ColumnsTerm':

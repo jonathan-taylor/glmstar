@@ -13,7 +13,7 @@ from scipy.optimize import minimize_scalar
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, factor, varying, cubic_regression_spline
+from glmnet.gam import GAM, GAMControl, s, categorical, varying, cubic_regression_spline
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
 
@@ -33,7 +33,7 @@ def data():
 
 
 def test_curves(data):
-    G = GAM(terms=[factor('f'), varying(cubic_regression_spline('x'), by='f', lam=1e-3)]).fit(data, data['y'])
+    G = GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', lam=1e-3)]).fit(data, data['y'])
     term = G.terms_[1]
     fit = term.predict(data[['x', 'f']].to_numpy())
     # zero off its level; summing to 0 over all the rows' x, as mgcv's
@@ -53,7 +53,7 @@ def test_curves(data):
 def test_backfit_is_joint(data, family, pooled):
     fam, y = (sm.families.Gaussian(), 'y') if family == 'gaussian' else (sm.families.Poisson(), 'yp')
     lam = 1e-3 if pooled else [1e-4, 1e-3, 1e-2]
-    fits = [GAM(terms=[factor('f'), varying(cubic_regression_spline('x'), by='f', lam=lam, pooled_lam=pooled),
+    fits = [GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', lam=lam, pooled_lam=pooled),
                        s('z', df=4)],
                 family=fam, control=GAMControl(solver=solver, **TIGHT)).fit(data, data[y])
             for solver in ['backfit', 'joint']]
@@ -63,8 +63,8 @@ def test_backfit_is_joint(data, family, pooled):
 
 def test_categorical_order(data):
     D = data.assign(f=pd.Categorical(data['f'], categories=['c', 'a', 'b', 'd']))
-    G = GAM(terms=[factor('f'), varying(cubic_regression_spline('x'), by='f', lam=[1e-4, 1e-3, 1e-2])]).fit(D, D['y'])
-    H = GAM(terms=[factor('f'), varying(cubic_regression_spline('x'), by='f', lam=[1e-3, 1e-2, 1e-4])]).fit(data, data['y'])
+    G = GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', lam=[1e-4, 1e-3, 1e-2])]).fit(D, D['y'])
+    H = GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', lam=[1e-3, 1e-2, 1e-4])]).fit(data, data['y'])
     # the levels in the categories' order (those seen), the lams with them
     assert list(G.terms_[1].levels_) == ['c', 'a', 'b']
     np.testing.assert_allclose(G.predict(D), H.predict(data), rtol=1e-8)
@@ -90,7 +90,7 @@ def test_mgcv(Rinfo, data, family, method, pooled):
         pytest.skip('requires the R package mgcv')
     fam, y, Rfamily = ((sm.families.Gaussian(), 'y', 'gaussian()') if family == 'gaussian'
                        else (sm.families.Poisson(), 'yp', 'poisson()'))
-    G = GAM(terms=[factor('f'), varying(cubic_regression_spline('x'), by='f', pooled_lam=pooled)],
+    G = GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', pooled_lam=pooled)],
             family=fam, method=method, control=GAMControl(**TIGHT)).fit(data, data[y])
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():
@@ -132,7 +132,7 @@ def test_plot(data):
     pytest.importorskip('matplotlib')
     import matplotlib
     matplotlib.use('Agg')
-    G = GAM(terms=[factor('f'), varying(cubic_regression_spline('x'), by='f', lam=1e-3)],
+    G = GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', lam=1e-3)],
             control=GAMControl(solver='joint')).fit(data, data['y'])
     axes = G.plot()
     assert len(axes) == 2
