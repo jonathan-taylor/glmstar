@@ -57,6 +57,9 @@
 
 ### Fixes
 
+- **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
+  basis, as before #189: a varying term has a basis when its inner term does
+  (`has_basis`) (#191).
 - **Large random effects without dense matrices.** Fitting a GAM with a
   random effect of many levels no longer forms its `R x R` penalty (each
   term says whether it is `penalized`, has a basis, `has_basis`, and how
