@@ -12,7 +12,7 @@ from scipy.spatial import cKDTree
 from .terms import FactorTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
 from .tensor import TensorTerm
 from .gp import GPTerm
-from .by_factor import FactorSplineTerm
+from .varying import VaryingTerm
 
 
 def _term_index(gam, term):
@@ -39,6 +39,9 @@ def plottable(term):
         return term.dim_ <= 2
     if isinstance(term, TensorTerm):
         return term.X_.shape[1] == 2
+    if isinstance(term, VaryingTerm):
+        # (a curve per level, or the varying coefficient, of one column)
+        return len(term._inner_columns) == 1
     return True
 
 
@@ -144,6 +147,9 @@ def plot_term(gam,
         if isinstance(term, (GPTerm, TensorTerm)):
             raise ValueError(f'{term.name} is a function of more than two columns: '
                              'it has no curve or surface to plot')
+        if isinstance(term, VaryingTerm):
+            raise ValueError(f'{term.name} varies a function of several columns: '
+                             'plot it with partial_effect')
         raise ValueError(f'{term.name} is a block of several columns: it has no curve to plot')
     if ax is None:
         _, ax = plt.subplots()
@@ -152,11 +158,12 @@ def plot_term(gam,
     se = se and _has_covariance(gam)
     column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
 
-    if isinstance(term, FactorSplineTerm):
+    if isinstance(term, VaryingTerm) and term.is_factor_:
         # a curve per level of the factor, over that level's range
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        values_all = np.asarray(term.xi_, float)
         for l, level in enumerate(term.levels_):
-            values = term.x_[term.codes_ == l]
+            values = values_all[term.codes_ == l]
             grid = np.linspace(values.min(), values.max(), n_grid)
             x = np.empty((n_grid, 2), dtype=object)
             x[:, 0], x[:, 1] = grid, level
@@ -170,9 +177,30 @@ def plot_term(gam,
             ax.plot(grid, fit, color=c, lw=2, label=str(level))
         ax.legend(title=str(term.by), fontsize='small')
         if rug:
-            ax.plot(np.unique(term.x_), np.zeros(len(np.unique(term.x_))), '|', color='k',
+            ax.plot(np.unique(values_all), np.zeros(len(np.unique(values_all))), '|', color='k',
                     alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
-        xlabel = term.column
+        xlabel = term._inner_columns[0]
+    elif isinstance(term, VaryingTerm):
+        # a numeric `by`: the varying coefficient f(x), the term at z = 1
+        values = np.asarray(term.xi_, float)
+        grid = np.linspace(values.min(), values.max(), n_grid)
+        x = np.column_stack([grid, np.ones(n_grid)])
+        if se:
+            fit, std = gam.partial_effect(j, x, return_std=True)
+        else:
+            fit, std = gam.partial_effect(j, x), None
+        ax.plot(grid, fit, color=color, lw=2)
+        if std is not None:
+            for sign in (-1, 1):
+                ax.plot(grid, fit + sign * multiplier * std, color=se_color, ls='--', lw=1.5)
+        if rug:
+            ax.plot(np.unique(values), np.zeros(len(np.unique(values))), '|', color='k',
+                    alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
+        ax.axhline(0, color='k', lw=0.5, alpha=0.5)
+        xlabel = term._inner_columns[0]
+        ax.set_xlabel(str(xlabel))
+        ax.set_ylabel(f'coefficient of {term.by}: {term.name}')
+        return ax
     elif isinstance(term, (FactorTerm, RandomEffectTerm)):
         levels = np.asarray(term.levels_)
         if isinstance(term, RandomEffectTerm) and term.by is not None:

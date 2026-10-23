@@ -36,8 +36,8 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import (GAM, s, re, factor, tensor_spline, QuasiPoisson, NegativeBinomial,
-                        ExperimentalWarning)
+from glmnet.gam import (GAM, s, re, factor, tensor_spline, varying, cubic_regression_spline,
+                        QuasiPoisson, NegativeBinomial, ExperimentalWarning)
 
 Bike = load_data('Bikeshare')
 Bike[['bikers', 'hr', 'mnth', 'weekday', 'workingday', 'weathersit', 'temp']].dtypes
@@ -198,17 +198,17 @@ ax.legend(fontsize=8);
 
 Working days have the commute's peaks at 8am and 5pm; the other days one
 broad peak in the early afternoon. A curve of the hour for each level of
-the working day, `by_factor_spline('hour', by='workingday')` (mgcv's
-`s(hour, by=workingday)`, with `workingday` a factor), lets the hour's
-profile differ between them, the other terms shared; each curve has its own
-smoothing parameter. Further, the model can be fitted separately to the
+the working day, `varying(cubic_regression_spline('hour', k=24),
+by='workingday')` (mgcv's `s(hour, by=workingday, bs="cr")`, with
+`workingday` a factor), lets the hour's profile differ between them, the
+other terms shared; each curve has its own smoothing parameter. Further, the model can be fitted separately to the
 working days and the others: every term then depends on the working day.
 The two parts of the data are independent with their own parameters, so
 the log-likelihoods, the ML criteria and the AIC of the two fits add, and
 compare with the additive model's.
 
 ```{code-cell} ipython3
-by_hour = GAM(terms=[by_factor_spline('hour', by='workingday', k=24), s('temp'),
+by_hour = GAM(terms=[varying(cubic_regression_spline('hour', k=24), by='workingday'), s('temp'),
                      factor('weather'), factor('workingday'), factor('month')],
               family=poisson, method='ML').fit(Bike, Bike['bikers'])
 by_hour.terms_[0].level_edf()

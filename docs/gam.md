@@ -44,7 +44,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor, tensor_spline, by_factor_spline
+from glmnet.gam import GAM, GAMControl, s, lo, re, linear, factor, tensor_spline, varying
 
 Wage = load_data('Wage')
 Wage[['wage', 'year', 'age', 'education']].head()
@@ -259,28 +259,30 @@ Its penalties' null space is spanned by $1$, age, year and their product:
 however large its smoothing parameters, the term keeps a linear
 age-by-year interaction.
 
-## A curve for each level of a factor
+## Varying coefficients
 
-`by_factor_spline('age', by='jobclass')` fits a curve of age for each job
-class (mgcv's `s(age, by=jobclass, bs="cr")`): each curve is zero off its
-level and sums to zero on it, so the model includes `factor('jobclass')`
-for the levels' means, as mgcv's `wage ~ jobclass + s(age, by=jobclass)`.
-Each level has its own smoothing parameter:
+`varying(term, by=...)` lets a smooth term vary with another column, the
+varying-coefficient models of Hastie and Tibshirani (1993); it is mgcv's
+`by=`. With a factor, it fits a curve for each level:
+`varying(s('age'), by='jobclass')` is mgcv's `s(age, by=jobclass)`. Each
+curve is zero off its level; as mgcv's, each is constrained like the term
+alone (it sums to zero over the data's ages), so the model includes
+`factor('jobclass')` for the levels' means, as mgcv's
+`wage ~ jobclass + s(age, by=jobclass)`. Each level has its own smoothing
+parameter:
 
 ```{code-cell} ipython3
-by_class = [factor('jobclass'), by_factor_spline('age', by='jobclass'), s('year'),
+by_class = [factor('jobclass'), varying(s('age'), by='jobclass'), s('year'),
             factor('education')]
 gam_by = GAM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
 gam_by.smoothing_.lam, gam_by.terms_[1].level_edf()
 ```
 
-REML gives the industrial curve about 4 degrees of freedom, the
-information curve nearly 5. (The last smoothing parameter is `year`'s.)
 With `pooled_lam=True` the levels share one smoothing parameter, estimated
 by REML as well (mgcv's `id`): the curves are taken to be equally smooth.
 
 ```{code-cell} ipython3
-by_class[1] = by_factor_spline('age', by='jobclass', pooled_lam=True)
+by_class[1] = varying(s('age'), by='jobclass', pooled_lam=True)
 gam_pooled = GAM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
 gam_pooled.smoothing_.lam, gam_pooled.terms_[1].level_edf()
 ```
@@ -291,6 +293,29 @@ The term is drawn as a curve per level:
 ax = gam_by.plot(terms=[1])[0]
 ax.figure.tight_layout()
 ```
+
+`by` is a factor, whatever its values (a factor coded 0 and 1 too). With
+`as_factor=False` it is a number and the term is `z f(x)`: the coefficient
+of `z` is a smooth function of `x` (mgcv's `s(x, by=z)`, not centered). Here the yearly
+change in wage, `year - 2006`'s coefficient, is a function of age, next to
+the main curve of age. (A smooth of the year as well would duplicate its
+linear trend, which the varying coefficient already has.)
+
+```{code-cell} ipython3
+Wage['year_c'] = Wage['year'] - 2006
+gam_vc = GAM(terms=[s('age'), varying(s('age'), by='year_c', as_factor=False),
+                    factor('education')],
+             method='REML').fit(Wage, Wage['wage'])
+ax = gam_vc.plot(terms=[1])[0]
+ax.figure.tight_layout()
+```
+
+Any smooth can vary: `varying(cyclic_spline('hour', period=(0, 24)),
+by='workingday')`, `varying(tensor_spline('lon', 'lat'), by='year')`,
+`varying(re('school'), by='sector')`. Those with a basis (all but `lo()`)
+work with every method; `varying(lo('x'), by='f')` fits a loess per level,
+by backfitting only. mgcv's `s(age, by=jobclass, bs="cr")` is
+`varying(cubic_regression_spline('age'), by='jobclass')`.
 
 ## Random effects
 
@@ -370,6 +395,8 @@ predictor (`'link'`) or the relative risk (`'response'`).
   *Statistical Science* 1(3), 297–318.
 - Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
   Chapman & Hall.
+- Hastie, T. and Tibshirani, R. (1993). Varying-coefficient models.
+  *Journal of the Royal Statistical Society, Series B* 55(4), 757–796.
 - James, G., Witten, D., Hastie, T., Tibshirani, R. and Taylor, J. (2023).
   *An Introduction to Statistical Learning, with Applications in Python*.
   Springer.

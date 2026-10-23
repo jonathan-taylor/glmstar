@@ -86,7 +86,8 @@ from .gp import GPTerm, gaussian_process
 from .tensor import TensorTerm, tensor_spline
 from .cyclic import CyclicSplineTerm, cyclic_spline
 from .families import QuasiPoisson, QuasiBinomial, NegativeBinomial
-from .by_factor import FactorSplineTerm, by_factor_spline
+from .varying import (VaryingTerm, CubicRegressionSplineTerm, varying,
+                      cubic_regression_spline)
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning

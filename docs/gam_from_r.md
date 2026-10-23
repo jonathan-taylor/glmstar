@@ -82,8 +82,11 @@ the design".
 | `s(x, sp=...)` | `s('x', lam=...)`, `lam = sp / (sum(w) * S.scale)` | to rounding |
 | `te(x, z, bs="cr")` | `tensor_spline('x', 'z')` (mgcv's `place.knots`) | REML/ML fits to 1e-3 with other terms, edf to 1e-3, ML criterion to 1e-7 |
 | `s(x, bs="cc", k=k)` | `cyclic_spline('x', k=k)`, with `period=(a, b)` for the cycle's ends | REML/ML fits to 1e-8, criterion to 1e-9 |
-| `s(x, by=f, bs="cr")` | `factor('f'), by_factor_spline('x', by='f')` (include the factor, as mgcv's `y ~ f + s(x, by=f)`) | REML/ML: our criterion at most mgcv's; Gaussian REML fits to 1e-8 |
-| `s(x, by=f, id=1)` | `by_factor_spline('x', by='f', pooled_lam=True)` | as above |
+| `s(x, bs="cr", k=k)` | `cubic_regression_spline('x', k=k)` | REML/ML criterion as mgcv's, fits to 1e-5 |
+| `s(x, by=f)` (any `bs`) | `factor('f'), varying(s('x'), by='f')` (any smooth; include the factor, as mgcv's `y ~ f + s(x, by=f)`) | the ML criterion to 1e-7 (identical: each level's constraint is mgcv's); Gaussian REML fits to 1e-7 |
+| `s(x, by=f, id=1)` | `varying(s('x'), by='f', pooled_lam=True)` | as above |
+| `s(x, by=z)`, `z` numeric | `varying(s('x'), by='z', as_factor=False)` | as above |
+| `te(x, z, by=f)`, `s(h, bs="cc", by=f)` | `varying(tensor_spline('x', 'z'), by='f')`, `varying(cyclic_spline('h'), by='f')` | ML criterion to 1e-9 (te) |
 | `s(x, z, bs="gp", m=...)` | `gaussian_process('x', 'z', m=...)` | at fixed `sp` to rounding; REML/ML to mgcv's convergence |
 | `s(g, bs="re")` | `re('g')` | `gam.vcomp` to 1e-4 |
 | `s(g, x, bs="re")` | `re('g', by='x')` | |
