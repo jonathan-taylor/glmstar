@@ -26,7 +26,7 @@ The method is that of mgcv (Wood, 2011), and the notation follows Wood
 ## The model
 
 The linear predictor is $\eta = X\beta$. The columns of $X$ are the
-intercept, then one block for each term: a spline's basis, a factor's
+intercept, then one block for each term: a spline's basis, a categorical's
 indicators, a random effect's group indicators. Term $j$ has a penalty
 $\lambda_j \beta_j^T S_j \beta_j$, and $S_\lambda = \sum_j \lambda_j S_j$
 puts the terms' penalties together, block diagonally. The penalized fit
@@ -272,7 +272,7 @@ What this means in practice:
   the unpenalized coefficients, and with which of them are in the model.
   So REML criteria can be compared only between models with the same
   unpenalized part (and agree with mgcv's or lme4's only up to a constant
-  when a factor's effects are parametrized differently). ML criteria are
+  when a categorical's effects are parametrized differently). ML criteria are
   log-likelihoods of the models, comparable across them, as for a
   likelihood ratio or AIC between models with different fixed effects.
 - **Non-Gaussian families.** ML is the Laplace approximation with the

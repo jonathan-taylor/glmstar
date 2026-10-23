@@ -52,6 +52,7 @@ References
 """
 from dataclasses import dataclass, field
 from typing import Optional, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -285,9 +286,10 @@ class SlopeTerm(Term):
 
 
 @dataclass
-class FactorTerm(Term):
+class CategoricalTerm(Term):
     """
-    A categorical column, one effect per level: the term `factor(column)`.
+    A categorical column, one effect per level: the term `categorical(column)`
+    (R's `factor`).
     Levels not seen in fitting predict 0. The levels are in the order of a
     pandas categorical's categories (those seen in fitting), otherwise
     sorted. In modified backfitting its
@@ -295,7 +297,7 @@ class FactorTerm(Term):
     has at most `max_joint_levels` levels; otherwise it is backfitted.
     """
 
-    _label = 'factor'
+    _label = 'categorical'
     max_joint_levels = 50
 
     categories = None        # the categories of a pandas categorical column (set by GAM)
@@ -1133,6 +1135,30 @@ def linear(column):
     return SlopeTerm(column)
 
 
+def categorical(column):
+    """A categorical term, one effect per level (see `CategoricalTerm`; R's `factor`)."""
+    return CategoricalTerm(column)
+
+
+# the former names, deprecated
+
+_FACTOR_DEPRECATED = ('factor() is deprecated, and will be removed: use categorical() '
+                      '(CategoricalTerm)')
+
+
+@dataclass
+class FactorTerm(CategoricalTerm):
+    """Deprecated: `CategoricalTerm`."""
+
+    _label = 'factor'
+
+    def __post_init__(self):
+        warnings.warn(_FACTOR_DEPRECATED, FutureWarning, stacklevel=3)
+
+
 def factor(column):
-    """A categorical term, one effect per level (see `FactorTerm`)."""
-    return FactorTerm(column)
+    """Deprecated: `categorical()`. (Its term is named `factor(column)`, as before.)"""
+    warnings.warn(_FACTOR_DEPRECATED, FutureWarning, stacklevel=2)
+    term = CategoricalTerm(column)
+    term.label = f'factor({column})'
+    return term

@@ -11,7 +11,7 @@ pytest.importorskip('scatter_smooth')
 from scatter_smooth import SplineSmoother
 
 from glmnet import GLM
-from glmnet.gam import GAM, GAMControl, s, lo, linear, factor
+from glmnet.gam import GAM, GAMControl, s, lo, linear, categorical
 from glmnet.gam.terms import SplineTerm, LoessTerm
 
 TIGHT = GAMControl(epsnr=1e-12, mxitnr=100)
@@ -49,7 +49,7 @@ def test_one_spline_is_the_smoothing_spline(data):
 
 def test_parametric_terms_are_a_glm(data):
     # linear and factor terms only: the GLM on the corresponding design
-    G = GAM(terms=[linear('b'), factor('c')], family=sm.families.Binomial(),
+    G = GAM(terms=[linear('b'), categorical('c')], family=sm.families.Binomial(),
             control=TIGHT).fit(data, data['yb'])
     X = pd.get_dummies(data[['b', 'c']], drop_first=True, dtype=float)
     M = GLM(family=sm.families.Binomial()).fit(X, data['yb'])
@@ -61,12 +61,12 @@ def test_parametric_terms_are_a_glm(data):
 
 
 def test_fitted_values_and_partial_effects(data):
-    G = GAM(terms=[s('a', df=5), s('b', lam=1e-2), factor('c')],
+    G = GAM(terms=[s('a', df=5), s('b', lam=1e-2), categorical('c')],
             family=sm.families.Binomial(), control=TIGHT).fit(data, data['yb'])
     np.testing.assert_allclose(G.predict(data, 'link'), G.state_.linear_predictor,
                                rtol=1e-8, atol=1e-10)
     fits = G.fits_
-    assert list(fits.columns) == ['s(a, df=5)', 's(b, lam=0.01)', 'factor(c)']
+    assert list(fits.columns) == ['s(a, df=5)', 's(b, lam=0.01)', 'categorical(c)']
     np.testing.assert_allclose(fits.mean(axis=0), 0, atol=1e-10)
     for name, column in zip(fits.columns, ['a', 'b', 'c']):
         np.testing.assert_allclose(G.partial_effect(name, data[column]), fits[name],
@@ -93,12 +93,12 @@ def test_linear_term(data):
 def test_objective_decreases_and_converges(data):
     # fixed smoothing: the objective is checked; the fit is a stationary point of
     # the penalized objective (no change from one more local scoring run)
-    G = GAM(terms=[s('a', lam=1e-4), linear('b'), factor('c')],
+    G = GAM(terms=[s('a', lam=1e-4), linear('b'), categorical('c')],
             family=sm.families.Binomial(), control=TIGHT).fit(data, data['yb'])
     assert G.regularizer_.has_objective
     assert 1 < G.n_iter_ < TIGHT.mxitnr
     # df terms and loess have no objective: local scoring stops on eta
-    G = GAM(terms=[s('a', df=4), lo('b'), factor('c')],
+    G = GAM(terms=[s('a', df=4), lo('b'), categorical('c')],
             family=sm.families.Binomial(), control=TIGHT).fit(data, data['yb'])
     assert not G.regularizer_.has_objective
     assert G.n_iter_ < TIGHT.mxitnr
@@ -160,9 +160,9 @@ def _correlated(rho, n=3000, seed=4):
 
 
 @pytest.mark.parametrize('family, y', [(sm.families.Gaussian, 'y'), (sm.families.Binomial, 'yb')])
-@pytest.mark.parametrize('terms', [lambda: [s('a', df=4), s('b', df=4), factor('c')],
-                                   lambda: [s('a', lam=1e-4), linear('b'), factor('c')],
-                                   lambda: [lo('a'), s('b', df=3), factor('c')]])
+@pytest.mark.parametrize('terms', [lambda: [s('a', df=4), s('b', df=4), categorical('c')],
+                                   lambda: [s('a', lam=1e-4), linear('b'), categorical('c')],
+                                   lambda: [lo('a'), s('b', df=3), categorical('c')]])
 def test_modified_backfitting_same_fit(family, y, terms):
     # modified and plain backfitting have the same fixed point (n small: a
     # loess term's df smooths one unit vector per observation)
@@ -182,7 +182,7 @@ def test_modified_backfitting_concurvity():
     # nearly collinear predictors: plain backfitting crawls (here it doesn't
     # converge in 300 sweeps), modified backfitting converges quickly
     D = _correlated(0.999)
-    terms = [s('a', df=4), s('b', df=4), factor('c')]
+    terms = [s('a', df=4), s('b', df=4), categorical('c')]
     control = dict(bf_tol=1e-10, bf_maxit=300)
     with pytest.warns(UserWarning, match='did not converge'):
         GAM(terms=terms, control=GAMControl(bf_modified=False, **control)).fit(D, D['y'])
@@ -208,8 +208,8 @@ def test_modified_backfitting_many_levels():
     n = 3000
     D = pd.DataFrame(dict(a=rng.uniform(0, 1, n), g=rng.integers(0, 80, n)))
     D['y'] = np.sin(2 * np.pi * D['a']) + 0.01 * D['g'] + 0.5 * rng.standard_normal(n)
-    assert factor('g').setup(D['g']).linear_columns() is None
-    fits = [GAM(terms=[s('a', df=4), factor('g')],
+    assert categorical('g').setup(D['g']).linear_columns() is None
+    fits = [GAM(terms=[s('a', df=4), categorical('g')],
                 control=GAMControl(bf_tol=1e-13, bf_maxit=5000, bf_modified=m)).fit(D, D['y'])
             for m in (False, True)]
     np.testing.assert_allclose(fits[1].state_.linear_predictor, fits[0].state_.linear_predictor,
@@ -219,7 +219,7 @@ def test_modified_backfitting_many_levels():
 def test_residuals_function(data):
     # glmstar's residuals(fit, kind) works on a GAM, as on a GLM
     from glmnet.glm import residuals
-    G = GAM(terms=[s('a', df=4), factor('c')], family=sm.families.Binomial(),
+    G = GAM(terms=[s('a', df=4), categorical('c')], family=sm.families.Binomial(),
             control=TIGHT).fit(data, data['yb'])
     mu = G.predict(data)
     np.testing.assert_allclose(residuals(G), data['yb'] - mu, rtol=1e-10)

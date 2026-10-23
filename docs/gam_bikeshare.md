@@ -21,7 +21,7 @@ ridership depend on the hour of the day, the temperature, the weather and
 whether the day is a working day?
 
 The ISLR lab on generalized linear models (James et al., 2023, section 4.7)
-fits a Poisson regression of the count `bikers` on factors for the hour and
+fits a Poisson regression of the count `bikers` on categoricals for the hour and
 the month, the temperature (linearly), the weather and the working day.
 This page replaces the hour's 23 coefficients and the linear temperature by
 smooths, estimates their smoothing by REML, and then asks what the additive
@@ -36,15 +36,15 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import (GAM, s, re, factor, tensor_spline, QuasiPoisson, NegativeBinomial,
-                        ExperimentalWarning)
+from glmnet.gam import (GAM, s, re, categorical, tensor_spline, varying, cubic_regression_spline,
+                        QuasiPoisson, NegativeBinomial, ExperimentalWarning)
 
 Bike = load_data('Bikeshare')
 Bike[['bikers', 'hr', 'mnth', 'weekday', 'workingday', 'weathersit', 'temp']].dtypes
 ```
 
 `hr` and `mnth` are categorical. A smooth needs the hour as a number,
-0 to 23. `factor()` keeps a categorical's order of its levels, so the
+0 to 23. `categorical()` keeps a pandas categorical's order of its levels, so the
 months stay in calendar order. The temperature is normalized to lie
 between 0 and 1.
 
@@ -75,13 +75,13 @@ the rest of `glmnet.gam`. `GAM(method='REML')` warns
 compare with fixed smoothing parameters or with R.
 :::
 
-Smooths of the hour and the temperature, and factors for the weather, the
+Smooths of the hour and the temperature, and categoricals for the weather, the
 working day and the month, as in the lab, with the smoothing parameters
 estimated by REML:
 
 ```{code-cell} ipython3
 poisson = sm.families.Poisson()
-terms = [s('hour'), s('temp'), factor('weather'), factor('workingday'), factor('month')]
+terms = [s('hour'), s('temp'), categorical('weather'), categorical('workingday'), categorical('month')]
 additive = GAM(terms=terms, family=poisson, method='REML').fit(Bike, Bike['bikers'])
 additive.summary()
 ```
@@ -146,8 +146,8 @@ def compare(fits):
 
 t0 = time.time()
 additive_ml = GAM(terms=terms, family=poisson, method='ML').fit(Bike, Bike['bikers'])
-tensor = GAM(terms=[tensor_spline('hour', 'temp', k=(24, 10)), factor('weather'),
-                    factor('workingday'), factor('month')],
+tensor = GAM(terms=[tensor_spline('hour', 'temp', k=(24, 10)), categorical('weather'),
+                    categorical('workingday'), categorical('month')],
              family=poisson, method='ML').fit(Bike, Bike['bikers'])
 print(f'{time.time() - t0:.1f}s')
 compare({'additive': additive_ml, 'tensor': tensor})
@@ -198,25 +198,25 @@ ax.legend(fontsize=8);
 
 Working days have the commute's peaks at 8am and 5pm; the other days one
 broad peak in the early afternoon. A curve of the hour for each level of
-the working day, `by_factor_spline('hour', by='workingday')` (mgcv's
-`s(hour, by=workingday)`, with `workingday` a factor), lets the hour's
-profile differ between them, the other terms shared; each curve has its own
-smoothing parameter. Further, the model can be fitted separately to the
+the working day, `varying(cubic_regression_spline('hour', k=24),
+by='workingday')` (mgcv's `s(hour, by=workingday, bs="cr")`, with
+`workingday` categorical), lets the hour's profile differ between them, the
+other terms shared; each curve has its own smoothing parameter. Further, the model can be fitted separately to the
 working days and the others: every term then depends on the working day.
 The two parts of the data are independent with their own parameters, so
 the log-likelihoods, the ML criteria and the AIC of the two fits add, and
 compare with the additive model's.
 
 ```{code-cell} ipython3
-by_hour = GAM(terms=[by_factor_spline('hour', by='workingday', k=24), s('temp'),
-                     factor('weather'), factor('workingday'), factor('month')],
+by_hour = GAM(terms=[varying(cubic_regression_spline('hour', k=24), by='workingday'), s('temp'),
+                     categorical('weather'), categorical('workingday'), categorical('month')],
               family=poisson, method='ML').fit(Bike, Bike['bikers'])
 by_hour.terms_[0].level_edf()
 ```
 
 ```{code-cell} ipython3
 days = {1: 'working days', 0: 'other days'}
-split_terms = [s('hour'), s('temp'), factor('weather'), factor('month')]
+split_terms = [s('hour'), s('temp'), categorical('weather'), categorical('month')]
 split = {wd: GAM(terms=split_terms, family=poisson, method='ML')
              .fit(Bike[Bike['workingday'] == wd], Bike.loc[Bike['workingday'] == wd, 'bikers'])
          for wd in days}
