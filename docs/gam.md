@@ -197,17 +197,26 @@ score from the data: `sandwich_covariance()` is $A^{-1} M A^{-1}$, with
 
 The dispersion $\phi$ does not enter the sandwich. `predict`,
 `partial_effect` and `plot` take `covariance=`: `'posterior'` (the
-default), `'frequentist'`, `'sandwich'` (HC0) or a matrix. Here are HC0 and
-errors clustered by survey year. With only 7 years, the clustered errors
-are themselves noisy:
+default), `'frequentist'`, `'sandwich'` (HC0) or a matrix.
+
+For grouped rows the score contributions of a group are correlated. Here
+40 groups share a shock that the GAM leaves out, so the model's errors
+are too small, and the clustered ones are not:
 
 ```{code-cell} ipython3
-V_year = gam.sandwich_covariance(groups=Wage['year'])
-new = pd.DataFrame({'year': 2005, 'age': [25, 45, 65], 'education': '4. College Grad'})
-table = {'age': new['age']}
-for name, cov in [('posterior', 'posterior'), ('HC0', 'sandwich'), ('cluster (year)', V_year)]:
-    table[name] = gam.predict(new, return_std=True, covariance=cov)[1]
-pd.DataFrame(table)
+rng = np.random.default_rng(1)
+n_groups, size = 40, 25
+g = np.repeat(np.arange(n_groups), size)
+x = rng.uniform(0, 1, n_groups * size)
+shock = rng.normal(0, 0.5, n_groups)
+grouped = pd.DataFrame({'x': x, 'g': g,
+                        'y': np.sin(6 * x) + shock[g] + 0.5 * rng.standard_normal(len(x))})
+fit = GAM(terms=[s('x', df=5)]).fit(grouped, grouped['y'])
+V_cluster = fit.sandwich_covariance(groups=grouped['g'])
+new = pd.DataFrame({'x': [0.1, 0.5, 0.9]})
+table = {'x': new['x']}
+for name, cov in [('posterior', 'posterior'), ('HC0', 'sandwich'), ('cluster (g)', V_cluster)]:
+    table[name] = fit.predict(new, return_std=True, covariance=cov)[1]
 ```
 
 A meat of your own can come from a bootstrap. For grouped data, resample
@@ -215,12 +224,11 @@ the groups' sums of the score contributions (a grouped, or cluster,
 bootstrap). Here the meat is the covariance of their resampled totals:
 
 ```{code-cell} ipython3
-scores = gam.score_contributions()
-sums = pd.DataFrame(scores).groupby(Wage['year'].values).sum().values
-rng = np.random.default_rng(0)
-totals = np.array([sums[rng.integers(0, len(sums), len(sums))].sum(0) for _ in range(1000)])
-V_boot = gam.sandwich_covariance(meat=np.cov(totals, rowvar=False))
-gam.predict(new, return_std=True, covariance=V_boot)[1]
+sums = pd.DataFrame(fit.score_contributions()).groupby(grouped['g'].values).sum().values
+totals = np.array([sums[rng.integers(0, n_groups, n_groups)].sum(0) for _ in range(1000)])
+V_boot = fit.sandwich_covariance(meat=np.cov(totals, rowvar=False))
+table['grouped bootstrap'] = fit.predict(new, return_std=True, covariance=V_boot)[1]
+pd.DataFrame(table)
 ```
 
 Which to use:
