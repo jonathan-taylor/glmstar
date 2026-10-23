@@ -167,7 +167,7 @@ def test_quasi_fixed_smoothing(data):
 
 
 def test_theta_needs_reml(data):
-    with pytest.raises(ValueError, match='estimated by method="REML"'):
+    with pytest.raises(ValueError, match='estimated by a GLMM'):
         GAM(terms=[s('a', lam=1e-3)], family=NegativeBinomial(),
             response_id='ynb').fit(data, data[['ynb']])
     # fixed theta, fixed smoothing: as statsmodels' NegativeBinomial(alpha=1/theta)

@@ -44,7 +44,7 @@ def test_gam_method_fixed_deprecated(data):
     terms = [s('x', df=4), re('g', lam=0.1)]
     G = GAM(terms).fit(data, data['y'])
     with pytest.warns(FutureWarning, match="method='fixed'"):
-        H = GAM(terms).fit(data, data['y'])
+        H = GAM(terms, method='fixed').fit(data, data['y'])
     np.testing.assert_allclose(H.predict(data), G.predict(data))
     assert not hasattr(G, 'smoothing_')
 
@@ -54,7 +54,7 @@ def test_gam_estimating_deprecated(data, method):
     terms = [s('x'), re('g')]
     G = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     with pytest.warns(FutureWarning, match='GLMM'):
-        H = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
+        H = GAM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     np.testing.assert_allclose(H.smoothing_.lam, G.smoothing_.lam)
     np.testing.assert_allclose(H.predict(data), G.predict(data))
 
