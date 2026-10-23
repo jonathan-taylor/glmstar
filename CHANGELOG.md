@@ -104,6 +104,11 @@
 
 ### Packaging
 
+- **Faster CI.** The tests run in parallel (pytest-xdist, `-n auto`, one BLAS
+  thread per worker; `--dist loadfile`, a test file to a worker, so each
+  module's random draws are those of a serial run), at `--test-size=small`; a
+  run by hand (Actions, "Run workflow", or `gh workflow run build_and_test.yml
+  -f test_size=large`) can be `--test-size=large` (#192).
 - **Fewer CI runs.** The tests run on pull requests (Linux only) and on
   pushes to main (macOS, Linux and Windows), not on every push to every
   branch; by hand too (`workflow_dispatch`). A new push cancels the run in
