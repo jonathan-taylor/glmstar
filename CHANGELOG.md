@@ -14,7 +14,7 @@
   and `plot` take `covariance='posterior' | 'frequentist' | 'sandwich'` or
   a matrix. They match statsmodels' HC0 and cluster covariances without
   penalties, and mgcv's `vcov(sandwich=TRUE)` up to its `n / (n - edf)`.
-  Not for the Cox family's per-row scores (#PR).
+  Not for the Cox family's per-row scores (#196).
 - **REML and ML with one large random effect, factored by blocks**
   (`glmnet.gam.blocked`, `GAMControl(reml_backend='auto' | 'dense' |
   'blocked')`). The random effect with the most levels is kept implicit
