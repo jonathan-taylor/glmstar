@@ -61,11 +61,19 @@ class GAMControl(GLMControl):
         `gam`) or `'joint'`, the penalized least squares fit on the terms'
         bases side by side (as mgcv; for terms with a basis, not loess). They
         have the same solution.
+    max_dense_coef: int
+        The most coefficients (1 + the terms' basis columns) for which the
+        dense `P x P` matrices are formed: the posterior and frequentist
+        covariances (standard errors, `edf_influence_`, mgcv's edf) and REML
+        and ML's Hessian. Above it they are not formed (None; standard errors
+        raise), and REML and ML raise: a random effect of many levels is fitted
+        by backfitting without them.
     """
     bf_maxit: int = 500
     bf_tol: float = 1e-10
     bf_modified: bool = True
     solver: str = 'backfit'
+    max_dense_coef: int = 20000
 
 
 def _cox_information(family, sample_weight, state):
@@ -534,7 +542,15 @@ class GAM(BaseEstimator):
         if getattr(self, '_covariance', None) is not None:
             return self._covariance
         cov = dict(design=None, posterior=None, frequentist=None, edf=None)
-        if all(term.basis() is not None for term in self.terms_):
+        self._covariance_reason = None
+        if not all(term.has_basis for term in self.terms_):
+            self._covariance_reason = 'standard errors need a basis for every term (not lo())'
+        elif 1 + sum(term.n_coef() for term in self.terms_) > self.control.max_dense_coef:
+            n_coef = 1 + sum(term.n_coef() for term in self.terms_)
+            self._covariance_reason = (
+                f'the posterior covariance is the dense {n_coef} x {n_coef} matrix, more than '
+                f'GAMControl(max_dense_coef={self.control.max_dense_coef}): raise it to form it')
+        else:
             w = self._covariance_weights
             D = cov['design'] = (self.regularizer_.design_
                                  if isinstance(self.regularizer_, JointRegularizer)
@@ -612,7 +628,7 @@ class GAM(BaseEstimator):
 
     def _check_covariance(self):
         if self.posterior_covariance_ is None:
-            raise ValueError('standard errors need a basis for every term (not lo())')
+            raise ValueError(self._covariance_reason)
 
     def _linear_predictor(self, X, offset=None):
         X = self._design(X)
@@ -757,7 +773,7 @@ class GAM(BaseEstimator):
                 columns.extend(X.T)
                 labels = term.column if isinstance(term.column, list) else [term.column]
                 names.extend(f'{term.name}[{c}]' for c in labels)
-            elif term.penalty_matrix() is None:
+            elif not term.penalized:
                 raise NotImplementedError(f'fixed_effects_: {term.name} (unpenalized, not a '
                                           'linear term) is not supported; give its columns '
                                           'as a block of columns')
@@ -793,6 +809,7 @@ class GAM(BaseEstimator):
         else:
             # a smooth among the penalized terms: the block of the posterior
             # covariance (the dense design)
+            self._check_covariance()
             D = self.design_
             idx = [0]
             for j, term in enumerate(self.terms_):
