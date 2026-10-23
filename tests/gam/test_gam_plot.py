@@ -13,7 +13,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from glmnet.cox import CoxFamily
-from glmnet.gam import GAM, GAMControl, ColumnsTerm, s, lo, re, linear, factor, plot_term
+from glmnet.gam import GAM, GAMControl, ColumnsTerm, s, lo, re, linear, categorical, plot_term
 
 
 @pytest.fixture(scope='module')
@@ -42,7 +42,7 @@ def _lines(ax):
 
 
 def test_curve_and_bands(data):
-    G = GAM(terms=[s('a', df=5), linear('b'), factor('c')]).fit(data, data['y'])
+    G = GAM(terms=[s('a', df=5), linear('b'), categorical('c')]).fit(data, data['y'])
     ax = plot_term(G, 's(a, df=5)')
     curve, lower, upper = [l for l in ax.get_lines() if l.get_marker() in ('None', '')][:3]
     grid = curve.get_xdata()
@@ -63,11 +63,11 @@ def test_curve_and_bands(data):
 
 
 def test_factor_and_random_effect(data):
-    G = GAM(terms=[s('a', df=4), factor('c'), re('g', lam=0.1), re('g', by='v', lam=1.)],
+    G = GAM(terms=[s('a', df=4), categorical('c'), re('g', lam=0.1), re('g', by='v', lam=1.)],
             control=GAMControl(solver='joint')).fit(data, data['y'])
-    ax = plot_term(G, 'factor(c)')
+    ax = plot_term(G, 'categorical(c)')
     points = ax.get_lines()[0]
-    fit, std = G.partial_effect('factor(c)', np.array(['x', 'y', 'z']), return_std=True)
+    fit, std = G.partial_effect('categorical(c)', np.array(['x', 'y', 'z']), return_std=True)
     np.testing.assert_allclose(points.get_ydata(), fit)
     assert [t.get_text() for t in ax.get_xticklabels()] == ['x', 'y', 'z']
     assert len(ax.collections) == 1                  # the error bars
@@ -89,13 +89,13 @@ def test_loess_has_no_bands(data):
 
 
 def test_plot_method(data):
-    G = GAM(terms=[s('a', df=4), linear('b'), factor('c'), ColumnsTerm(['b', 'b2'])]).fit(
+    G = GAM(terms=[s('a', df=4), linear('b'), categorical('c'), ColumnsTerm(['b', 'b2'])]).fit(
         data, data['y'])
     axes = G.plot()
     # the block of two columns has no curve
     assert len(axes) == 3
-    assert [ax.get_ylabel() for ax in axes] == ['s(a, df=4)', 'linear(b)', 'factor(c)']
-    axes = G.plot(terms=['factor(c)'], se=False)
+    assert [ax.get_ylabel() for ax in axes] == ['s(a, df=4)', 'linear(b)', 'categorical(c)']
+    axes = G.plot(terms=['categorical(c)'], se=False)
     assert len(axes) == 1
     fig, given = plt.subplots(1, 2)
     out = G.plot(terms=[0, 1], axes=given)

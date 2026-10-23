@@ -22,7 +22,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GAMControl, s, re, linear, factor
+from glmnet.gam import GAM, GAMControl, s, re, linear, categorical
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 LMER_CONTROL = 'lme4::lmerControl(optCtrl=list(ftol_abs=1e-12, xtol_abs=1e-10))'
@@ -262,7 +262,7 @@ def test_slopes_mgcv(Rinfo):
 
 
 def _binomial(D, method):
-    return GAM(terms=[factor('period'), re('herd')], family=sm.families.Binomial(), method=method,
+    return GAM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(), method=method,
                control=GAMControl(**TIGHT), response_id='p', weight_id='size').fit(D, D[['p', 'size']])
 
 

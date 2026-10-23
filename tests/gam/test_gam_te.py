@@ -11,7 +11,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, factor, tensor_spline as te
+from glmnet.gam import GAM, GAMControl, s, categorical, tensor_spline as te
 from glmnet.gam.tensor import CubicRegressionSpline, place_knots
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -70,7 +70,7 @@ def test_null_space(data):
 def test_backfit_is_joint(data, family, modified):
     fam, y = ((sm.families.Gaussian(), 'y') if family == 'gaussian'
               else (sm.families.Poisson(), 'yp'))
-    terms = lambda: [te('x', 'z', lam=[1e-3, 1e-2]), s('u', lam=1e-3), factor('c')]
+    terms = lambda: [te('x', 'z', lam=[1e-3, 1e-2]), s('u', lam=1e-3), categorical('c')]
     fits = [GAM(terms=terms(), family=fam, weight_id='w', response_id=y,
                 control=GAMControl(solver=solver, bf_modified=modified, **TIGHT)).fit(data, data[[y, 'w']])
             for solver in ['backfit', 'joint']]
@@ -130,7 +130,7 @@ def test_mgcv(Rinfo, data, family, method):
     if not rpy.r('isTRUE(requireNamespace("mgcv", quietly=TRUE))')[0]:
         pytest.skip('requires the R package mgcv')
     y, Rfamily, fam = MGCV[family]
-    G = GAM(terms=[te('x', 'z', k=(5, 6)), s('u'), factor('c')], family=fam, method=method,
+    G = GAM(terms=[te('x', 'z', k=(5, 6)), s('u'), categorical('c')], family=fam, method=method,
             control=GAMControl(**TIGHT)).fit(data, data[y])
     assert G.smoothing_.converged
     ku = data['u'].nunique()

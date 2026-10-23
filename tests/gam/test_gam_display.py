@@ -8,13 +8,13 @@ import pytest
 import statsmodels.api as sm
 
 from glmnet.cox import CoxFamily
-from glmnet.gam import (GAM, s, lo, re, linear, factor, tensor_spline, gaussian_process,
+from glmnet.gam import (GAM, s, lo, re, linear, categorical, tensor_spline, gaussian_process,
                         correlated_random_effect, penalized_columns)
 from glmnet.gam.terms import ColumnsTerm
 
 
 def test_terms_and_family():
-    G = GAM(terms=[s('year', df=4), s('age'), factor('education'), tensor_spline('hour', 'temp'),
+    G = GAM(terms=[s('year', df=4), s('age'), categorical('education'), tensor_spline('hour', 'temp'),
                    gaussian_process('lon', 'lat'), re('maritl'), re(['batch', 'cask']),
                    re('subject', by='days'), correlated_random_effect('subject', slopes=['days']),
                    linear('x_1'), lo('z', span=0.3), penalized_columns(['a', 'b'], [np.eye(2)]),

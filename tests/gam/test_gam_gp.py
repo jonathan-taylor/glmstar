@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, gaussian_process as gp, factor, re, linear, plot_term
+from glmnet.gam import GAM, GAMControl, gaussian_process as gp, categorical, re, linear, plot_term
 from glmnet.gam.gp import gp_correlation, GPTerm
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -41,7 +41,7 @@ FAMILIES = {'gaussian': (sm.families.Gaussian, 'y'),
             'poisson': (sm.families.Poisson, 'yp')}
 TERMS = {
     'curve, surface and factor': lambda: [gp('x', k=12, lam=1e-3), gp('u', 'v', k=25, lam=1e-4),
-                                          factor('c')],
+                                          categorical('c')],
     'df, stationary, random effect': lambda: [gp('x', df=4, nu=2.5), gp('u', 'v', k=20, trend=False,
                                                                        df=8), re('g', lam=0.05)],
 }
@@ -79,7 +79,7 @@ def test_df(data):
 
 
 def test_predict_new_data(data):
-    G = GAM(terms=[gp('x', k=12, lam=1e-3), gp('u', 'v', k=25, lam=1e-4), factor('c')],
+    G = GAM(terms=[gp('x', k=12, lam=1e-3), gp('u', 'v', k=25, lam=1e-4), categorical('c')],
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     np.testing.assert_allclose(G.predict(data), G.state_.link_parameter, rtol=1e-10, atol=1e-10)
     rng = np.random.default_rng(1)

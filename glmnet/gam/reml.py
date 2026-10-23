@@ -146,6 +146,29 @@ def _jax():
     return jax, jnp
 
 
+def _penalty_groups(Ss):
+    """
+    A term's penalties grouped by their supports: the connected groups of
+    penalties whose coefficients overlap, as `[(penalties, coefficients)]`
+    (each group's penalties consecutive). None when a group's penalties are
+    not consecutive (their parameters must be a slice).
+    """
+    supports = [set(np.flatnonzero(np.abs(S).sum(0) > 0)) for S in Ss]
+    groups = []
+    for m, sup in enumerate(supports):
+        joined = [g for g in groups if g[1] & sup]
+        members, coords = [m], set(sup)
+        for g in joined:
+            members += g[0]
+            coords |= g[1]
+            groups.remove(g)
+        groups.append((sorted(members), coords))
+    groups.sort(key=lambda g: g[0][0])
+    if any(g[0] != list(range(g[0][0], g[0][-1] + 1)) for g in groups):
+        return None
+    return [(g[0], np.array(sorted(g[1]))) for g in groups]
+
+
 def _jax_family(family):
     """
     The pieces of a (statsmodels) family the criterion needs, in JAX: the
@@ -401,21 +424,33 @@ class LaplaceCriterion(object):
                 self.penalty_terms.extend([j] * model.n_params)
                 self.penalty_names.extend(model.names)
                 continue
-            supports = [np.flatnonzero(np.abs(S).sum(0) > 0) for S in Ss]
-            if len(Ss) > 1 and len(np.unique(np.concatenate(supports))) == sum(map(len, supports)):
-                # penalties on disjoint coefficients (a factor-by smooth's
-                # levels): each a single penalty, diagonal in the
-                # eigenvectors of its own block
+            groups = _penalty_groups(Ss) if len(Ss) > 1 else None
+            if groups is not None and len(groups) > 1:
+                # penalties on separate blocks of coefficients (the levels of
+                # a varying term): each block on its own, a single penalty
+                # diagonal in its eigenvectors, or several (a tensor product's
+                # margins, by level) dense on the range of their sum there
                 V = np.identity(Ss[0].shape[0])
-                for m, (S, sup) in enumerate(zip(Ss, supports)):
-                    ev, W = np.linalg.eigh((S[np.ix_(sup, sup)] + S[np.ix_(sup, sup)].T) / 2)
+                base = len(self.penalty_terms)
+                for m in range(len(Ss)):
+                    self.penalty_terms.append(j)
+                    self.penalty_names.append(f'{term.name}[{m}]')
+                for group, sup in groups:
+                    block = [(Ss[m][np.ix_(sup, sup)] + Ss[m][np.ix_(sup, sup)].T) / 2 for m in group]
+                    ev, W = np.linalg.eigh(sum(block))
                     V[np.ix_(sup, sup)] = W
                     on = ev > ev.max() * 1e-10
                     idx = np.arange(P)[sl][sup[on]]
                     range_coords.append(idx)
-                    single.append((len(self.penalty_terms), idx, ev[on]))
-                    self.penalty_terms.append(j)
-                    self.penalty_names.append(f'{term.name}[{m}]')
+                    if len(group) == 1:
+                        single.append((base + group[0], idx, ev[on]))
+                    else:
+                        ks = []
+                        for m, U in zip(group, block):
+                            U = W[:, on].T @ U @ W[:, on]
+                            multi.append((base + m, idx, (U + U.T) / 2))
+                            ks.append(base + m)
+                        multi_terms.append(ks)
                 T[sl, sl] = V
                 continue
             total = sum(Ss)

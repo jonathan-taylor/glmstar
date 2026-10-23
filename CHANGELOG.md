@@ -15,6 +15,56 @@
   that many. The inner fit is then by backfitting, polished. A random
   intercept of 5 x 10^4 levels in 1.5 x 10^5 rows: REML in under 5 minutes
   and about 3 GB, where the dense Hessian alone would be 18 GB (#190).
+- **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingTerm`,
+  mgcv's `by=`; Hastie and Tibshirani, 1993). Any smooth varies with a
+  categorical, a curve per level (`varying(s('x'), by='f')`, mgcv's `s(x,
+  by=f)`; include `categorical('f')`), or with a number, `z f(x)`
+  (`varying(s('x'), by='z', as_categorical=False)`, mgcv's `s(x, by=z)`, not
+  centered). `by` is categorical by default, whatever its values (one coded
+  0 and 1 too). Each level's curve is constrained as mgcv's: it sums to 0
+  over all the rows' values, so the ML criterion is exactly mgcv's. A term
+  with a basis (`s()`, `cyclic_spline()`, `tensor_spline()`,
+  `gaussian_process()`, `re()`, ...) gives its basis per level, with its
+  penalties per level or, with `pooled_lam=True`, shared (mgcv's `id`); its
+  smoothing parameters are given or estimated by REML/ML. `lo()` varies by
+  backfitting: a loess per level, or Hastie and Tibshirani's update for a
+  number. Plots draw a curve per level, or the varying coefficient; the
+  model display shows it. Against mgcv (categorical and numeric `by`; `s()`,
+  cyclic splines and tensor products; per level and pooled; REML and ML):
+  the ML criterion to 1e-7 (tensor products to 1e-9), Gaussian REML fits to
+  1e-7 (#188).
+- **`cubic_regression_spline(x, k=10)`** (`CubicRegressionSplineTerm`),
+  mgcv's `s(x, bs="cr")`: the low-rank natural cubic spline with values at
+  `k` knots (mgcv's `place.knots`) (#188).
+
+### Removed
+
+- **`by_factor_spline` and `FactorSplineTerm`** (new in 0.5.0): use
+  `varying(cubic_regression_spline(x, k=k), by=f, pooled_lam=...)`, the
+  same model. Its curves are now constrained as mgcv's (summing to 0 over
+  all the rows' `x`, not over the level's rows): the fits are unchanged,
+  the curves shift by constants that move to `categorical(f)`'s effects,
+  and the ML criterion is exactly mgcv's (it depends on the
+  parametrization of the penalties' null space; REML does not) (#188).
+
+### Changed
+
+- **`categorical()` (`CategoricalTerm`) is the categorical term's name**,
+  as pandas': `factor()` and `FactorTerm` (R's name) still work, with a
+  `FutureWarning`, and their terms keep the names `factor(...)`; they will
+  be removed. The docs use `categorical()` (#188).
+- **REML/ML:** a term's penalties are grouped by the coefficients they
+  share; each group (a level of a varying term) is evaluated on its own
+  block, so a tensor product by a categorical needs no dense log
+  determinant over all the levels (#188).
+
+### Documentation
+
+- The GAM page's section on factor-by smooths is now on varying
+  coefficients (per level, pooled, and a numeric `by`); the R translation
+  page lists `varying()` and `cubic_regression_spline()`. The Bikeshare
+  page uses `varying()` (its import of `by_factor_spline` had been lost in
+  a merge, so the page did not run in 0.5.0) (#188).
 
 ### Fixes
 
@@ -32,6 +82,14 @@
   generator, not their data, which is not public), the crossed-effects fit
   of the docs takes 56 s and 2.9 GB (it would have taken about 14 GB); at
   1 million ratings 0.8 GB, down from 2.9 GB (#189).
+
+### Packaging
+
+- **Fewer CI runs.** The tests run on pull requests (Linux only) and on
+  pushes to main (macOS, Linux and Windows), not on every push to every
+  branch; by hand too (`workflow_dispatch`). A new push cancels the run in
+  progress for its branch, and changes only to the docs or Markdown files
+  do not run them (#187).
 
 ## 0.5.0 (2026-10-22)
 

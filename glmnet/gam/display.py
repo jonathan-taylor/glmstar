@@ -44,15 +44,43 @@ def _chosen(term, method, attr='lam'):
     return rf'\text{{by {method}}}'
 
 
+def _varying(term, j, method):
+    """A varying-coefficient term (`varying(inner, by=...)`): the inner term's line, varied."""
+    inner = term.inner
+    contribution, description = _term(inner, j, method)
+    by = _tex(term.by)
+    f = rf'f_{{{j}}}'
+    # the inner term's choice of smoothing replaced by the varying term's
+    chosen_inner, chosen = _chosen(inner, method), _chosen(term, method)
+    if description is not None and description.endswith(chosen_inner):
+        description = description[:-len(chosen_inner)] + chosen
+    if term.as_categorical:
+        level = rf'{j},{by}[i]'
+        contribution = contribution.replace(f + '(', rf'f_{{{level}}}(', 1)
+        sharing = ('' if not hasattr(inner, 'lam') else
+                   r'\text{, one smoothing parameter for all the levels}' if term.pooled_lam
+                   else r'\text{, smoothing parameters per level}')
+        head = rf'f_{{{j},l}}\ \text{{for each level }} l \text{{ of }} {by}\text{{, each summing to 0 over the data}}'
+        if description is not None:
+            description = description.replace(f + ':', head + r'\text{:}\ ', 1) + sharing
+        return contribution, description
+    contribution = rf'{by}_i\, {contribution}'
+    if description is not None:
+        description = description.replace(f + ':', rf'{f}\ \text{{(the coefficient of }} {by}\text{{)}}:', 1)
+    return contribution, description
+
+
 def _term(term, j, method):
     """The term's contribution to the linear predictor, and its description."""
+    if hasattr(term, 'inner') and term.inner is not None:
+        return _varying(term, j, method)
     kind = type(term).__name__
     cols = _columns(term)
     x = lambda c: _tex(c) + '_i'
     f = rf'f_{{{j}}}'
     if kind == 'SlopeTerm':
         return rf'\beta_{{{j}}}\, {x(cols[0])}', None
-    if kind == 'FactorTerm':
+    if kind in ('CategoricalTerm', 'FactorTerm'):
         return rf'\alpha^{{({j})}}_{{{_tex(cols[0])}[i]}}', \
             rf'\alpha^{{({j})}}: \text{{an effect per level of }} {_tex(cols[0])}'
     if kind == 'ColumnsTerm':
@@ -62,6 +90,10 @@ def _term(term, j, method):
         return rf'{f}({x(cols[0])})', \
             (rf'{f}: \text{{cubic smoothing spline, penalty }} \lambda_{{{j}}}\textstyle\int {f}'
              rf"''(x)^2\,dx,\ " + _chosen(term, method))
+    if kind == 'CubicRegressionSplineTerm':
+        return rf'{f}({x(cols[0])})', \
+            (rf'{f}: \text{{cubic regression spline, {term.k} knots, penalty }} \lambda_{{{j}}}'
+             rf"\textstyle\int {f}''(x)^2\,dx,\ " + _chosen(term, method))
     if kind == 'LoessTerm':
         return rf'{f}({x(cols[0])})', \
             rf'{f}: \text{{loess, span {term.span:g}, degree {term.degree}}}'
