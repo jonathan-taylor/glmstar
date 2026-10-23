@@ -39,14 +39,14 @@
   estimates. `score` is minus half the held-out deviance (the partial
   log-likelihood for Cox), so `GridSearchCV` and `cross_val_score` work;
   `clone` keeps the terms' names, which follow `set_params`. Requires
-  scikit-learn 1.3 (#PR).
+  scikit-learn 1.3 (#195).
 - **scikit-learn estimators as smoothers** (`glmnet.gam.adapters`):
   `TransformerSmoother`, a transformer's features as the basis with given,
   difference or ridge penalties (`SplineTransformer` with a difference
   penalty is a P-spline), constrained to fits summing to 0 (`sum_to_zero`,
   as mgcv absorbs its constraint); and `RegressorSmoother`, a regressor
   that takes `sample_weight` (a tree, nearest neighbours), backfitted,
-  with Ye's generalized degrees of freedom by Monte Carlo (#PR).
+  with Ye's generalized degrees of freedom by Monte Carlo (#195).
 - **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingSmoother`,
   mgcv's `by=`; Hastie and Tibshirani, 1993). Any smooth varies with a
   categorical, a curve per level (`varying(s('x'), by='f')`, mgcv's `s(x,
