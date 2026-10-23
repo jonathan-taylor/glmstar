@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Packaging
+
+- **Fewer CI runs.** The tests run on pull requests (Linux only) and on
+  pushes to main (macOS, Linux and Windows), not on every push to every
+  branch; by hand too (`workflow_dispatch`). A new push cancels the run in
+  progress for its branch, and changes only to the docs or Markdown files
+  do not run them (#187).
+
 ## 0.5.0 (2026-10-22)
 
 ### New features
