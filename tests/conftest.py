@@ -4,6 +4,18 @@ import numpy as np
 import os
 from copy import copy
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "large: a large-data test, skipped with --test-size=small (as in CI)")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("test_size") == "small":
+        skip = pytest.mark.skip(reason="large-data test: not run with --test-size=small")
+        for item in items:
+            if item.get_closest_marker("large") is not None:
+                item.add_marker(skip)
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--test-size", action="store", default="large", help="run subset of tests: small, medium, large"

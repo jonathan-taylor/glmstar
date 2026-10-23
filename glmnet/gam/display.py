@@ -80,7 +80,7 @@ def _term(term, j, method):
     f = rf'f_{{{j}}}'
     if kind == 'LinearSmoother':
         return rf'\beta_{{{j}}}\, {x(cols[0])}', None
-    if kind in ('CategoricalSmoother', 'FactorTerm'):
+    if kind in ('CategoricalSmoother', '_FactorTerm'):
         return rf'\alpha^{{({j})}}_{{{_tex(cols[0])}[i]}}', \
             rf'\alpha^{{({j})}}: \text{{an effect per level of }} {_tex(cols[0])}'
     if kind == 'ColumnsSmoother':

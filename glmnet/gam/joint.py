@@ -211,6 +211,11 @@ class JointDesign(object):
 
 def _root(S):
     """A square root `R` of the positive semi-definite `S`, `R' R = S`."""
+    d = np.diagonal(S)
+    if np.count_nonzero(S) == np.count_nonzero(d):
+        # diagonal (a random effect's): no eigendecomposition, O(p^3) for
+        # its levels
+        return np.diag(np.sqrt(np.maximum(d, 0)))
     ev, V = np.linalg.eigh((S + S.T) / 2)
     return np.sqrt(np.maximum(ev, 0))[:, None] * V.T
 

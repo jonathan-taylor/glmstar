@@ -547,6 +547,12 @@ the dense one used now. Two others can sit behind the same interface:
     have the structure of the model: diagonal for the first grouping
     factor, small dense blocks for random slopes, sparse blocks for
     crossed factors.
+    `GAMControl(reml_backend='blocked')` (`glmnet.gam.blocked`) is its
+    first block: the random effect with the most levels is the diagonal
+    block, and the other coefficients are its dense Schur complement.
+    Unlike MixedModels.jl (Bates et al., MixedModels.jl), whose
+    derivative-free optimizer needs only the log-determinant, it also gives
+    the traces and leverages for the gradient.
   - With a sparse factor, the traces and leverages come from Takahashi's
     selected inversion (Takahashi, Fagan and Chen, 1973). It computes the
     entries of $H^{-1}$ on the sparsity pattern of the factor, never all of
@@ -658,6 +664,8 @@ $b = Lu$, where the penalty is the identity.
 
 ## References
 
+- Bates, D., Alday, P., Kleinschmidt, D. et al. MixedModels.jl: mixed-effects
+  models in Julia. https://github.com/JuliaStats/MixedModels.jl
 - Bates, D., Mächler, M., Bolker, B. and Walker, S. (2015). Fitting linear
   mixed-effects models using lme4. *Journal of Statistical Software*
   67(1), 1–48.
