@@ -184,6 +184,10 @@ class Term(object):
         """The number of columns of its basis (set up; 0 without one)."""
         return self.basis().shape[1] if self.has_basis else 0
 
+    def n_penalties(self):
+        """The number of its penalties (set up), the length of `penalty_matrices()`."""
+        return len(self.penalty_matrices())
+
     def set_penalty_lams(self, lams):
         """Fix the smoothing parameters, one per penalty (as REML and ML do)."""
         self.lam = float(lams[0])
@@ -871,6 +875,9 @@ class RandomEffectTerm(Term):
 
     def n_coef(self):
         return len(self.levels_)
+
+    def n_penalties(self):
+        return 1
 
     def penalty_lam(self):
         return self.lam_

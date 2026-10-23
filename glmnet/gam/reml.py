@@ -122,6 +122,8 @@ from statsmodels.genmod.families import family as sm_family, links as sm_links
 
 from .joint import JointDesign
 from .linalg import DenseHessian
+from .blocked import (SplitDesign, SplitPenalty, BlockedHessian, SplitJointDesign,
+                      large_random_effect)
 from .penalties import (ScaledPenalty, SumPenalty, CholeskyPenalty, CovariancePenalty,
                         covariance_penalty)
 
@@ -236,7 +238,10 @@ class SmoothingSelection(object):
     logs of `lam_raw`, and for correlated random effects those of the
     Cholesky factor of their precision, whose `lam` are NaN.
     `negative_binomial_theta` is the estimated theta of a negative binomial
-    (`glmnet.gam.families.NegativeBinomial(theta=None)`), else None.
+    (`glmnet.gam.families.NegativeBinomial(theta=None)`), else None. `edf`
+    are the terms' (mgcv's) degrees of freedom at the optimum when the
+    criterion is factored by blocks (`glmnet.gam.blocked`; the GAM's dense
+    `edf_influence_` is then not formed), else None.
     """
     method: str
     terms: list
@@ -250,6 +255,7 @@ class SmoothingSelection(object):
     n_evaluations: int
     message: str = ''
     negative_binomial_theta: Optional[float] = None
+    edf: Optional[np.ndarray] = None
 
 
 class LaplaceCriterion(object):
@@ -290,7 +296,15 @@ class LaplaceCriterion(object):
         self.free_dispersion = not fixed and dispersion is None
         self.fixed_dispersion = dispersion if dispersion is not None else (1. if fixed else None)
 
-        D = self.design = JointDesign(self.terms)
+        # one large random effect: implicit, and H factored by blocks
+        # (`glmnet.gam.blocked`); else the dense design and H
+        self.big = _blocked_term(gam)
+        self.blocked = self.big is not None
+        if self.blocked:
+            D = self.design = SplitJointDesign(self.terms, self.big)
+            self.Hessian = BlockedHessian
+        else:
+            D = self.design = JointDesign(self.terms)
         y = np.asarray(gam._response, float)
         a = np.asarray(gam._weight, float)
         keep = a > 0
@@ -355,14 +369,25 @@ class LaplaceCriterion(object):
         exactly, however large `lambda_j` is.
         """
         P = D.n_coef
-        T = np.identity(P)
+        blocked = getattr(self, 'blocked', False)
+        # (with a large random effect, the rotation by blocks: the random
+        # effect's is the identity)
+        T = _BlockRotation(P) if blocked else np.identity(P)
         self.penalty_terms, self.penalty_names = [], []
         single, multi, multi_terms, cholesky = [], [], [], []
         range_coords = []
         for j, (sl, Ss) in enumerate(zip(D.slices, D.penalty_sets)):
+            term = self.terms[j]
+            if blocked and j == self.big:
+                # the identity: a single penalty, diagonal as it is
+                idx = np.arange(P)[sl]
+                range_coords.append(idx)
+                single.append((len(self.penalty_terms), idx, np.ones(idx.shape[0])))
+                self.penalty_terms.append(j)
+                self.penalty_names.append(term.name)
+                continue
             if not Ss:
                 continue
-            term = self.terms[j]
             if getattr(term, 'penalty_varies', False):
                 # correlated random effects: their precision, by its
                 # covariance structure, on the coordinates as they are (group
@@ -422,7 +447,12 @@ class LaplaceCriterion(object):
             range_coords = [idx - 1 for idx in range_coords]
             P -= 1
         self.T = T
-        self.X = (D.X @ T)[keep]
+        if blocked:
+            T_E = T.dense(D.e_idx)
+            self.X = SplitDesign(P, D.a_start, D.R, D.codes[keep], D.values[keep], D.e_idx,
+                                 (D.X_E @ T_E)[keep])
+        else:
+            self.X = (D.X @ T)[keep]
         # the single penalties: their eigenvalues in the coordinates
         self.single = np.array([k for k, _, _ in single], int)
         self.M = np.zeros((len(single), P))
@@ -494,7 +524,7 @@ class LaplaceCriterion(object):
         theta = self._theta(params)
         X, beta = self.X.copy(), np.array(beta, float)
         P = X.shape[1]
-        S = np.zeros((P, P))
+        S = SplitPenalty(P, X.e_idx) if getattr(self, 'blocked', False) else np.zeros((P, P))
         pieces, logdet, dlogdet, logdet_V = {}, 0., np.zeros(len(lam)), 0.
         for _, model, sl in self.models:
             e = model.evaluate(theta[sl])
@@ -593,6 +623,16 @@ class LaplaceCriterion(object):
             value -= self.null_dim * np.log(2 * np.pi * phi) / 2
         ev.update(Dp=Dp, dls=dls, dls_t=dls_t)
         return float(value)
+
+    def edf_by_term(self, params):
+        """
+        The terms' degrees of freedom (mgcv's) at `params`: the sums over
+        their coefficients of `diag(H^{-1} X' W X) = 1 - diag(H^{-1} S)`, from
+        the blocked factorization (`glmnet.gam.blocked`).
+        """
+        ev = self._polish(self._factor(self._evaluation(params, self.coef(params))))
+        d = ev['H'].edf(ev['S'])
+        return np.array([d[sl].sum() for sl in self.design.slices])
 
     def criterion(self, params, beta):
         """The criterion at `params`, with the coefficients `beta` (in the criterion's coordinates)."""
@@ -757,7 +797,8 @@ class LaplaceCriterion(object):
         jnp = self._jnp
         eta0 = np.full(self.y.shape[0], float(self.gam._null_state.intercept)) + self.offset
         h = 0.5 * np.asarray(self._h(jnp.asarray(eta0), jnp.asarray(self.y), self.log_theta)) * self.a
-        xwx = np.einsum('ij,i,ij->j', self.X, h, self.X)
+        xwx = (self.X.weighted_colsq(h) if self.blocked else
+               np.einsum('ij,i,ij->j', self.X, h, self.X))
         start = np.zeros(len(self.lam_fixed))
         for _, model, sl in self.models:
             start[sl] = model.start(xwx)
@@ -998,6 +1039,77 @@ def _newton(crit, x, bounds, maxit=100, tol=1e-8):
     return x, value, grad, bool(np.max(np.abs(grad[free]), initial=0) < crit.grad_tol)
 
 
+class _BlockRotation(object):
+    """
+    The orthogonal change of coordinates `T` (`P x P`, block diagonal over
+    the terms) without forming it: `T[sl, sl] = V` sets a block (the others
+    are the identity), `T.T @ v`, and `dense(idx)`, `T` on the coordinates
+    `idx` (which contain its blocks).
+    """
+    __array_ufunc__ = None
+
+    def __init__(self, P):
+        self.P, self.blocks = P, []
+
+    def __setitem__(self, key, V):
+        rows, cols = key
+        idx = np.arange(self.P)[rows]
+        if not np.array_equal(idx, np.arange(self.P)[cols]):
+            raise ValueError('a block of the rotation is on the diagonal')
+        self.blocks.append((idx, np.asarray(V, float)))
+
+    def dense(self, idx):
+        idx = np.asarray(idx)
+        pos = np.full(self.P, -1)
+        pos[idx] = np.arange(idx.shape[0])
+        T = np.identity(idx.shape[0])
+        for b, V in self.blocks:
+            p = pos[b]
+            if np.any(p < 0):
+                raise ValueError('a rotation of the large random effect')
+            T[np.ix_(p, p)] = V
+        return T
+
+    @property
+    def T(self):
+        return _BlockRotationT(self)
+
+
+class _BlockRotationT(object):
+    __array_ufunc__ = None
+
+    def __init__(self, R):
+        self.R = R
+
+    def __matmul__(self, v):
+        out = np.array(v, float)
+        for b, V in self.R.blocks:
+            out[b] = V.T @ out[b]
+        return out
+
+
+def _blocked_term(gam):
+    """
+    The random effect the criterion keeps implicit (`glmnet.gam.blocked`):
+    by `GAMControl(reml_backend=...)`, `'blocked'` (the random effect with
+    the most levels), `'dense'` (none), or `'auto'` (the default: when the
+    coefficients are more than `max_dense_coef`, and the others are not).
+    """
+    from .terms import RandomEffectTerm
+    control = gam.control
+    backend = getattr(control, 'reml_backend', 'auto')
+    if backend == 'dense' or getattr(gam, '_cox', False):
+        return None
+    if backend == 'blocked':
+        candidates = [j for j, t in enumerate(gam.terms_) if isinstance(t, RandomEffectTerm)]
+        if not candidates:
+            raise ValueError('reml_backend="blocked" needs a random effect (re())')
+        return max(candidates, key=lambda j: gam.terms_[j].n_coef())
+    if backend != 'auto':
+        raise ValueError("reml_backend should be one of 'auto', 'dense' or 'blocked'")
+    return large_random_effect(gam.terms_, control.max_dense_coef)
+
+
 def estimated_terms(gam):
     """
     The indices of the terms of the set-up `gam` whose penalty parameters a
@@ -1034,12 +1146,14 @@ def select_smoothing(gam, dispersion=None):
     if not all(term.has_basis for term in terms):
         raise ValueError('REML and ML need a basis for every term (not lo())')
     n_coef = 1 + sum(term.n_coef() for term in terms)
-    if n_coef > gam.control.max_dense_coef:
-        # (the criterion's H is dense: P x P)
+    if n_coef > gam.control.max_dense_coef and _blocked_term(gam) is None:
+        # (the criterion's H is dense: P x P, but for one large random effect)
         raise ValueError(f'method="{gam._method.name}" forms the dense {n_coef} x {n_coef} '
                          'Hessian of the coefficients, more than '
-                         f'GAMControl(max_dense_coef={gam.control.max_dense_coef}); raise it, '
-                         'or use a method for large data (glmnet.gam.selection)')
+                         f'GAMControl(max_dense_coef={gam.control.max_dense_coef}), and its '
+                         'random effects are not one large one with the other coefficients at '
+                         'most that many (glmnet.gam.blocked); raise it, or use a method for '
+                         'large data (glmnet.gam.selection)')
     normed = gam._normed_weight
     estimated = estimated_terms(gam)
     if not estimated:
@@ -1050,7 +1164,8 @@ def select_smoothing(gam, dispersion=None):
         if getattr(terms[j], 'penalty_varies', False):
             terms[j].set_precision(np.identity(terms[j].q_))
         else:
-            terms[j].set_penalty_lams(np.ones(len(terms[j].penalty_matrices())))
+            # (counted without forming them: a random effect's is levels squared)
+            terms[j].set_penalty_lams(np.ones(terms[j].n_penalties()))
     for term in terms:
         term.set_weights(normed)
 
@@ -1100,6 +1215,7 @@ def select_smoothing(gam, dispersion=None):
         # the terms at the optimum
         crit.coef(x)
         converged = converged and gam.converged_
+        edf = crit.edf_by_term(x) if getattr(crit, 'blocked', False) else None
     return SmoothingSelection(method=gam._method.name,
                               terms=[crit.penalty_names[k] for k in crit.est_index],
                               lam=lam / crit.weight_total,
@@ -1111,6 +1227,7 @@ def select_smoothing(gam, dispersion=None):
                               converged=converged,
                               n_evaluations=crit.n_evaluations,
                               message=str(result.message),
+                              edf=edf,
                               negative_binomial_theta=(float(np.exp(x[-1]))
                                                        if getattr(crit, 'estimate_theta', False)
                                                        else None))

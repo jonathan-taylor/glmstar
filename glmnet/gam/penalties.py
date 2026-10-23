@@ -41,7 +41,11 @@ class Diagonal(object):
         return out
 
     def add_to(self, S):
-        S[self.idx, self.idx] += self.d
+        if hasattr(S, 'add_diagonal'):
+            # (a `glmnet.gam.blocked.SplitPenalty`)
+            S.add_diagonal(self.idx, self.d)
+        else:
+            S[self.idx, self.idx] += self.d
 
     def trace(self, H):
         """`tr(H^{-1} A)`, `H` a factorization (`DenseHessian`)."""
@@ -60,7 +64,10 @@ class Dense(object):
         return out
 
     def add_to(self, S):
-        S[np.ix_(self.idx, self.idx)] += self.A
+        if hasattr(S, 'add_block'):
+            S.add_block(self.idx, self.A)
+        else:
+            S[np.ix_(self.idx, self.idx)] += self.A
 
     def trace(self, H):
         return H.trace(self.idx, self.A)
@@ -198,7 +205,11 @@ class Repeated(object):
         return out
 
     def add_to(self, S):
-        S[self.idx[:, :, None], self.idx[:, None, :]] += self.B
+        if hasattr(S, 'add_block'):
+            for idx in self.idx:
+                S.add_block(idx, self.B)
+        else:
+            S[self.idx[:, :, None], self.idx[:, None, :]] += self.B
 
     def trace(self, H):
         return H.trace_blocks(self.idx, self.B)

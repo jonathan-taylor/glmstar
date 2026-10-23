@@ -70,9 +70,11 @@ def test_plot_without_bands(big):
 
 
 def test_reml_refuses(big):
-    small = big.iloc[:30_000]
+    # (one large random effect is factored by blocks, glmnet.gam.blocked; two
+    # are not yet)
+    small = big.iloc[:30_000].assign(h=lambda d: (d['g'] * 7919) % 25_000)
     with pytest.raises(ValueError, match='max_dense_coef'):
-        GAM(terms=[linear('x'), re('g')], method='REML').fit(small, small['y'])
+        GAM(terms=[linear('x'), re('g'), re('h')], method='REML').fit(small, small['y'])
 
 
 def test_threshold(big):

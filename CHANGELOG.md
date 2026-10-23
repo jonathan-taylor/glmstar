@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### New features
+
+- **REML and ML with one large random effect, factored by blocks**
+  (`glmnet.gam.blocked`, `GAMControl(reml_backend='auto' | 'dense' |
+  'blocked')`). The random effect with the most levels is kept implicit
+  (its basis one code and value per row, its penalty diagonal), and the
+  Hessian of the coefficients is factored by its Schur complement on the
+  others: the criterion, its gradient and mgcv's edf exactly (to 1e-12 of
+  the dense backend), without the `P x P` matrix. `'auto'` chooses it above
+  `max_dense_coef` coefficients when one random effect has all but at most
+  that many. The inner fit is then by backfitting, polished. A random
+  intercept of 5 x 10^4 levels in 1.5 x 10^5 rows: REML in under 5 minutes
+  and about 3 GB, where the dense Hessian alone would be 18 GB (#190).
+
 ### Fixes
 
 - **Large random effects without dense matrices.** Fitting a GAM with a

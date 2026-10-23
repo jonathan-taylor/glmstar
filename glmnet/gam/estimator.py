@@ -34,7 +34,7 @@ from .backfit import GAMRegularizer, GAMState
 from .display import model_latex
 from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
-from .reml import ExperimentalWarning
+from .reml import ExperimentalWarning, _blocked_term
 from .selection import resolve_method, SmoothingMethod
 from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, FactorTerm
 
@@ -66,14 +66,23 @@ class GAMControl(GLMControl):
         dense `P x P` matrices are formed: the posterior and frequentist
         covariances (standard errors, `edf_influence_`, mgcv's edf) and REML
         and ML's Hessian. Above it they are not formed (None; standard errors
-        raise), and REML and ML raise: a random effect of many levels is fitted
-        by backfitting without them.
+        raise), and REML and ML raise, but for one large random effect (see
+        `reml_backend`): a random effect of many levels is fitted by
+        backfitting without them.
+    reml_backend: str
+        The factorization of REML and ML's Hessian: `'dense'`, `'blocked'`
+        (the random effect with the most levels kept implicit, and the
+        Hessian factored by blocks, `glmnet.gam.blocked`: exact, without the
+        `P x P` matrix), or `'auto'` (the default: blocked when there are more
+        than `max_dense_coef` coefficients and one random effect has all but
+        at most that many).
     """
     bf_maxit: int = 500
     bf_tol: float = 1e-10
     bf_modified: bool = True
     solver: str = 'backfit'
     max_dense_coef: int = 20000
+    reml_backend: str = 'auto'
 
 
 def _cox_information(family, sample_weight, state):
@@ -336,9 +345,12 @@ class GAM(BaseEstimator):
 
         if self.control.solver not in ('backfit', 'joint'):
             raise ValueError("solver should be one of 'backfit' or 'joint'")
-        # REML and ML: the joint solve, its design needed for the criterion
-        Regularizer = (JointRegularizer if self.control.solver == 'joint' or method.joint
-                       else GAMRegularizer)
+        # REML and ML: the joint solve, its design needed for the criterion;
+        # with a large random effect (the blocked criterion) backfitting,
+        # which does not form the design
+        blocked = method.joint and _blocked_term(self) is not None
+        Regularizer = (JointRegularizer if self.control.solver == 'joint' or
+                       (method.joint and not blocked) else GAMRegularizer)
         regularizer = self.regularizer_ = Regularizer(terms=self.terms_,
                                                       linear_term=linear_term,
                                                       bf_maxit=self.control.bf_maxit,
@@ -417,7 +429,11 @@ class GAM(BaseEstimator):
                                 else (1. if dispersion is None else dispersion))
             self._set_covariance(w)
             if method.covariance_edf:
-                self.edf_ = self.edf_influence_.rename('edf')
+                edf = self.edf_influence_
+                if edf is None and getattr(self.smoothing_, 'edf', None) is not None:
+                    # (from the blocked factorization: the dense one is not formed)
+                    edf = pd.Series(self.smoothing_.edf, index=self.edf_.index)
+                self.edf_ = edf.rename('edf')
                 self.df_resid_ = float(np.sum(weight > 0) - (not self._cox) - self.edf_.sum())
             self.reml_score_ = self.smoothing_.score
             # the variances of the penalized terms' coefficients (random
