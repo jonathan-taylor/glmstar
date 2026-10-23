@@ -70,7 +70,7 @@ jobs:
       - name: Test pyglmnet
         run: |
           pip install pytest pytest-xdist matplotlib
-          pytest tests --test-size=$TEST_SIZE -n auto --durations=15
+          pytest tests --test-size=$TEST_SIZE -n auto --dist loadfile --durations=15
 
   build-linux:
     runs-on: ubuntu-latest
@@ -100,7 +100,7 @@ jobs:
       - name: Test pyglmnet
         run: |
           pip install pytest pytest-xdist matplotlib
-          pytest tests --test-size=$TEST_SIZE -n auto --durations=15
+          pytest tests --test-size=$TEST_SIZE -n auto --dist loadfile --durations=15
 
 
 
@@ -137,4 +137,4 @@ jobs:
       - name: Test pyglmnet
         run: |
           pip install pytest pytest-xdist matplotlib
-          pytest tests --test-size=$TEST_SIZE -n auto --durations=15
+          pytest tests --test-size=$TEST_SIZE -n auto --dist loadfile --durations=15
