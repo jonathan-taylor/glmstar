@@ -19,11 +19,11 @@
   `GAM`'s terms, its penalized terms random effects, and `method='REML'`
   (the default), `'ML'` or a `SmoothingMethod`; `smoothing_`,
   `variance_components_` and `reml_score_` are its own. A `GAM`'s smoothing
-  is fixed (#PR).
+  is fixed (#193).
 - **Some smoothing parameters held fixed in a GLMM:** besides a term given
   `lam`, a term with several penalties takes a list with `None` for those
   to estimate (`tensor_spline('x', 'z', lam=[1e-2, None])`, a varying
-  term's levels, `penalized_columns`) (#PR).
+  term's levels, `penalized_columns`) (#193).
 - **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingTerm`,
   mgcv's `by=`; Hastie and Tibshirani, 1993). Any smooth varies with a
   categorical, a curve per level (`varying(s('x'), by='f')`, mgcv's `s(x,
@@ -51,7 +51,7 @@
 - **`GAM(method=...)`:** `'fixed'` is a GAM's only smoothing (drop it);
   `'REML'`, `'ML'` and a `SmoothingMethod` are a `GLMM`'s
   (`GLMM(method=...)`). Both still work, with a FutureWarning, as does
-  `GLMM(method='fixed')` (#PR).
+  `GLMM(method='fixed')` (#193).
 
 ### Removed
 
