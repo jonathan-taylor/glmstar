@@ -10,7 +10,7 @@
   by `jax.grad`, for a `GAM` and for `GLMM` REML and ML. Any family with
   `jax_pieces()` has REML and ML. A probit by hand matches statsmodels'
   probit (fitted values, smoothing parameters, REML score, edf, standard
-  errors to 1e-8 or better) (#PR).
+  errors to 1e-8 or better) (#199).
 - **REML and ML with one large random effect, factored by blocks**
   (`glmnet.gam.blocked`, `GAMControl(reml_backend='auto' | 'dense' |
   'blocked')`). The random effect with the most levels is kept implicit
