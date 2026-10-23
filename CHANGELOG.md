@@ -10,8 +10,7 @@
   by `jax.grad`, for a `GAM` and for `GLMM` REML and ML. Any family with
   `jax_pieces()` has REML and ML. A probit by hand matches statsmodels'
   probit (fitted values, smoothing parameters, REML score, edf, standard
-  errors to 1e-8 or better). REML's built-in probit and complementary
-  log-log were the logit's: statsmodels derives them from `Logit` (#PR).
+  errors to 1e-8 or better) (#PR).
 - **REML and ML with one large random effect, factored by blocks**
   (`glmnet.gam.blocked`, `GAMControl(reml_backend='auto' | 'dense' |
   'blocked')`). The random effect with the most levels is kept implicit
@@ -135,6 +134,13 @@
   near a smoothing parameter going to infinity the Hessian is nearly
   singular, and its full step could take the dispersion to 0 (a
   `ZeroDivisionError`) (#193).
+- **REML and ML with the binomial's probit and cloglog links used the
+  logit's criterion** (since REML was added): statsmodels derives `Probit`,
+  `CLogLog`, `LogLog` and `Cauchy` from `Logit`, and the criterion's choice
+  of the inverse link took them for it. The fit itself used the right link,
+  but the smoothing parameters were chosen by the wrong criterion. Probit
+  and cloglog now match mgcv's REML and ML scores; `LogLog` and `Cauchy`
+  raise that they are not supported, as other links do (#197).
 - **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
   basis, as before #189: a varying term has a basis when its inner term does
   (`has_basis`) (#191).
