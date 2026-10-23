@@ -94,7 +94,7 @@ class GAMRegularizer(object):
 
     With `modified=True` (the default, as R's `gam`) backfitting is modified
     (Buja, Hastie & Tibshirani, 1989): each sweep fits the constant and the
-    terms' linear columns (the linear terms, the factors' indicators and the
+    terms' linear columns (the linear terms, the categoricals' indicators and the
     linear parts of the splines) jointly, by weighted least squares, then
     backfits only the splines' parts beyond them (and loess terms whole). It
     has the same fixed point as plain backfitting, as the splines are
