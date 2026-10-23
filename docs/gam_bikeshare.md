@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import (GAM, s, re, categorical, tensor_spline, varying, cubic_regression_spline,
+from glmnet.gam import (GAM, s, random_effect as re, categorical, tensor_spline, varying, cubic_regression_spline,
                         QuasiPoisson, NegativeBinomial, ExperimentalWarning)
 
 Bike = load_data('Bikeshare')
@@ -302,7 +302,7 @@ pd.DataFrame({'converged': [f.smoothing_.converged for f in fits.values()],
               'theta': [f.negative_binomial_theta_ for f in fits.values()],
               'edf s(hour)': [f.edf_['s(hour)'] for f in fits.values()],
               'edf s(temp)': [f.edf_['s(temp)'] for f in fits.values()],
-              'sd re(day)': [f.variance_components_['sd'].get('re(day)', np.nan) for f in fits.values()]},
+              'sd re(day)': [f.variance_components_['sd'].get('random_effect(day)', np.nan) for f in fits.values()]},
              index=list(fits))
 ```
 
@@ -389,7 +389,7 @@ axes[0].legend();
 ```
 
 ```{code-cell} ipython3
-pd.DataFrame({days[wd]: [final[wd].dispersion_, final[wd].variance_components_.loc['re(day)', 'sd'],
+pd.DataFrame({days[wd]: [final[wd].dispersion_, final[wd].variance_components_.loc['random_effect(day)', 'sd'],
                          final[wd].smoothing_.converged] for wd in days},
              index=['dispersion', 'sd re(day)', 'converged'])
 ```

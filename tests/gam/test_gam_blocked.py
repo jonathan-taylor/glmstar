@@ -15,7 +15,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, factor
+from glmnet.gam import GAM, GLMM, GAMControl, s, random_effect as re, linear, factor
 from glmnet.gam.blocked import SplitDesign, SplitPenalty, BlockedHessian
 from glmnet.gam.linalg import DenseHessian
 from glmnet.gam.reml import LaplaceCriterion
@@ -169,6 +169,6 @@ def test_large():
     assert peak < 3e9
     assert M.smoothing_.converged
     vc = M.variance_components_['sd']
-    np.testing.assert_allclose(vc['re(g)'], 0.5, rtol=0.05)
+    np.testing.assert_allclose(vc['random_effect(g)'], 0.5, rtol=0.05)
     np.testing.assert_allclose(vc['scale'], 1.0, rtol=0.02)
     assert M.edf_.notna().all()

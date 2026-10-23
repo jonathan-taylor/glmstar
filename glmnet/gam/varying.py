@@ -16,7 +16,7 @@ by=...)` lets any smooth term vary with another column, as mgcv's `by=`.
   coded 0 and 1 is categorical).
 
 A term with a basis and penalties (`s()`, `cubic_regression_spline()`,
-`cyclic_spline()`, `tensor_spline()`, `gaussian_process()`, `re()`,
+`cyclic_spline()`, `tensor_spline()`, `gaussian_process()`, `random_effect()`,
 `penalized_columns()`) gives the varying term's basis: its basis masked to
 each level (with the constraint absorbed, `B Z`), or multiplied
 by `z`, and its penalties on each level's coefficients. Each level then has
@@ -50,12 +50,12 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
-from .terms import Term
+from .terms import Smoother
 from .tensor import place_knots, CubicRegressionSpline
 
 
 @dataclass
-class CubicRegressionSplineTerm(Term):
+class CubicRegressionSplineSmoother(Smoother):
     """
     A cubic regression spline of the column, mgcv's `s(column, bs="cr",
     k=k)`: the natural cubic spline parametrized by its values at `k` knots
@@ -98,7 +98,7 @@ class CubicRegressionSplineTerm(Term):
     def set_weights(self, w):
         super().set_weights(w)
         if self.lam is None:
-            raise ValueError(f'{self.name}: give lam (or estimate it, method="REML")')
+            raise ValueError(f'{self.name}: give lam (or estimate it with a GLMM)')
         self.lam_ = float(self.lam)
         B = self._basis
         self._xwx = B.T @ (self.w_[:, None] * B)
@@ -163,11 +163,11 @@ class CubicRegressionSplineTerm(Term):
 
 def cubic_regression_spline(column, k=10, knots=None, lam=None, name=None):
     """
-    A cubic regression spline of the column (see `CubicRegressionSplineTerm`):
+    A cubic regression spline of the column (see `CubicRegressionSplineSmoother`):
     mgcv's `s(column, bs="cr", k=k)`. With `lam` None its smoothing parameter
     is estimated (`GLMM(method='REML')` or `'ML'`).
     """
-    term = CubicRegressionSplineTerm(column, k=k, knots=knots, lam=lam)
+    term = CubicRegressionSplineSmoother(column, k=k, knots=knots, lam=lam)
     args = ''.join(f', {a}={v}' for a, v in [('k', None if k == 10 else k), ('lam', lam)]
                    if v is not None)
     term.label = name or f'cubic_regression_spline({column}{args})'
@@ -182,14 +182,14 @@ def _as_float(x):
 
 
 @dataclass
-class VaryingTerm(Term):
+class VaryingSmoother(Smoother):
     """
     The term `inner` varying with the column `by`: the term
     `varying(inner, by=by)`; see `glmnet.gam.varying`.
 
     Parameters
     ----------
-    inner : Term
+    inner : Smoother
         A smooth term (`s()`, `cyclic_spline()`, `tensor_spline()`, `lo()`,
         ...); its own `lam` (if given) is that of every level, and it should
         not be given `df`.
@@ -209,7 +209,7 @@ class VaryingTerm(Term):
         Whether `by` is categorical (a curve per level, its values the levels,
         whatever their type), or a number (`z f(x)`).
     """
-    inner: Term = None
+    inner: Smoother = None
     by: Union[str, int] = None
     lam: Optional[Union[float, list]] = None
     pooled_lam: bool = False
@@ -222,7 +222,7 @@ class VaryingTerm(Term):
     def __post_init__(self):
         if getattr(self.inner, 'df', None) is not None:
             raise ValueError(f'{self.name}: give the inner term lam, not df '
-                             '(or estimate it, method="REML")')
+                             '(or estimate it with a GLMM)')
 
     # the columns: the inner term's, then `by`
 
@@ -378,7 +378,7 @@ class VaryingTerm(Term):
         super().set_weights(w)
         if self.has_basis_:
             if self.lam is None:
-                raise ValueError(f'{self.name}: give lam (or estimate it, method="REML")')
+                raise ValueError(f'{self.name}: give lam (or estimate it with a GLMM)')
             self.lam_ = [float(l) for l in self.lam]
             self._xwx = self._basis.T @ (self.w_[:, None] * self._basis)
             self._A = self._xwx + sum(l * S for l, S in zip(self.lam_, self.penalty_matrices()))
@@ -502,7 +502,7 @@ class VaryingTerm(Term):
 
 def varying(term, by, lam=None, pooled_lam=False, as_categorical=True, name=None):
     """
-    The term `term` varying with the column `by` (see `VaryingTerm`): a curve
+    The term `term` varying with the column `by` (see `VaryingSmoother`): a curve
     per level of the categorical `by` (mgcv's `s(x, by=f)`; include `categorical(by)`
     too), or with `as_categorical=False`, `z f(x)` for a number `by` (mgcv's
     `s(x, by=z)`). With
@@ -512,7 +512,7 @@ def varying(term, by, lam=None, pooled_lam=False, as_categorical=True, name=None
 
     >>> varying(s('age'), by='sex', pooled_lam=True)
     """
-    vterm = VaryingTerm(term.column, inner=term, by=by, lam=lam, pooled_lam=pooled_lam,
+    vterm = VaryingSmoother(term.column, inner=term, by=by, lam=lam, pooled_lam=pooled_lam,
                         as_categorical=as_categorical)
     options = [('lam', lam), ('pooled_lam', pooled_lam or None),
                ('as_categorical', None if as_categorical else False)]

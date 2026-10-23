@@ -8,9 +8,9 @@ import pytest
 import statsmodels.api as sm
 
 from glmnet.cox import CoxFamily
-from glmnet.gam import (GAM, GLMM, s, lo, re, linear, categorical, tensor_spline, gaussian_process,
+from glmnet.gam import (GAM, GLMM, s, lo, random_effect as re, linear, categorical, tensor_spline, gaussian_process,
                         correlated_random_effect, penalized_columns)
-from glmnet.gam.terms import ColumnsTerm
+from glmnet.gam.terms import ColumnsSmoother
 
 
 def test_terms_and_family():
@@ -18,7 +18,7 @@ def test_terms_and_family():
                    gaussian_process('lon', 'lat'), re('maritl'), re(['batch', 'cask']),
                    re('subject', by='days'), correlated_random_effect('subject', slopes=['days']),
                    linear('x_1'), lo('z', span=0.3), penalized_columns(['a', 'b'], [np.eye(2)]),
-                   ColumnsTerm(['c1', 'c2'])],
+                   ColumnsSmoother(['c1', 'c2'])],
             family=sm.families.Poisson(), method='REML', offset_id='log_exposure', weight_id='w')
     tex = G.model_latex()
     assert tex.startswith(r'\begin{aligned}') and tex.endswith(r'\end{aligned}')

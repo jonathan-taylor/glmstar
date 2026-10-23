@@ -9,7 +9,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, ColumnsTerm, s, lo, re, linear, categorical
+from glmnet.gam import GAM, GAMControl, ColumnsSmoother, s, lo, random_effect as re, linear, categorical
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
 GROUPS = [f'g{i:02d}' for i in range(12)]
@@ -76,7 +76,7 @@ def test_joint_parametric_block(data):
     D['b1'], D['b2'], D['b3'] = b, b**2 - 1, b**3 - 3 * b
     for level in ['x', 'y']:
         D[f'c_{level}'] = (D['c'] == level).astype(float) - (D['c'] == 'z').astype(float)
-    terms = [s('a', df=4), ColumnsTerm(['b1', 'b2', 'b3']), ColumnsTerm(['c_x', 'c_y']),
+    terms = [s('a', df=4), ColumnsSmoother(['b1', 'b2', 'b3']), ColumnsSmoother(['c_x', 'c_y']),
              re('g', lam=0.05)]
     fits = [GAM(terms=terms, control=GAMControl(**TIGHT, solver=solver)).fit(D, D['y'])
             for solver in ('backfit', 'joint')]

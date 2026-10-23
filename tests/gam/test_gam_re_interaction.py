@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re
+from glmnet.gam import GAM, GLMM, GAMControl, s, random_effect as re
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 
@@ -53,7 +53,7 @@ def test_is_re_of_the_labels(data, method):
     assert list(effects.index) == list(effects0.index)
     assert effects.index[0] == '0:a'
     np.testing.assert_allclose(effects.values, effects0.values, rtol=1e-8, atol=1e-12)
-    assert G.terms_[2].name == ('re(batch:cask, lam=0.05)' if method == 'fixed' else 're(batch:cask)')
+    assert G.terms_[2].name == ('random_effect(batch:cask, lam=0.05)' if method == 'fixed' else 'random_effect(batch:cask)')
     if method != 'fixed':
         np.testing.assert_allclose(G.smoothing_.lam, G0.smoothing_.lam, rtol=1e-8)
 
@@ -62,7 +62,7 @@ def test_slopes_and_new_data(data):
     G = GAM(terms=[s('x', df=4), re(['batch', 'cask'], by='v', lam=0.1)]).fit(data, data['y'])
     G0 = GAM(terms=[s('x', df=4), re('batch_cask', by='v', lam=0.1)]).fit(data, data['y'])
     np.testing.assert_allclose(G.predict(data), G0.predict(data), rtol=1e-10)
-    assert G.terms_[1].name == 're(batch:cask, by=v, lam=0.1)'
+    assert G.terms_[1].name == 'random_effect(batch:cask, by=v, lam=0.1)'
     # a combination not seen in fitting predicts 0 for the term
     new = data.iloc[:2].copy()
     new['cask'] = ['z', 'a']
@@ -99,7 +99,7 @@ def test_lmer_nested(Rinfo, data, method):
         sd = dict(zip(rpy.r('vc$grp'), np.asarray(rpy.r('vc$sdcor'))))
         fitted = np.asarray(rpy.r('as.numeric(fitted(m))'))
     ours = G.variance_components_['sd']
-    np.testing.assert_allclose(ours['re(batch)'], sd['batch'], rtol=1e-5)
-    np.testing.assert_allclose(ours['re(batch:cask)'], sd['cask:batch'], rtol=1e-5)
+    np.testing.assert_allclose(ours['random_effect(batch)'], sd['batch'], rtol=1e-5)
+    np.testing.assert_allclose(ours['random_effect(batch:cask)'], sd['cask:batch'], rtol=1e-5)
     np.testing.assert_allclose(ours['scale'], sd['Residual'], rtol=1e-5)
     np.testing.assert_allclose(G.predict(data), fitted, rtol=1e-6)

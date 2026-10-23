@@ -36,7 +36,7 @@ from scipy.linalg import eigh, solve_triangular
 from scipy.optimize import brentq
 from scipy.spatial.distance import cdist
 
-from .terms import Term, _name
+from .terms import _deprecated_names, Smoother, _name
 
 # mgcv's codes (abs(m[1])) of the correlation functions
 _KERNELS = {1: 'spherical', 2: 'power exponential', 3: 'Matern(1.5)', 4: 'Matern(2.5)',
@@ -76,7 +76,7 @@ def _distances(x, y):
 
 
 @dataclass
-class GPTerm(Term):
+class GaussianProcessSmoother(Smoother):
     """
     A Gaussian process smooth of one or more columns (`column`, a name or a
     list of them): the term `gaussian_process(...)`, mgcv's `s(..., bs="gp")`; see
@@ -286,7 +286,7 @@ class GPTerm(Term):
         elif self.lam is not None:
             self.lam_ = self.lam
         else:
-            raise ValueError(f'{self.name}: give lam or df (or estimate it, method="REML")')
+            raise ValueError(f'{self.name}: give lam or df (or estimate it with a GLMM)')
 
     def _decompose(self):
         if self._decomposition is None:
@@ -376,7 +376,7 @@ class GPTerm(Term):
 def gaussian_process(*columns, kernel='matern', nu=1.5, range=None, power=1., trend=True, k=None,
                      knots=None, m=None, df=None, lam=None, max_knots=2000, seed=1, name=None):
     """
-    A Gaussian process smooth of the columns (see `GPTerm`): mgcv's
+    A Gaussian process smooth of the columns (see `GaussianProcessSmoother`): mgcv's
     `s(*columns, bs="gp", k=k, m=m)`. With neither `df` nor `lam`, its
     smoothing parameter is estimated (`GLMM(method='REML')` or `'ML'`).
 
@@ -386,7 +386,7 @@ def gaussian_process(*columns, kernel='matern', nu=1.5, range=None, power=1., tr
     if not columns:
         raise ValueError('gp needs at least one column')
     column = columns[0] if len(columns) == 1 else list(columns)
-    term = GPTerm(column, kernel=kernel, nu=nu, power=power, range=range, trend=trend, k=k,
+    term = GaussianProcessSmoother(column, kernel=kernel, nu=nu, power=power, range=range, trend=trend, k=k,
                   knots=knots, m=m, df=df, lam=lam, max_knots=max_knots, seed=seed)
     label = ', '.join(str(c) for c in columns)
     term.label = name or _name('gaussian_process', label,
@@ -396,3 +396,7 @@ def gaussian_process(*columns, kernel='matern', nu=1.5, range=None, power=1., tr
                                range=range, trend=None if trend else False, k=k,
                                m=None if m is None else tuple(m), df=df, lam=lam)
     return term
+
+
+# the former name (glmstar 0.5.0), deprecated
+__getattr__ = _deprecated_names({'GPTerm': 'GaussianProcessSmoother'}, globals(), __name__)

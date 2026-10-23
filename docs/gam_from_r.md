@@ -53,12 +53,13 @@ import, e.g. `from glmnet.gam import tensor_spline as te`.
 
 ## From `gam::gam`
 
-R's `gam` (Hastie and Tibshirani's local scoring with backfitting) is
-`method='fixed'`, the default:
+R's `gam` (Hastie and Tibshirani's local scoring with backfitting) is a
+`GAM`, its smoothing fixed (mgcv's estimated smoothing, below, is a
+`GLMM`):
 
 | R (`gam`) | `glmnet.gam` | Checked against R |
 |---|---|---|
-| `s(x, df=4)` | `s('x', df=4)` (`df=4` by default with `method='fixed'`) | fits to about 1e-4, R's precision of the df |
+| `s(x, df=4)` | `s('x', df=4)` (`df=4` by default in a `GAM`) | fits to about 1e-4, R's precision of the df |
 | `lo(x, span=0.5, degree=1)` | `lo('x', span=0.5, degree=1)` | against R's `loess` and `gam::lo` |
 | `x` (linear) | `linear('x')` | |
 | a factor | `categorical('f')` (formerly `factor('f')`, deprecated) | |

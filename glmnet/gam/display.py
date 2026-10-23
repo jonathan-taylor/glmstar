@@ -78,49 +78,49 @@ def _term(term, j, method):
     cols = _columns(term)
     x = lambda c: _tex(c) + '_i'
     f = rf'f_{{{j}}}'
-    if kind == 'SlopeTerm':
+    if kind == 'LinearSmoother':
         return rf'\beta_{{{j}}}\, {x(cols[0])}', None
-    if kind in ('CategoricalTerm', 'FactorTerm'):
+    if kind in ('CategoricalSmoother', 'FactorTerm'):
         return rf'\alpha^{{({j})}}_{{{_tex(cols[0])}[i]}}', \
             rf'\alpha^{{({j})}}: \text{{an effect per level of }} {_tex(cols[0])}'
-    if kind == 'ColumnsTerm':
+    if kind == 'ColumnsSmoother':
         return rf'z^{{({j})T}}_i \gamma_{{{j}}}', \
             rf'z^{{({j})}}: \text{{the columns }} ' + ', '.join(_tex(c) for c in cols)
-    if kind == 'SplineTerm':
+    if kind == 'SplineSmoother':
         return rf'{f}({x(cols[0])})', \
             (rf'{f}: \text{{cubic smoothing spline, penalty }} \lambda_{{{j}}}\textstyle\int {f}'
              rf"''(x)^2\,dx,\ " + _chosen(term, method))
-    if kind == 'CubicRegressionSplineTerm':
+    if kind == 'CubicRegressionSplineSmoother':
         return rf'{f}({x(cols[0])})', \
             (rf'{f}: \text{{cubic regression spline, {term.k} knots, penalty }} \lambda_{{{j}}}'
              rf"\textstyle\int {f}''(x)^2\,dx,\ " + _chosen(term, method))
-    if kind == 'LoessTerm':
+    if kind == 'LoessSmoother':
         return rf'{f}({x(cols[0])})', \
             rf'{f}: \text{{loess, span {term.span:g}, degree {term.degree}}}'
-    if kind == 'CyclicSplineTerm':
+    if kind == 'CyclicSplineSmoother':
         period = getattr(term, 'period', None)
         cycle = (rf'[{period[0]:g}, {period[1]:g})' if period is not None
                  else r"\text{the data's range}")
         return rf'{f}({x(cols[0])})', \
             (rf'{f}: \text{{cyclic cubic spline on }} {cycle}\text{{, penalty }} '
              rf"\lambda_{{{j}}}\textstyle\int {f}''(x)^2\,dx,\ " + _chosen(term, method))
-    if kind == 'TensorTerm':
+    if kind == 'TensorSplineSmoother':
         args = ', '.join(x(c) for c in cols)
         return rf'{f}({args})', \
             (rf'{f}: \text{{tensor product of cubic regression splines, a penalty per '
              rf'column}},\ ' + _chosen(term, method))
-    if kind == 'GPTerm':
+    if kind == 'GaussianProcessSmoother':
         args = ', '.join(x(c) for c in cols)
         kernel = getattr(term, 'kernel_name', 'Gaussian process')
         return rf'{f}({args})', \
             (rf'{f}: \text{{Gaussian process, {kernel} correlation}},\ ' + _chosen(term, method))
-    if kind == 'PenalizedColumnsTerm':
+    if kind == 'PenalizedColumnsSmoother':
         m = len(term.penalties)
         penalty = (rf'\lambda_{{{j}}}\, \gamma_{{{j}}}^T S \gamma_{{{j}}}' if m == 1 else
                    rf'\textstyle\sum_{{m=1}}^{{{m}}} \lambda_{{{j}m}}\, \gamma_{{{j}}}^T S_m \gamma_{{{j}}}')
         return rf'z^{{({j})T}}_i \gamma_{{{j}}}', \
             rf'\gamma_{{{j}}}: \text{{penalty }} {penalty},\ ' + _chosen(term, method)
-    if kind == 'RandomEffectTerm':
+    if kind == 'RandomEffectSmoother':
         g = _group(term)
         b = rf'b^{{({j})}}_{{{g}[i]}}'
         by = getattr(term, 'by', None)
@@ -128,7 +128,7 @@ def _term(term, j, method):
         return contribution, \
             (rf'b^{{({j})}}_g \sim N(0, \sigma_{{{j}}}^2) \text{{ independently over the groups of }} '
              rf'{g},\ ' + _chosen(term, method).replace(r'\lambda', r'\phi/\sigma^2'))
-    if kind == 'CorrelatedRandomEffectTerm':
+    if kind == 'CorrelatedRandomEffectSmoother':
         g = _group(term)
         effects = (['1'] if term.intercept else []) + list(term.slopes)
         parts = []

@@ -1143,15 +1143,15 @@ def _blocked_term(gam):
     the most levels), `'dense'` (none), or `'auto'` (the default: when the
     coefficients are more than `max_dense_coef`, and the others are not).
     """
-    from .terms import RandomEffectTerm
+    from .terms import RandomEffectSmoother
     control = gam.control
     backend = getattr(control, 'reml_backend', 'auto')
     if backend == 'dense' or getattr(gam, '_cox', False):
         return None
     if backend == 'blocked':
-        candidates = [j for j, t in enumerate(gam.terms_) if isinstance(t, RandomEffectTerm)]
+        candidates = [j for j, t in enumerate(gam.terms_) if isinstance(t, RandomEffectSmoother)]
         if not candidates:
-            raise ValueError('reml_backend="blocked" needs a random effect (re())')
+            raise ValueError('reml_backend="blocked" needs a random effect (random_effect())')
         return max(candidates, key=lambda j: gam.terms_[j].n_coef())
     if backend != 'auto':
         raise ValueError("reml_backend should be one of 'auto', 'dense' or 'blocked'")

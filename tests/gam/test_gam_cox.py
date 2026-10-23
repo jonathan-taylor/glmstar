@@ -295,7 +295,7 @@ def test_cox_reml_mgcv(Rinfo, data, use_offset):
     # the fit, and the score up to a constant (that of the parametrization of
     # the unpenalized coefficients). s(z) is nearly linear: its sp is large
     # (mgcv stops earlier), so only its edf, near 1, is compared
-    from glmnet.gam import re
+    from glmnet.gam import random_effect as re
     rpy = Rinfo['rpy']
     if not rpy.r('isTRUE(requireNamespace("mgcv", quietly=TRUE))')[0]:
         pytest.skip('requires the R package mgcv')

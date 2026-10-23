@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip('scatter_smooth')
 pytest.importorskip('jax')
 
-from glmnet.gam import (GAM, GLMM, GAMControl, ExperimentalWarning, s, re, categorical,
+from glmnet.gam import (GAM, GLMM, GAMControl, ExperimentalWarning, s, random_effect as re, categorical,
                         tensor_spline as te, varying, cubic_regression_spline)
 from glmnet.gam.selection import Laplace
 
@@ -44,7 +44,7 @@ def test_gam_method_fixed_deprecated(data):
     terms = [s('x', df=4), re('g', lam=0.1)]
     G = GAM(terms).fit(data, data['y'])
     with pytest.warns(FutureWarning, match="method='fixed'"):
-        H = GAM(terms).fit(data, data['y'])
+        H = GAM(terms, method='fixed').fit(data, data['y'])
     np.testing.assert_allclose(H.predict(data), G.predict(data))
     assert not hasattr(G, 'smoothing_')
 
@@ -54,7 +54,7 @@ def test_gam_estimating_deprecated(data, method):
     terms = [s('x'), re('g')]
     G = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     with pytest.warns(FutureWarning, match='GLMM'):
-        H = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
+        H = GAM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     np.testing.assert_allclose(H.smoothing_.lam, G.smoothing_.lam)
     np.testing.assert_allclose(H.predict(data), G.predict(data))
 
@@ -64,7 +64,7 @@ def test_glmm(data):
     G = GLMM(terms, control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.method == 'REML' and G.smoothing_.method == 'REML'
     assert G.smoothing_.converged
-    assert list(G.variance_components_.index) == ['s(x)', 're(g)', 'scale']
+    assert list(G.variance_components_.index) == ['s(x)', 'random_effect(g)', 'scale']
     # a GLMM's fixed smoothing is a GAM
     with pytest.warns(FutureWarning, match='GAM'):
         H = GLMM([s('x', df=4), re('g', lam=0.1)], method='fixed').fit(data, data['y'])
@@ -79,7 +79,7 @@ def test_glmm(data):
 def test_some_terms_fixed(data):
     # the spline's smoothing parameter given, the random effect's estimated
     G = GLMM([s('x', lam=1e-3), re('g')], control=GAMControl(**TIGHT)).fit(data, data['y'])
-    assert G.smoothing_.terms == ['re(g)']
+    assert G.smoothing_.terms == ['random_effect(g)']
     assert G.terms_[0].lam == 1e-3
     lam = G.smoothing_.lam[0]
     H = GAM([s('x', lam=1e-3), re('g', lam=lam)], control=GAMControl(**TIGHT)).fit(data, data['y'])

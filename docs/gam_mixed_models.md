@@ -18,7 +18,9 @@ A penalized term of a GAM is a random effect in disguise: its quadratic
 penalty is the log density of a Gaussian prior on its coefficients, and
 choosing its smoothing parameter by REML is estimating the prior's variance
 as the REML of a mixed model (Wood, 2017, chapters 2 and 6). Conversely, a
-classical random effect is a GAM term with an identity penalty. `re(g)` is
+classical random effect is a GAM term with an identity penalty.
+`random_effect(g)` (imported as `re`: `from glmnet.gam import
+random_effect as re`) is
 that term in `glmnet.gam`: one coefficient $b_k$ per group $k$ of the column
 `g`, with
 
@@ -49,7 +51,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, s, re, linear, categorical, correlated_random_effect
+from glmnet.gam import GAM, s, random_effect as re, linear, categorical, correlated_random_effect
 
 
 def effects(rng, labels, sd):
@@ -364,7 +366,7 @@ is 1: `scale` is fixed.
 The herd effects are on the log odds scale:
 
 ```{code-cell} ipython3
-ax = glmm['ML'].plot(terms=['re(herd)'])[0]
+ax = glmm['ML'].plot(terms=['random_effect(herd)'])[0]
 ax.tick_params(axis='x', labelrotation=90)
 ```
 
@@ -442,7 +444,7 @@ gamm
 ```
 
 ```{code-cell} ipython3
-gamm.variance_components_.loc[['re(subject)', 'scale']]
+gamm.variance_components_.loc[['random_effect(subject)', 'scale']]
 ```
 
 Both smoothing parameters are estimated together, the spline's as the

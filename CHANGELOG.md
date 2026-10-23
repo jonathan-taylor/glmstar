@@ -24,7 +24,14 @@
   `lam`, a term with several penalties takes a list with `None` for those
   to estimate (`tensor_spline('x', 'z', lam=[1e-2, None])`, a varying
   term's levels, `penalized_columns`) (#PR).
-- **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingTerm`,
+- **`Smoother` and `PenalizedSmoother`**, the terms' base classes (the
+  former `Term`). A `Smoother` is what backfitting needs (`setup`,
+  `smooth`, `edf`, `finalize`, `predict`); a `PenalizedSmoother` is given
+  only a basis and its penalties (`basis()`, `penalty_matrices()`, `lam`)
+  and inherits the smoothing, degrees of freedom and prediction, and with
+  them the joint solve, standard errors and a GLMM's estimates. The GAM
+  page shows how to write both (#PR).
+- **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingSmoother`,
   mgcv's `by=`; Hastie and Tibshirani, 1993). Any smooth varies with a
   categorical, a curve per level (`varying(s('x'), by='f')`, mgcv's `s(x,
   by=f)`; include `categorical('f')`), or with a number, `z f(x)`
@@ -42,7 +49,7 @@
   cyclic splines and tensor products; per level and pooled; REML and ML):
   the ML criterion to 1e-7 (tensor products to 1e-9), Gaussian REML fits to
   1e-7 (#188).
-- **`cubic_regression_spline(x, k=10)`** (`CubicRegressionSplineTerm`),
+- **`cubic_regression_spline(x, k=10)`** (`CubicRegressionSplineSmoother`),
   mgcv's `s(x, bs="cr")`: the low-rank natural cubic spline with values at
   `k` knots (mgcv's `place.knots`) (#188).
 
@@ -52,6 +59,16 @@
   `'REML'`, `'ML'` and a `SmoothingMethod` are a `GLMM`'s
   (`GLMM(method=...)`). Both still work, with a FutureWarning, as does
   `GLMM(method='fixed')` (#PR).
+- **`re()` is now `random_effect()`**, an explicit name (the docs import
+  it as `re`: `from glmnet.gam import random_effect as re`); `re()` still
+  works, with a FutureWarning. Its terms are named `random_effect(...)`, as
+  are their rows of `variance_components_` and `smoothing_.terms` (#PR).
+- **The smoothers' former names:** `Term`, `SplineTerm`, `LoessTerm`,
+  `SlopeTerm` (now `LinearSmoother`), `ColumnsTerm`, `RandomEffectTerm`,
+  `CorrelatedRandomEffectTerm`, `PenalizedColumnsTerm`, `GPTerm`
+  (`GaussianProcessSmoother`), `TensorTerm` (`TensorSplineSmoother`) and
+  `CyclicSplineTerm` are now `...Smoother`; the old names still work, with
+  a FutureWarning (#PR).
 
 ### Removed
 
@@ -65,7 +82,7 @@
 
 ### Changed
 
-- **`categorical()` (`CategoricalTerm`) is the categorical term's name**,
+- **`categorical()` (`CategoricalSmoother`) is the categorical term's name**,
   as pandas': `factor()` and `FactorTerm` (R's name) still work, with a
   `FutureWarning`, and their terms keep the names `factor(...)`; they will
   be removed. The docs use `categorical()` (#188).
@@ -76,6 +93,11 @@
 
 ### Documentation
 
+- **The GAM page is about fixed smoothing**, with a section on the
+  smoothers' structure and on writing one (a step function, a Fourier
+  basis, a P-spline from `SplineTransformer`, a tree); **a new page,
+  Generalized linear mixed models,** has REML and ML, holding some
+  parameters fixed, other methods and large random effects (#PR).
 - The GAM page's section on factor-by smooths is now on varying
   coefficients (per level, pooled, and a numeric `by`); the R translation
   page lists `varying()` and `cubic_regression_spline()`. The Bikeshare

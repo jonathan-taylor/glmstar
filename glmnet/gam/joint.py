@@ -195,7 +195,7 @@ class JointDesign(object):
     def split(self, gamma):
         """
         The fits of the terms (at the training rows), the intercept and the
-        terms' coefficients (on their bases, as `Term.coef()`; None for terms
+        terms' coefficients (on their bases, as `Smoother.coef()`; None for terms
         whose fit is enough to finalize them) from the coefficients `gamma`.
         """
         fits = np.column_stack([self.X[:, sl] @ gamma[sl] for sl in self.slices])

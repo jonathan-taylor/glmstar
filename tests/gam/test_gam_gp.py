@@ -11,8 +11,8 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GAMControl, gaussian_process as gp, categorical, re, linear, plot_term
-from glmnet.gam.gp import gp_correlation, GPTerm
+from glmnet.gam import GAM, GAMControl, gaussian_process as gp, categorical, random_effect as re, linear, plot_term
+from glmnet.gam.gp import gp_correlation, GaussianProcessSmoother
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
 

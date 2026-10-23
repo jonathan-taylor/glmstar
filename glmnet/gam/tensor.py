@@ -27,7 +27,7 @@ from typing import Optional
 import numpy as np
 from scipy.linalg import solve_banded
 
-from .terms import Term
+from .terms import _deprecated_names, Smoother
 
 
 def place_knots(x, k):
@@ -106,7 +106,7 @@ def _row_kron(A, B):
 
 
 @dataclass
-class TensorTerm(Term):
+class TensorSplineSmoother(Smoother):
     """
     A tensor product smooth of several columns (`column`, a list of them):
     the term `tensor_spline(x, z)`, mgcv's `te(x, z, bs="cr")`; see
@@ -177,7 +177,7 @@ class TensorTerm(Term):
     def set_weights(self, w):
         super().set_weights(w)
         if self.lam is None:
-            raise ValueError(f'{self.name}: give lam (or estimate it, method="REML")')
+            raise ValueError(f'{self.name}: give lam (or estimate it with a GLMM)')
         self.lam_ = [float(l) for l in np.atleast_1d(self.lam)]
         B = self._basis
         self._xwx = B.T @ (self.w_[:, None] * B)
@@ -253,7 +253,7 @@ class TensorTerm(Term):
 
 def tensor_spline(*columns, k=None, knots=None, lam=None, name=None):
     """
-    A tensor product smooth of the columns (see `TensorTerm`): mgcv's
+    A tensor product smooth of the columns (see `TensorSplineSmoother`): mgcv's
     `te(*columns, bs="cr", k=k)`. With `lam` None its smoothing parameters,
     one per column, are estimated (`GLMM(method='REML')` or `'ML'`).
 
@@ -262,8 +262,12 @@ def tensor_spline(*columns, k=None, knots=None, lam=None, name=None):
     """
     if len(columns) < 2:
         raise ValueError('tensor_spline needs at least two columns')
-    term = TensorTerm(list(columns), k=k, knots=knots,
+    term = TensorSplineSmoother(list(columns), k=k, knots=knots,
                       lam=None if lam is None else list(np.atleast_1d(lam)))
     args = ''.join(f', {a}={v}' for a, v in [('k', k), ('lam', lam)] if v is not None)
     term.label = name or f'tensor_spline({", ".join(str(c) for c in columns)}{args})'
     return term
+
+
+# the former name (glmstar 0.5.0), deprecated
+__getattr__ = _deprecated_names({'TensorTerm': 'TensorSplineSmoother'}, globals(), __name__)

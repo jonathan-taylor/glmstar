@@ -12,7 +12,7 @@ from scatter_smooth import SplineSmoother
 
 from glmnet import GLM
 from glmnet.gam import GAM, GAMControl, s, lo, linear, categorical
-from glmnet.gam.terms import SplineTerm, LoessTerm
+from glmnet.gam.terms import SplineSmoother, LoessSmoother
 
 TIGHT = GAMControl(epsnr=1e-12, mxitnr=100)
 
@@ -141,7 +141,7 @@ def test_ndarray_and_integer_columns(data):
 
 def test_errors(data):
     with pytest.raises(ValueError, match='one of df and lam'):
-        SplineTerm('a', df=3, lam=1.)
+        SplineSmoother('a', df=3, lam=1.)
     with pytest.raises(ValueError, match='at least 4 distinct'):
         GAM(terms=[s('a')]).fit(pd.DataFrame({'a': [0., 1, 2] * 5}), np.arange(15.))
     with pytest.raises(ValueError, match='at least one term'):
@@ -237,7 +237,7 @@ def test_loess_edf_is_trace(degree, weights):
     x = np.round(rng.uniform(0, 10, n), 1)        # with ties
     w = {'unit': np.ones(n), 'random': rng.uniform(0.2, 3, n),
          'zeros': np.r_[np.zeros(10), np.ones(n - 10)]}[weights]
-    term = LoessTerm('x', span=0.6, degree=degree)
+    term = LoessSmoother('x', span=0.6, degree=degree)
     term.setup(x)
     term.set_weights(w)
     trace = sum(term.smooth(np.identity(n)[i])[i] for i in range(n))

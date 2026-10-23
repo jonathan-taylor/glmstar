@@ -40,7 +40,7 @@ class GAMState(object):
     pmin : float, default=1e-9
         Minimum probability for binomial family.
     coefs : list, optional
-        Coefficients of the terms (`Term.coef()`, linear in their fits), one
+        Coefficients of the terms (`Smoother.coef()`, linear in their fits), one
         entry per term; None for a term without them, or whose fit is 0.
     """
     fits: np.ndarray

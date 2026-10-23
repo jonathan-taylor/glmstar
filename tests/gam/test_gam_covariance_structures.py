@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GLMM, GAMControl, re, linear, categorical, correlated_random_effect as cre
+from glmnet.gam import GAM, GLMM, GAMControl, random_effect as re, linear, categorical, correlated_random_effect as cre
 from glmnet.gam.penalties import CompoundSymmetryPenalty, DiagonalPenalty
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)

@@ -12,7 +12,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import (GAM, GLMM, GAMControl, linear, re, s,
+from glmnet.gam import (GAM, GLMM, GAMControl, linear, random_effect as re, s,
                         correlated_random_effect as cre)
 from glmnet.gam.penalties import CholeskyPenalty
 

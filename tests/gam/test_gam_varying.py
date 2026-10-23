@@ -16,7 +16,7 @@ from scipy.optimize import minimize_scalar
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import (GAM, GLMM, GAMControl, s, lo, re, categorical, linear, varying, cyclic_spline,
+from glmnet.gam import (GAM, GLMM, GAMControl, s, lo, random_effect as re, categorical, linear, varying, cyclic_spline,
                         tensor_spline, cubic_regression_spline)
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)

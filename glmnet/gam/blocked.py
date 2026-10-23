@@ -3,7 +3,7 @@ REML and ML with one large random effect, exactly and without dense `P x P`
 matrices: the blocked factorization of the Hessian (as lme4's and
 MixedModels.jl's, for one grouping factor first).
 
-A random effect `re(g)` (or `re(g, by=v)`) of `R` levels has a column per
+A random effect `random_effect(g)` (or `random_effect(g, by=v)`) of `R` levels has a column per
 level, each row in one of them: its block of `X' W X` is diagonal, as is its
 penalty, the identity. With its coefficients first (`a`) and the others
 (`e`, the intercept, the linear terms, the smooths: `m` of them),
@@ -407,15 +407,15 @@ class _InterceptOnly(object):
 def large_random_effect(terms, max_dense_coef):
     """
     The index of the random effect to keep implicit (the one with the most
-    levels, `re()` without a precision), when the coefficients are more than
+    levels, `random_effect()` without a precision), when the coefficients are more than
     `max_dense_coef` and the others are at most `max_dense_coef`; else None.
     """
-    from .terms import RandomEffectTerm
+    from .terms import RandomEffectSmoother
     sizes = [term.n_coef() for term in terms]
     if 1 + sum(sizes) <= max_dense_coef:
         return None
     candidates = [j for j, term in enumerate(terms)
-                  if isinstance(term, RandomEffectTerm)]
+                  if isinstance(term, RandomEffectSmoother)]
     if not candidates:
         return None
     big = max(candidates, key=lambda j: sizes[j])

@@ -11,7 +11,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, lo, re, linear, categorical
+from glmnet.gam import GAM, GLMM, GAMControl, s, lo, random_effect as re, linear, categorical
 from glmnet.gam.reml import LaplaceCriterion
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
@@ -88,7 +88,7 @@ def test_gaussian_random_intercept_is_mixedlm(data, method):
                                                        gtol=1e-10)
     vc = G.variance_components_
     np.testing.assert_allclose(vc.loc['scale', 'variance'], M.scale, rtol=1e-5)
-    np.testing.assert_allclose(vc.loc['re(g)', 'variance'], M.cov_re.iloc[0, 0], rtol=1e-4)
+    np.testing.assert_allclose(vc.loc['random_effect(g)', 'variance'], M.cov_re.iloc[0, 0], rtol=1e-4)
     # the fitted values (BLUPs) and the slope
     blup = pd.Series({k: v.iloc[0] for k, v in M.random_effects.items()})
     np.testing.assert_allclose(G.predict(data), M.fittedvalues, rtol=1e-5, atol=1e-5)
@@ -109,9 +109,9 @@ def test_final_fit_is_the_fixed_fit(data, family, method):
     fam, y = FAMILIES[family]
     G = GLMM(terms=_terms(), family=fam, method=method, control=GAMControl(**TIGHT)).fit(data, data[y])
     lam = dict(zip(G.smoothing_.terms, G.smoothing_.lam))
-    assert G.smoothing_.terms == ['s(a)', 's(b)', 're(g)', 're(g, by=v)']
+    assert G.smoothing_.terms == ['s(a)', 's(b)', 'random_effect(g)', 'random_effect(g, by=v)']
     fixed = [s('a', lam=lam['s(a)']), s('b', lam=lam['s(b)']), categorical('c'),
-             re('g', lam=lam['re(g)']), re('g', by='v', lam=lam['re(g, by=v)'])]
+             re('g', lam=lam['random_effect(g)']), re('g', by='v', lam=lam['random_effect(g, by=v)'])]
     for solver in ['joint', 'backfit']:
         F = GAM(terms=fixed, family=fam, control=GAMControl(**TIGHT, solver=solver,
                                                             bf_tol=1e-13, bf_maxit=5000)).fit(data, data[y])
@@ -182,7 +182,7 @@ def test_df_and_lam_terms_are_fixed(data):
     # weights; the others are estimated
     G = GLMM(terms=[s('a', df=5), s('b', lam=1e-2), re('g')], family=sm.families.Poisson(),
             method='REML', control=GAMControl(**TIGHT)).fit(data, data['yp'])
-    assert G.smoothing_.terms == ['re(g)']
+    assert G.smoothing_.terms == ['random_effect(g)']
     assert G.terms_[1].lam == 1e-2
     P = GAM(terms=[s('a', df=5)], control=GAMControl(**TIGHT)).fit(data, data['y'])
     # (Gaussian at the prior weights: the df=5 spline's smoothing parameter)
@@ -195,7 +195,7 @@ def test_random_effects_reml(data):
     G = GLMM(terms=[s('a'), categorical('c'), re('g'), re('g', by='v')], method='REML',
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert list(G.terms_[2].effects_.index) == GROUPS
-    assert list(G.variance_components_.index) == ['s(a)', 're(g)', 're(g, by=v)', 'scale']
+    assert list(G.variance_components_.index) == ['s(a)', 'random_effect(g)', 'random_effect(g, by=v)', 'scale']
     # standard errors at the REML dispersion
     _, se = G.predict(data.iloc[:5], return_std=True)
     rows = G.design_.rows(G._columns(G._design(data.iloc[:5]), G.terms_))

@@ -50,6 +50,7 @@ References
 - Wood, S. N. (2017). *Generalized Additive Models: An Introduction with R*
   (2nd ed.). Chapman & Hall/CRC.
 """
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Optional, Union
 import warnings
@@ -71,10 +72,16 @@ def _scatter_smooth():
 
 
 @dataclass
-class Term(object):
+class Smoother(object):
     """
-    A term of a GAM, a function of the column `column` of `X` (a name of a
-    DataFrame's column, or an integer index).
+    A term of a GAM: a weighted smoother of the column `column` of `X` (a
+    name of a DataFrame's column, an integer index, or a list of them),
+    what backfitting needs. A subclass implements `setup`, `smooth`, `edf`,
+    `finalize` and `predict` (and sets `_label`, the name's prefix); see
+    `glmnet.gam.terms` and the documentation's page on GAMs ("Smoothers").
+    A smoother with a basis and quadratic penalties, which the joint solve,
+    the covariance and a `GLMM` also need, is a `PenalizedSmoother`.
+
     """
     column: Union[str, int]
 
@@ -83,13 +90,14 @@ class Term(object):
 
     @property
     def columns(self):
-        """The columns of `X` the term uses (one, but for `re(..., by=...)`)."""
+        """The columns of `X` the term uses (one, but for `random_effect(..., by=...)`)."""
         return self.column
 
     @property
     def name(self):
         label = getattr(self, 'label', None)
-        return label if label else f'{self._label}({self.column})'
+        prefix = getattr(self, '_label', None) or type(self).__name__
+        return label if label else f'{prefix}({self.column})'
 
     def setup(self, x):
         """Set the term up on its column `x` of the training data."""
@@ -174,7 +182,7 @@ class Term(object):
     @property
     def has_basis(self):
         """Does the term have a basis (`basis()`; loess does not)?"""
-        return type(self).basis is not Term.basis
+        return type(self).basis is not Smoother.basis
 
     @property
     def penalized(self):
@@ -208,6 +216,131 @@ class Term(object):
     def predict(self, x):
         """The fitted function at `x`."""
         raise NotImplementedError
+
+
+@dataclass
+class PenalizedSmoother(Smoother):
+    """
+    A smoother by penalized weighted least squares on a basis: the fit to
+    `r` is `B c`, `c` minimizing
+
+        sum_i w_i (r_i - (B c)_i)^2 / 2 + sum_m lam[m] c' S_m c / 2,
+
+    with `B` its basis (`basis()`) and `S_m` its penalties
+    (`penalty_matrices()`). A subclass gives only those two (and `setup`, to
+    keep what the basis needs, calling `super().setup(x)` at its end): the
+    smoothing, the degrees of freedom, the prediction and the penalty here
+    follow from them, and the joint solve, the posterior covariance and a
+    `GLMM` (which estimates `lam`) use them as they are.
+
+    `lam` is one smoothing parameter for every penalty, or a list (one per
+    penalty, None for those a `GLMM` estimates); None: all estimated (a
+    `GAM` needs them all). It is on the scale of the GAM's objective, the
+    deviance over twice the sum of the weights.
+
+    The smoother is not centered: its basis should not have the constant in
+    the null space of its penalties (center the columns, or leave the
+    constant out), as the intercept is fitted apart.
+    """
+    lam: Optional[Union[float, list]] = field(default=None, kw_only=True)
+
+    centered = False
+
+    def basis(self, x=None):
+        """The basis at the training rows (`x` None, after `setup`) or at the values `x`."""
+        raise NotImplementedError
+
+    def penalty_matrices(self):
+        """The matrices `S_m` of the penalties on the basis' coefficients (a list)."""
+        raise NotImplementedError
+
+    @property
+    def has_objective(self):
+        return self.lam is not None and not any(
+            v is None for v in np.atleast_1d(np.asarray(self.lam, dtype=object)))
+
+    @property
+    def has_basis(self):
+        return True
+
+    @property
+    def penalized(self):
+        return True
+
+    def setup(self, x):
+        """Keep the column(s) `x` of the training data (a subclass: what its basis needs first)."""
+        self.x_ = np.asarray(x)
+        self.B_ = np.asarray(self.basis(), float)
+        self._coef = None
+        return self
+
+    def n_coef(self):
+        return self.B_.shape[1]
+
+    def n_penalties(self):
+        return len(self.penalty_matrices())
+
+    def _lams(self):
+        Ss = self.penalty_matrices()
+        if self.lam is None:
+            raise ValueError(f'{self.name}: give lam (or estimate it with a GLMM)')
+        lam = [float(l) for l in np.atleast_1d(np.asarray(self.lam, float))]
+        if len(lam) == 1:
+            lam = lam * len(Ss)
+        if len(lam) != len(Ss):
+            raise ValueError(f'{self.name}: give one lam, or one per penalty ({len(Ss)})')
+        return lam
+
+    def set_weights(self, w):
+        super().set_weights(w)
+        self.lam_ = self._lams()
+        B = self.B_
+        self._xwx = B.T @ (self.w_[:, None] * B)
+        self._A = self._xwx + sum(l * S for l, S in zip(self.lam_, self.penalty_matrices()))
+
+    def smooth(self, r):
+        self._coef = np.linalg.lstsq(self._A, self.B_.T @ (self.w_ * r), rcond=None)[0]
+        return self.B_ @ self._coef
+
+    # the smoother reproduces only the penalties' null space, which the
+    # constant need not be in: modified backfitting smooths it whole
+    def smooth_nonlinear(self, r):
+        return self.smooth(r)
+
+    def combine_coef(self, beta, center):
+        return self._coef
+
+    def coef(self):
+        return self._coef
+
+    def penalty(self, f, coef=None):
+        if not self.has_objective or coef is None:
+            return 0.
+        return sum(l * coef @ S @ coef for l, S in zip(self._lams(), self.penalty_matrices())) / 2
+
+    def edf(self):
+        return float(np.trace(np.linalg.lstsq(self._A, self._xwx, rcond=None)[0]))
+
+    def penalty_matrix(self):
+        return sum(self.penalty_matrices())
+
+    def penalty_lams(self):
+        return list(self.lam_)
+
+    def penalty_lam(self):
+        if len(self.lam_) > 1:
+            raise ValueError(f'{self.name} has several penalties: use penalty_lams()')
+        return self.lam_[0]
+
+    def set_penalty_lams(self, lams):
+        self.lam = [float(l) for l in lams]
+
+    def finalize(self, f, r, coef=None):
+        self.coef_ = np.zeros(self.n_coef()) if coef is None else np.asarray(coef, float)
+        return self
+
+    def predict(self, x):
+        return np.asarray(self.basis(x), float) @ self.coef_
 
 
 def _weighted_fit(X, r, w):
@@ -256,7 +389,7 @@ def _weighted_ls(x, r, w):
 
 
 @dataclass
-class SlopeTerm(Term):
+class LinearSmoother(Smoother):
     """A linear function of the column: the term `linear(column)`."""
 
     _label = 'linear'
@@ -290,7 +423,7 @@ class SlopeTerm(Term):
 
 
 @dataclass
-class CategoricalTerm(Term):
+class CategoricalSmoother(Smoother):
     """
     A categorical column, one effect per level: the term `categorical(column)`
     (R's `factor`).
@@ -362,7 +495,7 @@ class CategoricalTerm(Term):
 
 
 @dataclass
-class SplineTerm(Term):
+class SplineSmoother(Smoother):
     """
     A cubic smoothing spline in the column: the term `s(column, df=4)` (or
     `s(column, lam=...)`), the natural cubic spline minimizing the weighted
@@ -557,7 +690,7 @@ class SplineTerm(Term):
 
 
 @dataclass
-class LoessTerm(Term):
+class LoessSmoother(Smoother):
     """
     A loess smooth of the column (local polynomial regression, from
     `scatter_smooth`): the term `lo(column, span=0.5, degree=1)`. It minimizes
@@ -612,7 +745,7 @@ class LoessTerm(Term):
 
 
 @dataclass
-class ColumnsTerm(Term):
+class ColumnsSmoother(Smoother):
     """
     A block of columns of `X` (`column` a list of them) entering linearly: a
     parametric term, as the columns ModelSpec builds for a contrast, a
@@ -659,113 +792,54 @@ class ColumnsTerm(Term):
 
 
 @dataclass
-class PenalizedColumnsTerm(Term):
+class PenalizedColumnsSmoother(PenalizedSmoother):
     """
     A block of columns of `X` (`column` a list of them) entering linearly,
     with quadratic penalties `sum_m lam[m] c' S_m c / 2` on their
     coefficients `c` (`penalties` the matrices `S_m`, on the scale of the
-    GAM's objective), as mgcv's `paraPen`. With `lam` None the smoothing
-    parameters are estimated (`method='REML'` or `'ML'`).
+    GAM's objective), as mgcv's `paraPen`: the `PenalizedSmoother` whose
+    basis is the columns. With `lam` None the smoothing parameters are
+    estimated (by a `GLMM`).
 
     The term is not centered: the penalties, or the columns (without the
-    constant in their span), identify it. Its smoother is the penalized
-    weighted least squares fit on the columns.
+    constant in their span), identify it.
     """
     penalties: list = field(default_factory=list)
     lam: Optional[list] = None
     label: Optional[str] = None
 
-    centered = False
     _label = 'penalized_columns'
-
-    @property
-    def has_objective(self):
-        return self.lam is not None
 
     def setup(self, x):
         x = np.asarray(x, float)
-        self.X_ = x.reshape((x.shape[0], -1))
-        K = self.X_.shape[1]
+        x = x.reshape((x.shape[0], -1))
+        K = x.shape[1]
         self.penalties = [np.asarray(S, float) for S in self.penalties]
         if not self.penalties or any(S.shape != (K, K) for S in self.penalties):
             raise ValueError(f'{self.name}: give one or more penalties of shape ({K}, {K})')
         if self.lam is not None and len(self.lam) != len(self.penalties):
             raise ValueError(f'{self.name}: give one lam per penalty')
-        self._coef = None
-        return self
-
-    def set_weights(self, w):
-        super().set_weights(w)
-        if self.lam is None:
-            raise ValueError(f'{self.name}: give lam (or estimate it, method="REML")')
-        self.lam_ = [float(l) for l in self.lam]
-        self._xwx = self.X_.T @ (self.w_[:, None] * self.X_)
-        self._A = self._xwx + sum(l * S for l, S in zip(self.lam_, self.penalties))
-
-    def smooth(self, r):
-        self._coef = np.linalg.lstsq(self._A, self.X_.T @ (self.w_ * r), rcond=None)[0]
-        return self.X_ @ self._coef
-
-    # the smoother reproduces only the penalties' null space, which the
-    # constant need not be in: modified backfitting smooths it whole
-    def smooth_nonlinear(self, r):
-        return self.smooth(r)
-
-    def combine_coef(self, beta, center):
-        return self._coef
-
-    def coef(self):
-        return self._coef
-
-    def penalty(self, f, coef=None):
-        if self.lam is None or coef is None:
-            return 0.
-        return sum(l * coef @ S @ coef for l, S in zip(self.lam, self.penalties)) / 2
-
-    def edf(self):
-        return float(np.trace(np.linalg.lstsq(self._A, self._xwx, rcond=None)[0]))
+        self.X_ = x
+        return super().setup(x)
 
     def basis(self, x=None):
-        if x is None:
-            return self.X_
-        x = np.asarray(x, float)
+        x = self.x_ if x is None else np.asarray(x, float)
         return x.reshape((x.shape[0], -1))
 
     def penalty_matrices(self):
         return list(self.penalties)
 
-    def penalty_matrix(self):
-        return sum(self.penalties)
-
-    def penalty_lams(self):
-        return list(self.lam_)
-
-    def penalty_lam(self):
-        if len(self.penalties) > 1:
-            raise ValueError(f'{self.name} has several penalties: use penalty_lams()')
-        return self.lam_[0]
-
-    def set_penalty_lams(self, lams):
-        self.lam = [float(l) for l in lams]
-
-    def finalize(self, f, r, coef=None):
-        self.coef_ = np.zeros(self.X_.shape[1]) if coef is None else np.asarray(coef, float)
-        return self
-
-    def predict(self, x):
-        return self.basis(x) @ self.coef_
-
 
 @dataclass
-class RandomEffectTerm(Term):
+class RandomEffectSmoother(Smoother):
     """
     A random effect of the groups of the column `column`: the term
-    `re(column)`, one effect per group (a random intercept), or with
+    `random_effect(column)`, one effect per group (a random intercept), or with
     `by=`, one coefficient of the column `by` per group (a random slope),
     `f(g, v) = b_g v`. With `column` a list of columns, the groups are
     their combinations (their interaction, labelled `'a:b'`): nested
-    effects, as lme4's `(1 | batch/cask)`, are `re('batch') +
-    re(['batch', 'cask'])`. The effects are penalized by `lam / 2` times their sum
+    effects, as lme4's `(1 | batch/cask)`, are `random_effect('batch') +
+    random_effect(['batch', 'cask'])`. The effects are penalized by `lam / 2` times their sum
     of squares (on the scale of the GAM's objective, the deviance over twice
     the sum of the weights), the Gaussian prior of a mixed model; or, with
     `df`, `lam` is chosen at each working problem's weights so that the trace
@@ -779,7 +853,7 @@ class RandomEffectTerm(Term):
     df: Optional[float] = None
 
     centered = False
-    _label = 're'
+    _label = 'random_effect'
     level_names = None       # the names of the groups, when they are codes (ModelSpec)
 
     def __post_init__(self):
@@ -792,7 +866,8 @@ class RandomEffectTerm(Term):
         if label:
             return label
         group = _group_label(self.column)
-        return f're({group}, by={self.by})' if self.by is not None else f're({group})'
+        return (f'random_effect({group}, by={self.by})' if self.by is not None
+                else f'random_effect({group})')
 
     @property
     def columns(self):
@@ -829,7 +904,7 @@ class RandomEffectTerm(Term):
         elif self.lam is not None:
             self.lam_ = self.lam
         else:
-            raise ValueError(f'{self.name}: give lam or df (or estimate it, method="REML")')
+            raise ValueError(f'{self.name}: give lam or df (or estimate it with a GLMM)')
 
     def _lam_for_df(self, df):
         s = self._s[self._s > 0]
@@ -905,7 +980,7 @@ def _name(label, column, **kwargs):
 
 
 @dataclass
-class CorrelatedRandomEffectTerm(Term):
+class CorrelatedRandomEffectSmoother(Smoother):
     """
     Correlated random effects of the groups of `column` (a column, or a
     list of them: their combinations): an intercept (`intercept=True`) and
@@ -982,7 +1057,7 @@ class CorrelatedRandomEffectTerm(Term):
     def set_weights(self, w):
         super().set_weights(w)
         if self.precision is None:
-            raise ValueError(f'{self.name}: give precision (or estimate it, method="REML")')
+            raise ValueError(f'{self.name}: give precision (or estimate it with a GLMM)')
         G, q = len(self.levels_), self.q_
         # each group's V' W V
         outer = self.w_[:, None, None] * self.V_[:, :, None] * self.V_[:, None, :]
@@ -1072,7 +1147,7 @@ def correlated_random_effect(column, slopes=(), intercept=True, precision=None,
                              covariance='unstructured', name=None):
     """
     Correlated random effects per group of `column` (see
-    `CorrelatedRandomEffectTerm`): an intercept and slopes in the columns
+    `CorrelatedRandomEffectSmoother`): an intercept and slopes in the columns
     `slopes`, with an unstructured covariance, lme4's `(1 + v | g)`; its
     precision estimated by `method='REML'` or `'ML'` unless given.
     """
@@ -1081,7 +1156,7 @@ def correlated_random_effect(column, slopes=(), intercept=True, precision=None,
     if covariance not in ('unstructured', 'compound_symmetry', 'diagonal'):
         raise ValueError("covariance should be one of 'unstructured', 'compound_symmetry' "
                          "or 'diagonal'")
-    term = CorrelatedRandomEffectTerm(column, slopes=list(slopes), intercept=intercept,
+    term = CorrelatedRandomEffectSmoother(column, slopes=list(slopes), intercept=intercept,
                                       precision=precision, covariance=covariance)
     effects = (['1'] if intercept else []) + [str(v) for v in slopes]
     structure = '' if covariance == 'unstructured' else f', covariance={covariance!r}'
@@ -1090,30 +1165,39 @@ def correlated_random_effect(column, slopes=(), intercept=True, precision=None,
     return term
 
 
-def re(column, by=None, lam=None, df=None, name=None):
+def random_effect(column, by=None, lam=None, df=None, name=None):
     """
-    A random effect term (see `RandomEffectTerm`): a random intercept per
+    A random effect term (see `RandomEffectSmoother`): a random intercept per
     group of `column`, or with `by`, a random slope of the column `by` per
     group. `column` may be a list of columns: the groups are then their
-    combinations, so that `re('batch') + re(['batch', 'cask'])` are the
-    nested effects of lme4's `(1 | batch/cask)`.
+    combinations, so that `random_effect('batch') + random_effect(['batch',
+    'cask'])` are the nested effects of lme4's `(1 | batch/cask)`. (Short, on
+    import: `from glmnet.gam import random_effect as re`.)
     """
     if _is_interaction(column):
         column = list(column)
-    term = RandomEffectTerm(column, by=by, lam=lam, df=df)
-    term.label = name or _name('re', _group_label(column), by=by, lam=lam, df=df)
+    term = RandomEffectSmoother(column, by=by, lam=lam, df=df)
+    term.label = name or _name('random_effect', _group_label(column), by=by, lam=lam, df=df)
     return term
+
+
+def re(column, by=None, lam=None, df=None, name=None):
+    """Deprecated: `random_effect()` (`from glmnet.gam import random_effect as re`)."""
+    warnings.warn('re() is deprecated, and will be removed: use random_effect() (as re, on '
+                  'import: from glmnet.gam import random_effect as re)', FutureWarning,
+                  stacklevel=2)
+    return random_effect(column, by=by, lam=lam, df=df, name=name)
 
 
 def penalized_columns(columns, penalties, lam=None, name=None):
     """
     A block of columns with quadratic penalties on their coefficients (see
-    `PenalizedColumnsTerm`), as mgcv's `paraPen`: `columns` a list of
+    `PenalizedColumnsSmoother`), as mgcv's `paraPen`: `columns` a list of
     columns, `penalties` a list of matrices, `lam` one smoothing parameter
     per penalty (None: estimated, with `method='REML'` or `'ML'`).
     """
     columns = list(columns) if isinstance(columns, (list, tuple)) else [columns]
-    term = PenalizedColumnsTerm(columns, penalties=list(penalties),
+    term = PenalizedColumnsSmoother(columns, penalties=list(penalties),
                                 lam=None if lam is None else list(np.atleast_1d(lam)))
     term.label = name or f'penalized_columns({", ".join(str(c) for c in columns)})'
     return term
@@ -1121,41 +1205,41 @@ def penalized_columns(columns, penalties, lam=None, name=None):
 
 def s(column, df=None, lam=None, name=None):
     """
-    A smoothing spline term (see `SplineTerm`): `df=4` by default (with
-    `method='fixed'`; estimated with `'REML'` or `'ML'`).
+    A smoothing spline term (see `SplineSmoother`): `df=4` by default in a
+    `GAM`; its smoothing parameter estimated in a `GLMM`.
     """
-    term = SplineTerm(column, df=df, lam=lam)
+    term = SplineSmoother(column, df=df, lam=lam)
     term.label = name or _name('s', column, df=df, lam=lam)
     return term
 
 
 def lo(column, span=0.5, degree=1, name=None):
-    """A loess term (see `LoessTerm`)."""
-    term = LoessTerm(column, span=span, degree=degree)
+    """A loess term (see `LoessSmoother`)."""
+    term = LoessSmoother(column, span=span, degree=degree)
     term.label = name or _name('lo', column, span=None if span == 0.5 else span,
                                degree=None if degree == 1 else degree)
     return term
 
 
 def linear(column):
-    """A linear term (see `SlopeTerm`)."""
-    return SlopeTerm(column)
+    """A linear term (see `LinearSmoother`)."""
+    return LinearSmoother(column)
 
 
 def categorical(column):
-    """A categorical term, one effect per level (see `CategoricalTerm`; R's `factor`)."""
-    return CategoricalTerm(column)
+    """A categorical term, one effect per level (see `CategoricalSmoother`; R's `factor`)."""
+    return CategoricalSmoother(column)
 
 
 # the former names, deprecated
 
 _FACTOR_DEPRECATED = ('factor() is deprecated, and will be removed: use categorical() '
-                      '(CategoricalTerm)')
+                      '(CategoricalSmoother)')
 
 
 @dataclass
-class FactorTerm(CategoricalTerm):
-    """Deprecated: `CategoricalTerm`."""
+class FactorTerm(CategoricalSmoother):
+    """Deprecated: `CategoricalSmoother`."""
 
     _label = 'factor'
 
@@ -1166,6 +1250,32 @@ class FactorTerm(CategoricalTerm):
 def factor(column):
     """Deprecated: `categorical()`. (Its term is named `factor(column)`, as before.)"""
     warnings.warn(_FACTOR_DEPRECATED, FutureWarning, stacklevel=2)
-    term = CategoricalTerm(column)
+    term = CategoricalSmoother(column)
     term.label = f'factor({column})'
     return term
+
+
+# the former names of the smoothers (glmstar 0.5.0), deprecated
+
+_RENAMED = {'Term': 'Smoother',
+            'SlopeTerm': 'LinearSmoother',
+            'SplineTerm': 'SplineSmoother',
+            'LoessTerm': 'LoessSmoother',
+            'ColumnsTerm': 'ColumnsSmoother',
+            'PenalizedColumnsTerm': 'PenalizedColumnsSmoother',
+            'RandomEffectTerm': 'RandomEffectSmoother',
+            'CorrelatedRandomEffectTerm': 'CorrelatedRandomEffectSmoother'}
+
+
+def _deprecated_names(renamed, namespace, module):
+    """A module's `__getattr__` giving the former names (a FutureWarning) of its classes."""
+    def __getattr__(name):
+        if name in renamed:
+            warnings.warn(f'{name} is deprecated, and will be removed: use {renamed[name]}',
+                          FutureWarning, stacklevel=2)
+            return namespace[renamed[name]]
+        raise AttributeError(f'module {module!r} has no attribute {name!r}')
+    return __getattr__
+
+
+__getattr__ = _deprecated_names(_RENAMED, globals(), __name__)
