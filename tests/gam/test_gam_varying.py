@@ -108,8 +108,13 @@ def test_backfit_is_joint(data, inner, family):
             'cr': lambda: cubic_regression_spline('x', lam=1e-3),
             'cyclic': lambda: cyclic_spline('h', period=(0, 24), lam=1e-3),
             'tensor': lambda: tensor_spline('x', 'u', k=(5, 4), lam=[1e-3, 1e-2])}[inner]
+    # (another smooth, of a column the varying term does not use: a tensor
+    # product's curves per level, summed, have s('u')'s linear part, a
+    # direction the fit does not identify, which the two solvers' fits
+    # resolve differently by platform)
+    other = s('h', lam=1e-2) if inner == 'tensor' else s('u', lam=1e-2)
     for by in ['f', 'z']:
-        terms = [categorical('f'), varying(make(), by=by, as_categorical=by == 'f'), s('u', lam=1e-2)]
+        terms = [categorical('f'), varying(make(), by=by, as_categorical=by == 'f'), other]
         fits = [_fit(data, terms, family, solver=solver) for solver in ['backfit', 'joint']]
         np.testing.assert_allclose(fits[0].predict(data), fits[1].predict(data), rtol=1e-7)
         np.testing.assert_allclose(fits[0].edf_, fits[1].edf_, rtol=1e-6)
