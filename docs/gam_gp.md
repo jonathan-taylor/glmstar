@@ -59,7 +59,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GLMM, gaussian_process, s, re, factor, plot_term
+from glmnet.gam import GAM, GLMM, gaussian_process, s, re, categorical, plot_term
 
 rng = np.random.default_rng(0)
 ```

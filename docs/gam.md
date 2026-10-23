@@ -19,7 +19,7 @@ GLM by a sum of smooth functions of the predictors,
 
 $$g\big(E[y \mid x]\big) = \beta_0 + f_1(x_1) + f_2(x_2) + \dots + f_p(x_p),$$
 
-each $f_j$ a smoothing spline, a loess curve, a linear function, a factor's
+each $f_j$ a smoothing spline, a loess curve, a linear function, a categorical's
 effects, or a random effect. `glmnet.gam` fits GAMs in two ways that give
 the same fit:
 
@@ -44,7 +44,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, lo, re, linear, factor, tensor_spline, by_factor_spline
+from glmnet.gam import GAM, GLMM, GAMControl, s, lo, re, linear, categorical, tensor_spline, varying
 
 Wage = load_data('Wage')
 Wage[['wage', 'year', 'age', 'education']].head()
@@ -57,7 +57,7 @@ of freedom, of `age` with 5, and an effect for each level of `education`.
 Each term names a column of the data frame.
 
 ```{code-cell} ipython3
-gam = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')])
+gam = GAM(terms=[s('year', df=4), s('age', df=5), categorical('education')])
 gam.fit(Wage, Wage['wage'])
 gam.summary()
 ```
@@ -104,7 +104,7 @@ twice the sum of the weights). With `lam` the GAM minimizes that objective.
 
 ```{code-cell} ipython3
 for lam in [1e-4, 1e-2, 1]:
-    fit = GAM(terms=[s('year', df=4), s('age', lam=lam), factor('education')]).fit(Wage, Wage['wage'])
+    fit = GAM(terms=[s('year', df=4), s('age', lam=lam), categorical('education')]).fit(Wage, Wage['wage'])
     print(f'lam = {lam:g}: the spline in age has {fit.edf_.iloc[1]:.2f} degrees of freedom')
 ```
 
@@ -112,7 +112,7 @@ for lam in [1e-4, 1e-2, 1]:
 and degree:
 
 ```{code-cell} ipython3
-gam_lo = GAM(terms=[s('year', df=4), lo('age', span=0.7), factor('education')])
+gam_lo = GAM(terms=[s('year', df=4), lo('age', span=0.7), categorical('education')])
 gam_lo.fit(Wage, Wage['wage'])
 gam_lo.summary()
 ```
@@ -134,7 +134,7 @@ squares fit on the terms' bases, side by side, as mgcv. For terms with a
 basis (all but loess) the two give the same fit:
 
 ```{code-cell} ipython3
-joint = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')],
+joint = GAM(terms=[s('year', df=4), s('age', df=5), categorical('education')],
             control=GAMControl(solver='joint')).fit(Wage, Wage['wage'])
 np.abs(joint.fits_ - gam.fits_).max().max()
 ```
@@ -173,7 +173,7 @@ are left out.
 ```{code-cell} ipython3
 high = Wage[Wage['education'] != '1. < HS Grad'].copy()
 high['high'] = (high['wage'] > 250).astype(float)
-gam_b = GAM(terms=[s('year', df=4), s('age', df=5), factor('education')],
+gam_b = GAM(terms=[s('year', df=4), s('age', df=5), categorical('education')],
             family=sm.families.Binomial())
 gam_b.fit(high, high['high'])
 axes = gam_b.plot()
@@ -209,7 +209,7 @@ the coefficients integrated out by Laplace's method, as mgcv (Wood, 2011).
 `pip install glmstar[gam]`.)
 
 ```{code-cell} ipython3
-gam_reml = GLMM(terms=[s('year'), s('age'), factor('education')], method='REML')
+gam_reml = GLMM(terms=[s('year'), s('age'), categorical('education')], method='REML')
 gam_reml.fit(Wage, Wage['wage'])
 gam_reml.summary()
 ```
@@ -237,7 +237,7 @@ scales. In place of the two smooths, it models an interaction of age and
 year:
 
 ```{code-cell} ipython3
-gam_te = GLMM(terms=[tensor_spline('age', 'year', k=(6, 4)), factor('education')], method='REML')
+gam_te = GLMM(terms=[tensor_spline('age', 'year', k=(6, 4)), categorical('education')], method='REML')
 gam_te.fit(Wage, Wage['wage'])
 gam_te.summary()
 ```
@@ -259,28 +259,30 @@ Its penalties' null space is spanned by $1$, age, year and their product:
 however large its smoothing parameters, the term keeps a linear
 age-by-year interaction.
 
-## A curve for each level of a factor
+## Varying coefficients
 
-`by_factor_spline('age', by='jobclass')` fits a curve of age for each job
-class (mgcv's `s(age, by=jobclass, bs="cr")`): each curve is zero off its
-level and sums to zero on it, so the model includes `factor('jobclass')`
-for the levels' means, as mgcv's `wage ~ jobclass + s(age, by=jobclass)`.
-Each level has its own smoothing parameter:
+`varying(term, by=...)` lets a smooth term vary with another column, the
+varying-coefficient models of Hastie and Tibshirani (1993); it is mgcv's
+`by=`. With a categorical `by`, it fits a curve for each level:
+`varying(s('age'), by='jobclass')` is mgcv's `s(age, by=jobclass)`. Each
+curve is zero off its level; as mgcv's, each is constrained like the term
+alone (it sums to zero over the data's ages), so the model includes
+`categorical('jobclass')` for the levels' means, as mgcv's
+`wage ~ jobclass + s(age, by=jobclass)`. Each level has its own smoothing
+parameter:
 
 ```{code-cell} ipython3
-by_class = [factor('jobclass'), by_factor_spline('age', by='jobclass'), s('year'),
-            factor('education')]
+by_class = [categorical('jobclass'), varying(s('age'), by='jobclass'), s('year'),
+            categorical('education')]
 gam_by = GLMM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
 gam_by.smoothing_.lam, gam_by.terms_[1].level_edf()
 ```
 
-REML gives the industrial curve about 4 degrees of freedom, the
-information curve nearly 5. (The last smoothing parameter is `year`'s.)
 With `pooled_lam=True` the levels share one smoothing parameter, estimated
 by REML as well (mgcv's `id`): the curves are taken to be equally smooth.
 
 ```{code-cell} ipython3
-by_class[1] = by_factor_spline('age', by='jobclass', pooled_lam=True)
+by_class[1] = varying(s('age'), by='jobclass', pooled_lam=True)
 gam_pooled = GLMM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
 gam_pooled.smoothing_.lam, gam_pooled.terms_[1].level_edf()
 ```
@@ -291,6 +293,29 @@ The term is drawn as a curve per level:
 ax = gam_by.plot(terms=[1])[0]
 ax.figure.tight_layout()
 ```
+
+`by` is categorical, whatever its values (one coded 0 and 1 too). With
+`as_categorical=False` it is a number and the term is `z f(x)`: the coefficient
+of `z` is a smooth function of `x` (mgcv's `s(x, by=z)`, not centered). Here the yearly
+change in wage, `year - 2006`'s coefficient, is a function of age, next to
+the main curve of age. (A smooth of the year as well would duplicate its
+linear trend, which the varying coefficient already has.)
+
+```{code-cell} ipython3
+Wage['year_c'] = Wage['year'] - 2006
+gam_vc = GLMM(terms=[s('age'), varying(s('age'), by='year_c', as_categorical=False),
+                    categorical('education')],
+             method='REML').fit(Wage, Wage['wage'])
+ax = gam_vc.plot(terms=[1])[0]
+ax.figure.tight_layout()
+```
+
+Any smooth can vary: `varying(cyclic_spline('hour', period=(0, 24)),
+by='workingday')`, `varying(tensor_spline('lon', 'lat'), by='year')`,
+`varying(re('school'), by='sector')`. Those with a basis (all but `lo()`)
+work with every method; `varying(lo('x'), by='f')` fits a loess per level,
+by backfitting only. mgcv's `s(age, by=jobclass, bs="cr")` is
+`varying(cubic_regression_spline('age'), by='jobclass')`.
 
 ## Random effects
 
@@ -307,16 +332,16 @@ Here marital status is a random effect, its levels' effects shrunk
 towards 0, next to the fixed effect of education:
 
 ```{code-cell} ipython3
-gam_re = GLMM(terms=[s('year'), s('age'), factor('education'), re('maritl')], method='REML')
+gam_re = GLMM(terms=[s('year'), s('age'), categorical('education'), re('maritl')], method='REML')
 gam_re.fit(Wage, Wage['wage'])
 gam_re.variance_components_
 ```
 
-The fixed effects of a factor are centered, the random effects are not,
+The fixed effects of a categorical are centered, the random effects are not,
 so compare each level with the married workers:
 
 ```{code-cell} ipython3
-gam_fe = GLMM(terms=[s('year'), s('age'), factor('education'), factor('maritl')],
+gam_fe = GLMM(terms=[s('year'), s('age'), categorical('education'), categorical('maritl')],
              method='REML').fit(Wage, Wage['wage'])
 random, fixed = gam_re.terms_[3].effects_, gam_fe.terms_[3].effects_
 pd.DataFrame({'workers': Wage['maritl'].value_counts().sort_index(),
@@ -342,7 +367,7 @@ parameter by REML, as mgcv's `cox.ph` (Wood, Pya and Säfken, 2016):
 from glmnet.cox import CoxFamily
 
 Brain = load_data('BrainCancer').dropna()
-cox = GLMM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
+cox = GLMM(terms=[s('gtv'), linear('ki'), categorical('diagnosis')],
           family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
           method='REML')
 cox.fit(Brain, Brain[['time', 'status']])
@@ -370,6 +395,8 @@ predictor (`'link'`) or the relative risk (`'response'`).
   *Statistical Science* 1(3), 297–318.
 - Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
   Chapman & Hall.
+- Hastie, T. and Tibshirani, R. (1993). Varying-coefficient models.
+  *Journal of the Royal Statistical Society, Series B* 55(4), 757–796.
 - James, G., Witten, D., Hastie, T., Tibshirani, R. and Taylor, J. (2023).
   *An Introduction to Statistical Learning, with Applications in Python*.
   Springer.

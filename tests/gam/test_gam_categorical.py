@@ -1,7 +1,8 @@
 """
-`factor()` of a pandas categorical keeps its categories' order (those seen
-in fitting): the effects, the plots and the baseline of modified
+`categorical()` of a pandas categorical keeps its categories' order (those
+seen in fitting): the effects, the plots and the baseline of modified
 backfitting follow it, and the fit is the same as with the sorted levels.
+`factor()`, its former name, is deprecated.
 """
 import numpy as np
 import pandas as pd
@@ -9,7 +10,7 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, factor
+from glmnet.gam import GAM, GAMControl, s, categorical
 
 MONTHS = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec']
 
@@ -30,12 +31,12 @@ def data():
 @pytest.mark.parametrize('solver', ['backfit', 'joint'])
 def test_categorical_order(data, solver):
     control = GAMControl(solver=solver, epsnr=1e-12, bf_tol=1e-13, bf_maxit=5000)
-    G = GAM(terms=[s('x', df=4), factor('month')], control=control).fit(data, data['y'])
+    G = GAM(terms=[s('x', df=4), categorical('month')], control=control).fit(data, data['y'])
     effects = G.terms_[1].effects_
     assert list(effects.index) == MONTHS[:11]
     # the same fit as with the sorted labels (strings)
     D = data.assign(month=data['month'].astype(str))
-    G0 = GAM(terms=[s('x', df=4), factor('month')], control=control).fit(D, D['y'])
+    G0 = GAM(terms=[s('x', df=4), categorical('month')], control=control).fit(D, D['y'])
     assert list(G0.terms_[1].effects_.index) == sorted(MONTHS[:11])
     np.testing.assert_allclose(G.predict(data), G0.predict(D), rtol=1e-8)
     np.testing.assert_allclose(effects.values, G0.terms_[1].effects_.loc[MONTHS[:11]].values,
@@ -50,5 +51,23 @@ def test_categorical_order(data, solver):
 
 def test_plain_columns_sorted(data):
     D = data.assign(month=data['month'].astype(str))
-    G = GAM(terms=[factor('month')]).fit(D, D['y'])
+    G = GAM(terms=[categorical('month')]).fit(D, D['y'])
     assert list(G.terms_[0].effects_.index) == sorted(MONTHS[:11])
+
+
+def test_factor_is_deprecated():
+    # factor() and FactorTerm: categorical() and CategoricalTerm, with a
+    # FutureWarning; the term keeps its former name
+    from glmnet.gam import factor, FactorTerm, CategoricalTerm
+    with pytest.warns(FutureWarning, match='use categorical'):
+        term = factor('c')
+    assert isinstance(term, CategoricalTerm) and term.name == 'factor(c)'
+    with pytest.warns(FutureWarning, match='use categorical'):
+        old = FactorTerm('c')
+    assert isinstance(old, CategoricalTerm) and old.name == 'factor(c)'
+    D = pd.DataFrame({'c': list('xyzxyzxy'), 'y': np.arange(8.)})
+    with pytest.warns(FutureWarning):
+        G = GAM(terms=[factor('c')]).fit(D, D['y'])
+    H = GAM(terms=[categorical('c')]).fit(D, D['y'])
+    np.testing.assert_allclose(G.predict(D), H.predict(D))
+    assert list(H.edf_.index) == ['categorical(c)']

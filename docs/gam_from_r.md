@@ -34,12 +34,12 @@ import numpy as np
 import pandas as pd
 from ISLP import load_data
 
-from glmnet.gam import GAM, GLMM, s, factor, ExperimentalWarning
+from glmnet.gam import GAM, GLMM, s, categorical, ExperimentalWarning
 
 warnings.simplefilter('ignore', ExperimentalWarning)
 
 Wage = load_data('Wage')
-fit = GLMM(terms=[s('year'), s('age'), factor('education')], method='REML')
+fit = GLMM(terms=[s('year'), s('age'), categorical('education')], method='REML')
 fit.fit(Wage, Wage['wage'])
 fit.summary()
 ```
@@ -61,7 +61,7 @@ R's `gam` (Hastie and Tibshirani's local scoring with backfitting) is
 | `s(x, df=4)` | `s('x', df=4)` (`df=4` by default with `method='fixed'`) | fits to about 1e-4, R's precision of the df |
 | `lo(x, span=0.5, degree=1)` | `lo('x', span=0.5, degree=1)` | against R's `loess` and `gam::lo` |
 | `x` (linear) | `linear('x')` | |
-| a factor | `factor('f')` | |
+| a factor | `categorical('f')` (formerly `factor('f')`, deprecated) | |
 | `family=binomial`, `weights=`, `offset(o)` | `family=sm.families.Binomial()`, `weight_id=`, `offset_id=` | Gaussian, binomial, Poisson, Gamma |
 | `predict(m, newdata, type="terms")` | `fit.partial_effect(term, x)` | |
 | `plot(m, se=TRUE)` | `fit.plot()` | |
@@ -82,8 +82,11 @@ the design".
 | `s(x, sp=...)` | `s('x', lam=...)`, `lam = sp / (sum(w) * S.scale)` | to rounding |
 | `te(x, z, bs="cr")` | `tensor_spline('x', 'z')` (mgcv's `place.knots`) | REML/ML fits to 1e-3 with other terms, edf to 1e-3, ML criterion to 1e-7 |
 | `s(x, bs="cc", k=k)` | `cyclic_spline('x', k=k)`, with `period=(a, b)` for the cycle's ends | REML/ML fits to 1e-8, criterion to 1e-9 |
-| `s(x, by=f, bs="cr")` | `factor('f'), by_factor_spline('x', by='f')` (include the factor, as mgcv's `y ~ f + s(x, by=f)`) | REML/ML: our criterion at most mgcv's; Gaussian REML fits to 1e-8 |
-| `s(x, by=f, id=1)` | `by_factor_spline('x', by='f', pooled_lam=True)` | as above |
+| `s(x, bs="cr", k=k)` | `cubic_regression_spline('x', k=k)` | REML/ML criterion as mgcv's, fits to 1e-5 |
+| `s(x, by=f)` (any `bs`) | `categorical('f'), varying(s('x'), by='f')` (any smooth; include the categorical, as mgcv's `y ~ f + s(x, by=f)`) | the ML criterion to 1e-7 (identical: each level's constraint is mgcv's); Gaussian REML fits to 1e-7 |
+| `s(x, by=f, id=1)` | `varying(s('x'), by='f', pooled_lam=True)` | as above |
+| `s(x, by=z)`, `z` numeric | `varying(s('x'), by='z', as_categorical=False)` | as above |
+| `te(x, z, by=f)`, `s(h, bs="cc", by=f)` | `varying(tensor_spline('x', 'z'), by='f')`, `varying(cyclic_spline('h'), by='f')` | ML criterion to 1e-9 (te) |
 | `s(x, z, bs="gp", m=...)` | `gaussian_process('x', 'z', m=...)` | at fixed `sp` to rounding; REML/ML to mgcv's convergence |
 | `s(g, bs="re")` | `re('g')` | `gam.vcomp` to 1e-4 |
 | `s(g, x, bs="re")` | `re('g', by='x')` | |

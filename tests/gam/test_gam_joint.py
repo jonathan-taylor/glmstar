@@ -9,7 +9,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, ColumnsTerm, s, lo, re, linear, factor
+from glmnet.gam import GAM, GAMControl, ColumnsTerm, s, lo, re, linear, categorical
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
 GROUPS = [f'g{i:02d}' for i in range(12)]
@@ -39,7 +39,7 @@ FAMILIES = {'gaussian': (sm.families.Gaussian, 'y'),
             'binomial': (sm.families.Binomial, 'yb'),
             'poisson': (sm.families.Poisson, 'yp')}
 TERMS = {
-    'splines and a factor': lambda: [s('a', lam=1e-3), s('b', df=3), factor('c')],
+    'splines and a factor': lambda: [s('a', lam=1e-3), s('b', df=3), categorical('c')],
     'linear and a random intercept': lambda: [s('a', df=4), linear('b'), re('g', lam=0.05)],
     'random intercept and slope': lambda: [s('a', df=4), re('g', df=6), re('g', by='v', lam=0.1)],
 }
@@ -149,7 +149,7 @@ def test_random_effect_term(data):
 def test_parametric_covariance_is_least_squares(data):
     # no penalties: Vp is the least squares covariance, the standard errors
     # those of the OLS fitted values (at the GAM's dispersion)
-    G = GAM(terms=[linear('a'), linear('b'), factor('c')],
+    G = GAM(terms=[linear('a'), linear('b'), categorical('c')],
             control=GAMControl(**TIGHT, solver='joint')).fit(data, data['y'])
     X = sm.add_constant(pd.get_dummies(data[['a', 'b', 'c']], drop_first=True).astype(float))
     ols = sm.OLS(data['y'], X).fit()
@@ -161,7 +161,7 @@ def test_parametric_covariance_is_least_squares(data):
 
 
 def test_standard_errors_and_errors(data):
-    G = GAM(terms=[s('a', df=4), factor('c')], family=sm.families.Binomial(),
+    G = GAM(terms=[s('a', df=4), categorical('c')], family=sm.families.Binomial(),
             control=GAMControl(**TIGHT)).fit(data, data['yb'])
     mu, se = G.predict(data.iloc[:5], return_std=True)
     eta, se_eta = G.predict(data.iloc[:5], 'link', return_std=True)
@@ -181,14 +181,14 @@ def test_standard_errors_and_errors(data):
 
 def test_covariance_when_used(data):
     # the covariance is computed when first used, then kept
-    G = GAM(terms=[s('a', df=4), s('b', lam=0.1), factor('c')],
+    G = GAM(terms=[s('a', df=4), s('b', lam=0.1), categorical('c')],
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G._covariance is None
     V = G.posterior_covariance_
     assert G._covariance is not None and G.posterior_covariance_ is V
     assert G.frequentist_covariance_.shape == V.shape == (G.design_.X.shape[1],) * 2
     # the same as computed from the start, by a refit
-    H = GAM(terms=[s('a', df=4), s('b', lam=0.1), factor('c')],
+    H = GAM(terms=[s('a', df=4), s('b', lam=0.1), categorical('c')],
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     _, std = H.predict(data.iloc[:10], return_std=True)
     np.testing.assert_allclose(std, G.predict(data.iloc[:10], return_std=True)[1], rtol=1e-12)

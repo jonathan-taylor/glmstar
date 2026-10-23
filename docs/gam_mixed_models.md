@@ -49,7 +49,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GLMM, s, re, linear, factor, correlated_random_effect
+from glmnet.gam import GAM, s, re, linear, categorical, correlated_random_effect
 
 
 def effects(rng, labels, sd):
@@ -92,10 +92,10 @@ effects (the BLUPs, lme4's `ranef`): the posterior means of the $b_i$. For
 a school of $n_i$ students its effect is its mean residual shrunk towards 0
 by the factor $n_i / (n_i + \sigma^2/\sigma_b^2)$, so a small school's
 effect is shrunk the most. Fitting the schools as fixed effects instead
-(`factor('school')`) shrinks none of them:
+(`categorical('school')`) shrinks none of them:
 
 ```{code-cell} ipython3
-fixed = GAM(terms=[factor('school')]).fit(School, School['score'])
+fixed = GAM(terms=[categorical('school')]).fit(School, School['score'])
 blup = oneway.terms_[0].effects_
 mean = School.groupby('school')['score'].mean() - oneway.intercept_
 n = School['school'].value_counts().sort_index()
@@ -337,7 +337,7 @@ Herds['p'] = Herds['incidence'] / Herds['size']
 
 glmm = {}
 for method in ['ML', 'REML']:
-    glmm[method] = GLMM(terms=[factor('period'), re('herd')], family=sm.families.Binomial(),
+    glmm[method] = GLMM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(),
                        method=method, response_id='p', weight_id='size')
     glmm[method].fit(Herds, Herds[['p', 'size']])
 pd.DataFrame({method: glmm[method].variance_components_['sd'] for method in glmm})
@@ -469,7 +469,7 @@ axes[0].figure.tight_layout()
   (`pdCompSymm`) or `'diagonal'` (`pdDiag`). Banded, AR(1) or factor-analytic
   covariances of the effects are not available.
 - **Different variances by group,** e.g. nlme's `pdDiag` with one
-  variance per level of another factor, or a random effect whose variance
+  variance per level of another categorical, or a random effect whose variance
   differs between strata (a nested sum of `re()` terms with different
   `by=` per stratum).
 - **Correlated or heteroscedastic residuals,** nlme's `correlation=`

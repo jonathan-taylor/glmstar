@@ -36,7 +36,7 @@ from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning, _blocked_term
 from .selection import resolve_method, SmoothingMethod, Fixed
-from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, FactorTerm
+from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, CategoricalTerm
 
 
 @dataclass
@@ -105,12 +105,12 @@ class GAM(BaseEstimator):
     method of one's own, fit a `GLMM`, which has the same terms.
 
     The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `gaussian_process`, `linear`,
-    `factor`, or a `ColumnsTerm` of several columns fitted as one parametric
+    `categorical`, or a `ColumnsTerm` of several columns fitted as one parametric
     block), each naming a column of `X` (ISLP's `ISLP.gam` builds them from
     a ModelSpec). The smoothing of each term is fixed: by its smoothing parameter
     `lam`, or by its degrees of freedom `df` (as R's `gam`). When every term
     has a fixed smoothing parameter (`s(lam=...)`, `re(lam=...)`, `linear`,
-    `factor`), the fit minimizes
+    `categorical`), the fit minimizes
 
         deviance / (2 sum(w)) + sum_j lam_j / 2 * pen_j(f_j) + linear_term @ eta,
 
@@ -212,7 +212,7 @@ class GAM(BaseEstimator):
         for term in terms:
             if not isinstance(term, Term):
                 raise ValueError(f'{term!r} is not a GAM term (s(), lo(), re(), '
-                                 'gaussian_process(), linear(), factor())')
+                                 'gaussian_process(), linear(), categorical())')
         return terms, X
 
     def _design(self, X):
@@ -306,12 +306,12 @@ class GAM(BaseEstimator):
                              'to fix it')
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
-            factor_column = (term.column if isinstance(term, FactorTerm)
-                             else getattr(term, 'factor_column', None))
-            if factor_column is not None and isinstance(X, pd.DataFrame):
+            categorical_column = (term.column if isinstance(term, CategoricalTerm)
+                                  else getattr(term, 'categorical_column', None))
+            if categorical_column is not None and isinstance(X, pd.DataFrame):
                 # a categorical's order of the levels (not the sorted one)
-                column = (X[factor_column] if isinstance(factor_column, str)
-                          else X.iloc[:, factor_column])
+                column = (X[categorical_column] if isinstance(categorical_column, str)
+                          else X.iloc[:, categorical_column])
                 if isinstance(column.dtype, pd.CategoricalDtype):
                     term.categories = list(column.cat.categories)
             term.setup(x)

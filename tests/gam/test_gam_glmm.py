@@ -1,6 +1,6 @@
 """
 `GLMM` against `GAM`: a GAM's smoothing is fixed, a GLMM's estimated.
-`GAM(method=...)` and `GLMM(method='fixed')` are deprecated (a
+`GLMM(method=...)` and `GLMM(method='fixed')` are deprecated (a
 FutureWarning, the same fit); and a GLMM with some smoothing parameters held
 fixed (a term's `lam` a list with None for those to estimate), against the
 GAM at the estimates and the GLMM estimating them all.
@@ -14,8 +14,8 @@ import pytest
 pytest.importorskip('scatter_smooth')
 pytest.importorskip('jax')
 
-from glmnet.gam import (GAM, GLMM, GAMControl, ExperimentalWarning, s, re, factor,
-                        tensor_spline as te, by_factor_spline)
+from glmnet.gam import (GAM, GLMM, GAMControl, ExperimentalWarning, s, re, categorical,
+                        tensor_spline as te, varying, cubic_regression_spline)
 from glmnet.gam.selection import Laplace
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -44,7 +44,7 @@ def test_gam_method_fixed_deprecated(data):
     terms = [s('x', df=4), re('g', lam=0.1)]
     G = GAM(terms).fit(data, data['y'])
     with pytest.warns(FutureWarning, match="method='fixed'"):
-        H = GAM(terms, method='fixed').fit(data, data['y'])
+        H = GAM(terms).fit(data, data['y'])
     np.testing.assert_allclose(H.predict(data), G.predict(data))
     assert not hasattr(G, 'smoothing_')
 
@@ -54,7 +54,7 @@ def test_gam_estimating_deprecated(data, method):
     terms = [s('x'), re('g')]
     G = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     with pytest.warns(FutureWarning, match='GLMM'):
-        H = GAM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
+        H = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     np.testing.assert_allclose(H.smoothing_.lam, G.smoothing_.lam)
     np.testing.assert_allclose(H.predict(data), G.predict(data))
 
@@ -91,7 +91,7 @@ def test_some_penalties_fixed(data, method):
     # one margin's smoothing parameter of a tensor product given, the other's
     # estimated
     fixed = 5e-3
-    terms = [te('x', 'z', k=5, lam=[fixed, None]), factor('c')]
+    terms = [te('x', 'z', k=5, lam=[fixed, None]), categorical('c')]
     G = GLMM(terms, method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.smoothing_.converged
     name = G.terms_[0].name
@@ -100,11 +100,11 @@ def test_some_penalties_fixed(data, method):
     lam = G.terms_[0].penalty_lams()[1]
     np.testing.assert_allclose(G.smoothing_.lam, [lam], rtol=1e-10)
     # the GAM at those parameters is the same fit
-    H = GAM([te('x', 'z', k=5, lam=[fixed, lam]), factor('c')],
+    H = GAM([te('x', 'z', k=5, lam=[fixed, lam]), categorical('c')],
             control=GAMControl(solver='joint', **TIGHT)).fit(data, data['y'])
     np.testing.assert_allclose(H.predict(data), G.predict(data), rtol=1e-7, atol=1e-9)
     # estimating both: a smaller criterion, and the first estimate elsewhere
-    F = GLMM([te('x', 'z', k=5), factor('c')], method=method,
+    F = GLMM([te('x', 'z', k=5), categorical('c')], method=method,
              control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert F.reml_score_ <= G.reml_score_ + 1e-8
     assert abs(np.log(F.smoothing_.lam[0] / fixed)) > 0.1
@@ -115,8 +115,10 @@ def test_some_penalties_fixed(data, method):
 
 
 def test_some_levels_fixed(data):
-    # a factor-by smooth: one level's smoothing parameter fixed
-    terms = [factor('c'), by_factor_spline('x', 'c', k=6, lam=[1e-1, None])]
+    # a smooth for each level of a categorical: one level's smoothing
+    # parameter fixed
+    terms = [categorical('c'), varying(cubic_regression_spline('x', k=6), by='c',
+                                       lam=[1e-1, None])]
     G = GLMM(terms, control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.smoothing_.converged
     assert len(G.smoothing_.terms) == 1

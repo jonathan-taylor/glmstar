@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip('scatter_smooth')
 
 from glmnet.cox import CoxFamily, CoxLM
-from glmnet.gam import GAM, GLMM, GAMControl, s, linear, factor
+from glmnet.gam import GAM, GLMM, GAMControl, s, linear, categorical
 
 # the parametric fits converge on the objective; with df terms (matched at
 # each step's weights) local scoring stops on the change in eta
@@ -66,7 +66,7 @@ def _centered(eta):
 def test_parametric_is_coxlm(data, ties, option, weights, with_offset):
     # linear terms and a factor: the Cox model (CoxLM, glmstar's), up to the
     # constant of the linear predictor
-    G = _gam(data, [linear('x'), linear('z'), factor('c')], ties, option, weights, with_offset)
+    G = _gam(data, [linear('x'), linear('z'), categorical('c')], ties, option, weights, with_offset)
     X = pd.get_dummies(data[['x', 'z', 'c']], columns=['c'], drop_first=True, dtype=float)
     L = CoxLM(family=_family(ties, option), weight_id='w' if weights else None,
               offset_id='o' if with_offset else None).fit(X, data)
@@ -108,7 +108,7 @@ def test_parametric_coxph(Rinfo, data, ties, option):
 def test_smooth(data, ties, option):
     # smooths with df: their df at the final working weights; a constant
     # offset and the scale of the weights leave the fit unchanged
-    terms = [s('x', df=4), linear('z'), factor('c')]
+    terms = [s('x', df=4), linear('z'), categorical('c')]
     G = _gam(data, terms, ties, option, weights=True, control=SMOOTH)
     np.testing.assert_allclose(G.edf_.values, [4, 1, 2], rtol=1e-6)
     eta = G.predict(data, 'link')
@@ -145,9 +145,9 @@ def test_joint_is_backfit(data, ties, option, terms):
     if terms == 'lam':
         # backfitting converges linearly: tight, but above its roundoff
         backfit = GAMControl(epsnr=1e-14, mxitnr=2000, bf_tol=1e-13, bf_maxit=5000)
-        T_, controls = [s('x', lam=1e-3), linear('z'), factor('c')], (backfit, JOINT)
+        T_, controls = [s('x', lam=1e-3), linear('z'), categorical('c')], (backfit, JOINT)
     else:
-        T_, controls = [s('x', df=4), s('z', df=3), factor('c')], (SMOOTH, JOINT_DF)
+        T_, controls = [s('x', df=4), s('z', df=3), categorical('c')], (SMOOTH, JOINT_DF)
     B = _gam(data, T_, ties, option, weights=True, offset=True, control=controls[0])
     J = _gam(data, T_, ties, option, weights=True, offset=True, control=controls[1])
     assert J.n_iter_ < B.n_iter_
@@ -196,7 +196,7 @@ def test_cox_mgcv(Rinfo, data, use_offset):
         rpy.r.assign('D', data)
     rpy.r('D$c <- factor(D$c)')
     lam = (1e-3, 3e-2)
-    G = _gam(data, [s('x', lam=lam[0]), s('z', lam=lam[1]), factor('c')], 'breslow', 'plain',
+    G = _gam(data, [s('x', lam=lam[0]), s('z', lam=lam[1]), categorical('c')], 'breslow', 'plain',
              offset=use_offset, control=JOINT)
     kx, kz = G.terms_[0].knots_, G.terms_[1].knots_
     with Rinfo['np_cv_rules'].context():
@@ -249,7 +249,7 @@ def test_cox_reml_gradient(data, method, ties, option):
     # the gradient (through the implicit derivative of the coefficients and
     # a difference of the information) against central differences of the
     # criterion (refitted at each point), away from the optimum
-    G = GLMM(terms=[s('x'), s('z'), factor('c')], family=_family(ties, option), method=method,
+    G = GLMM(terms=[s('x'), s('z'), categorical('c')], family=_family(ties, option), method=method,
             weight_id='w', offset_id='o').fit(data, data)
     assert G.smoothing_.converged
     crit = _criterion(G, method)
@@ -267,7 +267,7 @@ def test_cox_reml_fit(data, method, option):
     # Efron ties, weights and an offset: the fit at the estimates is the fit
     # with those smoothing parameters given, and the criterion's gradient is
     # 0 there; ML and REML differ
-    terms = [s('x'), s('z'), factor('c')]
+    terms = [s('x'), s('z'), categorical('c')]
     G = GLMM(terms=terms, family=_family('efron', option), method=method,
             weight_id='w', offset_id='o').fit(data, data)
     sel = G.smoothing_
@@ -276,7 +276,7 @@ def test_cox_reml_fit(data, method, option):
     on_bound = (np.log(sel.lam_raw) >= _criterion(G, method).start() + 25 - 1e-6) & (sel.gradient < 0)
     assert np.all(np.abs(sel.gradient[~on_bound]) < _criterion(G, method).grad_tol)
     lam = sel.lam
-    F = GAM(terms=[s('x', lam=lam[0]), s('z', lam=lam[1]), factor('c')],
+    F = GAM(terms=[s('x', lam=lam[0]), s('z', lam=lam[1]), categorical('c')],
             family=_family('efron', option), weight_id='w', offset_id='o',
             control=GAMControl(solver='joint', epsnr=1e-13, mxitnr=100)).fit(data, data)
     np.testing.assert_allclose(G.fits_, F.fits_, atol=1e-5)
@@ -310,7 +310,7 @@ def test_cox_reml_mgcv(Rinfo, data, use_offset):
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('D', D)
     rpy.r('D$c <- factor(D$c); D$g <- factor(D$g)')
-    G = GLMM(terms=[s('x'), s('z'), factor('c'), re('g')], family=_family('breslow', 'plain'),
+    G = GLMM(terms=[s('x'), s('z'), categorical('c'), re('g')], family=_family('breslow', 'plain'),
             method='REML', offset_id='o' if use_offset else None).fit(D, D)
     kx, kz = G.terms_[0].knots_, G.terms_[1].knots_
     with Rinfo['np_cv_rules'].context():
@@ -358,7 +358,7 @@ def test_cox_reml_converges_under_rounding(data, method, k):
     D = data.copy()
     D['w'] = D['w'] * (1 + 1e-13 * k)
     D['o'] = D['o'] + 1e-13 * k
-    G = GLMM(terms=[s('x'), s('z'), factor('c')], family=_family('efron', 'all'), method=method,
+    G = GLMM(terms=[s('x'), s('z'), categorical('c')], family=_family('efron', 'all'), method=method,
             weight_id='w', offset_id='o').fit(D, D)
     sel = G.smoothing_
     assert sel.converged
@@ -380,7 +380,7 @@ def test_cox_reml_brain_cancer(method):
     with warnings.catch_warnings():
         warnings.simplefilter('error', UserWarning)
         warnings.simplefilter('ignore', ExperimentalWarning)
-        G = GLMM(terms=[s('gtv'), linear('ki'), factor('diagnosis')],
+        G = GLMM(terms=[s('gtv'), linear('ki'), categorical('diagnosis')],
                 family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
                 method=method).fit(B, B[['time', 'status']])
     assert G.smoothing_.converged
@@ -390,7 +390,7 @@ def test_cox_reml_brain_cancer(method):
 def test_criterion_unconverged(data):
     # where the inner fit does not converge, the criterion is larger than
     # any seen and its gradient points to larger smoothing parameters
-    G = GLMM(terms=[s('x'), s('z'), factor('c')], family=_family('breslow', 'plain'),
+    G = GLMM(terms=[s('x'), s('z'), categorical('c')], family=_family('breslow', 'plain'),
             method='REML').fit(data, data)
     crit = _criterion(G, 'REML')
     x = np.log(G.smoothing_.lam_raw)

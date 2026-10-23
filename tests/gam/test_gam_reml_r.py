@@ -17,7 +17,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, factor
+from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, categorical
 from glmnet.gam.reml import LaplaceCriterion
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
@@ -90,7 +90,7 @@ def test_mgcv(Rinfo, data, case, method):
     rpy = _R(Rinfo, D, 'mgcv')
     rpy.r('D$c <- factor(D$c); D$g <- factor(D$g)')
     cols = [y] + (['w'] if weights else []) + (['o'] if offset else [])
-    G = GLMM(terms=[s('a'), s('b'), factor('c'), re('g'), re('g', by='v')], family=family,
+    G = GLMM(terms=[s('a'), s('b'), categorical('c'), re('g'), re('g', by='v')], family=family,
             method=method, control=GAMControl(**TIGHT), response_id=y,
             weight_id='w' if weights else None,
             offset_id='o' if offset else None).fit(D, D[cols])
@@ -195,7 +195,7 @@ def test_lme_orthodont(Rinfo, method):
         O = pd.DataFrame(rpy.r('as.data.frame(nlme::Orthodont)'))
     for c in ['Subject', 'Sex']:
         O[c] = O[c].astype(str)
-    G = GLMM(terms=[linear('age'), factor('Sex'), re('Subject')], method=method,
+    G = GLMM(terms=[linear('age'), categorical('Sex'), re('Subject')], method=method,
             control=GAMControl(**TIGHT)).fit(O, O['distance'])
     rpy.r(f"""o <- nlme::lme(distance ~ age + Sex, random=~1|Subject, data=nlme::Orthodont,
                              method='{method}', control=nlme::lmeControl(tolerance=1e-10))""")
@@ -219,7 +219,7 @@ def test_glmer_cbpp(Rinfo, nAGQ):
     for c in ['herd', 'period']:
         C[c] = C[c].astype(str)
     C['p'] = C['incidence'] / C['size']
-    G = GLMM(terms=[factor('period'), re('herd')], family=sm.families.Binomial(), method='ML',
+    G = GLMM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(), method='ML',
             control=GAMControl(**TIGHT), response_id='p', weight_id='size').fit(C, C[['p', 'size']])
     rpy.r(f"""b <- lme4::glmer(cbind(incidence, size - incidence) ~ period + (1|herd), data=lme4::cbpp,
                               family=binomial, nAGQ={nAGQ},
@@ -241,7 +241,7 @@ def test_glmer_poisson(Rinfo, data, nAGQ):
     # for cbpp)
     D = data
     rpy = _R(Rinfo, D, 'lme4')
-    G = GLMM(terms=[linear('b'), factor('c'), re('g')], family=sm.families.Poisson(), method='ML',
+    G = GLMM(terms=[linear('b'), categorical('c'), re('g')], family=sm.families.Poisson(), method='ML',
             control=GAMControl(**TIGHT), response_id='yp', offset_id='o').fit(D, D[['yp', 'o']])
     rpy.r(f"""p <- lme4::glmer(yp ~ b + c + (1|g) + offset(o), data=D, family=poisson, nAGQ={nAGQ},
                               control=lme4::glmerControl(optCtrl=list(ftol_abs=1e-12, xtol_abs=1e-10)))""")
@@ -262,7 +262,7 @@ def test_mgcv_wage(Rinfo, method):
     # splines' knots ours (age's thinned, as R's smooth.spline) given to mgcv
     ISLP = pytest.importorskip('ISLP')
     Wage = ISLP.load_data('Wage')
-    G = GLMM(terms=[s('year'), s('age'), factor('education')],
+    G = GLMM(terms=[s('year'), s('age'), categorical('education')],
             method=method, control=GAMControl(**TIGHT)).fit(Wage, Wage['wage'])
     knots = {t.name: t.knots_ for t in G.terms_[:2]}
     W = Wage[['wage', 'year', 'age']].assign(education=Wage['education'].astype(str))
