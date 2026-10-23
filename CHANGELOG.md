@@ -88,6 +88,10 @@
 
 ### Packaging
 
+- **coxdev 0.4.0, header-only.** The Cox extension compiles coxdev's headers
+  from the installed coxdev (`coxdev.get_include()`, now a build
+  requirement), not glmnetpp's nested coxdev submodule; `coxdev>=0.4.0`
+  (#198).
 - **Faster CI.** The tests run in parallel (pytest-xdist, `-n auto`, one BLAS
   thread per worker; `--dist loadfile`, a test file to a worker, so each
   module's random draws are those of a serial run), at `--test-size=small`; a
