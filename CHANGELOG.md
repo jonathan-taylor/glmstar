@@ -74,7 +74,7 @@
   of the inverse link took them for it. The fit itself used the right link,
   but the smoothing parameters were chosen by the wrong criterion. Probit
   and cloglog now match mgcv's REML and ML scores; `LogLog` and `Cauchy`
-  raise that they are not supported, as other links do (#PR).
+  raise that they are not supported, as other links do (#197).
 - **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
   basis, as before #189: a varying term has a basis when its inner term does
   (`has_basis`) (#191).
