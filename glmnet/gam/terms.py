@@ -1272,13 +1272,10 @@ _FACTOR_DEPRECATED = ('factor() is deprecated, and will be removed: use categori
 
 
 @dataclass
-class FactorTerm(CategoricalSmoother):
-    """Deprecated: `CategoricalSmoother`."""
+class _FactorTerm(CategoricalSmoother):
+    """`FactorTerm`, deprecated: a `CategoricalSmoother` named `factor(column)`."""
 
     _label = 'factor'
-
-    def __post_init__(self):
-        warnings.warn(_FACTOR_DEPRECATED, FutureWarning, stacklevel=3)
 
 
 def factor(column):
@@ -1298,16 +1295,21 @@ _RENAMED = {'Term': 'Smoother',
             'ColumnsTerm': 'ColumnsSmoother',
             'PenalizedColumnsTerm': 'PenalizedColumnsSmoother',
             'RandomEffectTerm': 'RandomEffectSmoother',
-            'CorrelatedRandomEffectTerm': 'CorrelatedRandomEffectSmoother'}
+            'CorrelatedRandomEffectTerm': 'CorrelatedRandomEffectSmoother',
+            # (the class kept, for its terms' name; the message names the new one)
+            'FactorTerm': ('_FactorTerm', 'CategoricalSmoother')}
 
 
 def _deprecated_names(renamed, namespace, module):
     """A module's `__getattr__` giving the former names (a FutureWarning) of its classes."""
     def __getattr__(name):
         if name in renamed:
-            warnings.warn(f'{name} is deprecated, and will be removed: use {renamed[name]}',
+            # a new name, or (the object, the name to use instead)
+            target, use = (renamed[name] if isinstance(renamed[name], tuple)
+                           else (renamed[name], renamed[name]))
+            warnings.warn(f'{name} is deprecated, and will be removed: use {use}',
                           FutureWarning, stacklevel=2)
-            return namespace[renamed[name]]
+            return namespace[target]
         raise AttributeError(f'module {module!r} has no attribute {name!r}')
     return __getattr__
 

@@ -244,6 +244,11 @@ class VaryingSmoother(Smoother):
     def has_objective(self):
         return self.lam is not None and getattr(self, 'has_basis_', True)
 
+    @property
+    def has_basis(self):
+        # (its inner term's, per level: none for lo(), which is backfitted)
+        return getattr(self, 'has_basis_', self.inner.has_basis)
+
     def _split(self, x):
         x = np.asarray(x)
         x = x.reshape((x.shape[0], -1))

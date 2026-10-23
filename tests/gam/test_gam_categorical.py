@@ -58,12 +58,13 @@ def test_plain_columns_sorted(data):
 def test_factor_is_deprecated():
     # factor() and FactorTerm: categorical() and CategoricalSmoother, with a
     # FutureWarning; the term keeps its former name
-    from glmnet.gam import factor, FactorTerm, CategoricalSmoother
+    from glmnet.gam import factor, CategoricalSmoother
     with pytest.warns(FutureWarning, match='use categorical'):
         term = factor('c')
     assert isinstance(term, CategoricalSmoother) and term.name == 'factor(c)'
-    with pytest.warns(FutureWarning, match='use categorical'):
-        old = FactorTerm('c')
+    with pytest.warns(FutureWarning, match='FactorTerm is deprecated.*use CategoricalSmoother'):
+        from glmnet.gam import FactorTerm
+    old = FactorTerm('c')
     assert isinstance(old, CategoricalSmoother) and old.name == 'factor(c)'
     D = pd.DataFrame({'c': list('xyzxyzxy'), 'y': np.arange(8.)})
     with pytest.warns(FutureWarning):

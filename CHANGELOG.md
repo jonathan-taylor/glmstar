@@ -19,18 +19,18 @@
   `GAM`'s terms, its penalized terms random effects, and `method='REML'`
   (the default), `'ML'` or a `SmoothingMethod`; `smoothing_`,
   `variance_components_` and `reml_score_` are its own. A `GAM`'s smoothing
-  is fixed (#PR).
+  is fixed (#193).
 - **Some smoothing parameters held fixed in a GLMM:** besides a term given
   `lam`, a term with several penalties takes a list with `None` for those
   to estimate (`tensor_spline('x', 'z', lam=[1e-2, None])`, a varying
-  term's levels, `penalized_columns`) (#PR).
+  term's levels, `penalized_columns`) (#193).
 - **`Smoother` and `PenalizedSmoother`**, the terms' base classes (the
   former `Term`). A `Smoother` is what backfitting needs (`setup`,
   `smooth`, `edf`, `finalize`, `predict`); a `PenalizedSmoother` is given
   only a basis and its penalties (`basis()`, `penalty_matrices()`, `lam`)
   and inherits the smoothing, degrees of freedom and prediction, and with
   them the joint solve, standard errors and a GLMM's estimates. The GAM
-  page shows how to write both (#PR).
+  page shows how to write both (#194).
 - **GAM and GLMM tuned by cross-validation.** The terms are scikit-learn
   estimators: a GAM's (and a GLMM's) parameters include each term,
   `terms__<j>` (replaced whole, as a `Pipeline`'s steps: choose the
@@ -74,17 +74,17 @@
 - **`GAM(method=...)`:** `'fixed'` is a GAM's only smoothing (drop it);
   `'REML'`, `'ML'` and a `SmoothingMethod` are a `GLMM`'s
   (`GLMM(method=...)`). Both still work, with a FutureWarning, as does
-  `GLMM(method='fixed')` (#PR).
+  `GLMM(method='fixed')` (#193).
 - **`re()` is now `random_effect()`**, an explicit name (the docs import
   it as `re`: `from glmnet.gam import random_effect as re`); `re()` still
   works, with a FutureWarning. Its terms are named `random_effect(...)`, as
-  are their rows of `variance_components_` and `smoothing_.terms` (#PR).
+  are their rows of `variance_components_` and `smoothing_.terms` (#194).
 - **The smoothers' former names:** `Term`, `SplineTerm`, `LoessTerm`,
   `SlopeTerm` (now `LinearSmoother`), `ColumnsTerm`, `RandomEffectTerm`,
   `CorrelatedRandomEffectTerm`, `PenalizedColumnsTerm`, `GPTerm`
   (`GaussianProcessSmoother`), `TensorTerm` (`TensorSplineSmoother`) and
   `CyclicSplineTerm` are now `...Smoother`; the old names still work, with
-  a FutureWarning (#PR).
+  a FutureWarning, as does `FactorTerm` (`CategoricalSmoother`) (#194).
 
 ### Removed
 
@@ -113,7 +113,7 @@
   smoothers' structure and on writing one (a step function, a Fourier
   basis, a P-spline from `SplineTransformer`, a tree); **a new page,
   Generalized linear mixed models,** has REML and ML, holding some
-  parameters fixed, other methods and large random effects (#PR).
+  parameters fixed, other methods and large random effects (#194).
 - The GAM page's section on factor-by smooths is now on varying
   coefficients (per level, pooled, and a numeric `by`); the R translation
   page lists `varying()` and `cubic_regression_spline()`. The Bikeshare
@@ -122,6 +122,9 @@
 
 ### Fixes
 
+- **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
+  basis, as before #189: a varying term has a basis when its inner term does
+  (`has_basis`) (#191).
 - **Large random effects without dense matrices.** Fitting a GAM with a
   random effect of many levels no longer forms its `R x R` penalty (each
   term says whether it is `penalized`, has a basis, `has_basis`, and how
@@ -136,6 +139,14 @@
   generator, not their data, which is not public), the crossed-effects fit
   of the docs takes 56 s and 2.9 GB (it would have taken about 14 GB); at
   1 million ratings 0.8 GB, down from 2.9 GB (#189).
+
+### Packaging
+
+- **Fewer CI runs.** The tests run on pull requests (Linux only) and on
+  pushes to main (macOS, Linux and Windows), not on every push to every
+  branch; by hand too (`workflow_dispatch`). A new push cancels the run in
+  progress for its branch, and changes only to the docs or Markdown files
+  do not run them (#187).
 
 ## 0.5.0 (2026-10-22)
 
