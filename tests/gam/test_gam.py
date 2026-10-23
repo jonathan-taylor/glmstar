@@ -8,7 +8,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from scatter_smooth import SplineSmoother
+from scatter_smooth import SplineSmoother as ScatterSmoothSpline
 
 from glmnet import GLM
 from glmnet.gam import GAM, GAMControl, s, lo, linear, categorical
@@ -37,7 +37,7 @@ def test_one_spline_is_the_smoothing_spline(data):
     lam = 1e-4
     G = GAM(terms=[s('a', lam=lam)], weight_id='w').fit(data[['a']], data[['y', 'w']])
     w = data['w'].to_numpy()
-    S = SplineSmoother(data['a'].to_numpy(), w=w / w.sum(), lamval=lam)
+    S = ScatterSmoothSpline(data['a'].to_numpy(), w=w / w.sum(), lamval=lam)
     S.smooth(data['y'].to_numpy())
     np.testing.assert_allclose(G.predict(data[['a']]), S.predict(data['a'].to_numpy()),
                                rtol=1e-8, atol=1e-10)
