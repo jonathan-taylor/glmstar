@@ -97,6 +97,7 @@ from .cyclic import CyclicSplineSmoother, cyclic_spline
 from .families import QuasiPoisson, QuasiBinomial, NegativeBinomial
 from .varying import (VaryingSmoother, CubicRegressionSplineSmoother, varying,
                       cubic_regression_spline)
+from .adapters import TransformerSmoother, RegressorSmoother, difference_penalty, sum_to_zero
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
 from .reml import LaplaceCriterion, CoxLaplaceCriterion, SmoothingSelection, ExperimentalWarning

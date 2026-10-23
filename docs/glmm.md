@@ -255,6 +255,29 @@ spline is a line, 1 degree of freedom (as mgcv's `cox.ph` gives). The
 curves are on the scale of the log hazard; `predict` gives the linear
 predictor (`'link'`) or the relative risk (`'response'`).
 
+## Cross-validation
+
+A `GLMM` is a scikit-learn estimator, as a GAM: `GridSearchCV` tunes
+what REML does not estimate, such as the smoother of a column, the size of
+a basis or a given smoothing parameter, with REML estimating the rest in
+each fold. Its parameters leave out the ones it estimates (a term's `lam`
+or `df` left as None). Here, the margins' sizes of the tensor product:
+
+```{code-cell} ipython3
+from sklearn.model_selection import GridSearchCV, KFold
+
+search = GridSearchCV(GLMM(terms=[tensor_spline('age', 'year', k=(6, 4)),
+                                  categorical('education')]),
+                      {'terms__0__k': [(4, 3), (6, 4), (10, 5)]},
+                      cv=KFold(5, shuffle=True, random_state=0)).fit(Wage, Wage['wage'])
+pd.Series(search.cv_results_['mean_test_score'],
+          index=[str(k) for k in search.cv_results_['param_terms__0__k']], name='CV score')
+```
+
+For a model with random effects the folds decide what is scored: with
+`GroupKFold` by the grouping, the prediction of new groups (their effects
+0); with `KFold`, of the groups seen.
+
 ## Other methods, and large problems
 
 `method` can be a `glmnet.gam.SmoothingMethod`: an object whose

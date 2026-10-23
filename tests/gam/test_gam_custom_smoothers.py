@@ -164,3 +164,91 @@ def test_former_names():
     with pytest.warns(FutureWarning, match='random_effect'):
         term = gam.re('g', lam=1.)
     assert type(term) is gam.RandomEffectSmoother and term.name == 'random_effect(g, lam=1.0)'
+
+
+# scikit-learn estimators as smoothers (glmnet.gam.adapters)
+
+from sklearn.preprocessing import SplineTransformer, PolynomialFeatures
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.linear_model import LinearRegression
+from glmnet.gam import TransformerSmoother, RegressorSmoother, difference_penalty, sum_to_zero
+
+
+def test_sum_to_zero():
+    rng = np.random.default_rng(1)
+    B = rng.uniform(size=(50, 6))
+    Z = sum_to_zero(B)
+    assert Z.shape == (6, 5)
+    np.testing.assert_allclose(B.sum(0) @ Z, 0, atol=1e-12)
+    np.testing.assert_allclose(Z.T @ Z, np.identity(5), atol=1e-12)
+    D = difference_penalty(6, 2)
+    np.testing.assert_allclose(D @ np.arange(6.), 0, atol=1e-12)
+    np.testing.assert_allclose(D @ np.ones(6), 0, atol=1e-12)
+
+
+@pytest.mark.parametrize('solver', ['backfit', 'joint'])
+def test_pspline(data, solver):
+    # a P-spline: B-splines (which sum to 1) with a difference penalty
+    P = TransformerSmoother('x', SplineTransformer(n_knots=12, degree=3), lam=1e-3)
+    G = GAM([P, linear('z')], control=GAMControl(solver=solver, **TIGHT)).fit(data, data['y'])
+    term = G.terms_[0]
+    assert term.n_coef() == 13
+    np.testing.assert_allclose(G.fits_.iloc[:, 0].sum(), 0, atol=1e-8)
+    # against penalized_columns of its (constrained) basis and penalty
+    B = term.basis()
+    cols = [f'b{j}' for j in range(B.shape[1])]
+    D = pd.concat([data, pd.DataFrame(B, columns=cols, index=data.index)], axis=1)
+    H = GAM([penalized_columns(cols, term.penalty_matrices(), lam=[1e-3]), linear('z')],
+            control=GAMControl(solver=solver, **TIGHT)).fit(D, D['y'])
+    np.testing.assert_allclose(G.predict(data), H.predict(D), rtol=1e-8, atol=1e-10)
+    _, std = G.predict(data.iloc[:5], return_std=True)
+    assert np.all(std > 0)
+    # a large lam: the penalty's null space, a line in x
+    L = GAM([TransformerSmoother('x', SplineTransformer(n_knots=12), lam=1e8), linear('z')],
+            control=GAMControl(**TIGHT)).fit(data, data['y'])
+    f = L.fits_.iloc[:, 0].to_numpy()
+    line = np.polyval(np.polyfit(data['x'], f, 1), data['x'])
+    np.testing.assert_allclose(f, line, atol=1e-4)
+
+
+def test_pspline_glmm(data):
+    pytest.importorskip('jax')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', ExperimentalWarning)
+        G = GLMM([TransformerSmoother('x', SplineTransformer(n_knots=12)), linear('z')],
+                 control=GAMControl(**TIGHT)).fit(data, data['y'])
+    assert G.smoothing_.converged
+    assert 1 < G.edf_.iloc[0] < 12
+
+
+def test_transformer_ridge_and_errors(data):
+    G = GAM([TransformerSmoother(['x', 'z'], PolynomialFeatures(2, include_bias=False),
+                                 penalties='ridge', sum_to_zero=False, lam=1e-6)],
+            control=GAMControl(**TIGHT)).fit(data, data['y'])
+    assert G.terms_[0].n_coef() == 5
+    with pytest.raises(ValueError, match='shape'):
+        GAM([TransformerSmoother('x', SplineTransformer(n_knots=5), penalties=[np.identity(3)],
+                                 lam=1.)]).fit(data, data['y'])
+
+
+def test_regressor_smoother(data):
+    # a linear regression as a smoother: the linear term
+    G = GAM([RegressorSmoother('z', LinearRegression(), n_df_samples=800), s('hour', df=5)],
+            control=GAMControl(**TIGHT)).fit(data, data['y'])
+    H = GAM([linear('z'), s('hour', df=5)], control=GAMControl(**TIGHT)).fit(data, data['y'])
+    np.testing.assert_allclose(G.predict(data), H.predict(data), rtol=1e-6, atol=1e-8)
+    # its generalized df, by Monte Carlo: 1 for a line (standard error 0.07)
+    np.testing.assert_allclose(G.edf_.iloc[0], 1, atol=0.25)
+    assert GAM([RegressorSmoother('z', LinearRegression(), df=1.)]).fit(
+        data, data['y']).edf_.iloc[0] == 1
+    # a tree: backfitted, predicts at new values
+    T = GAM([RegressorSmoother('x', DecisionTreeRegressor(max_depth=2)), linear('z')]).fit(
+        data, data['y'])
+    # (more than its 4 leaves less 1: the search for the splits costs
+    # degrees of freedom, Ye's point)
+    assert T.edf_.iloc[0] > 3
+    new = pd.DataFrame({'x': [0.2, 0.8], 'z': [0., 0.]})
+    assert np.ptp(T.predict(new)) > 0.2
+    assert T.posterior_covariance_ is None
+    with pytest.raises(ValueError, match='basis'):
+        GLMM([RegressorSmoother('x', DecisionTreeRegressor()), s('hour')]).fit(data, data['y'])

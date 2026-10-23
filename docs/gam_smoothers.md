@@ -17,11 +17,13 @@ kernelspec:
 Each term of a GAM is a smoother ([Generalized additive
 models](gam.md#smoothers)), and each smoother has a parameter that sets how
 much it smooths: a spline's degrees of freedom or smoothing parameter, a
-loess's span, a basis' size, a Gaussian process' range.
+loess's span, a basis' size, a Gaussian process' range, a tree's depth.
 This page fits a GAM of one term to the same simulated data for several
 values of that parameter, and draws each fit's `predict()` on a grid.
 
-The parameters are a smoother's arguments, and a smoothing parameter is
+The parameters are a smoother's arguments, so they are also what
+`GridSearchCV` tunes (`terms__0__df`, ...; [Choosing a smoother by
+cross-validation](gam.md#choosing-a-smoother-by-cross-validation)), and
 what a `GLMM` estimates when a smoothing parameter is left out
 ([Generalized linear mixed models](glmm.md)).
 
@@ -31,7 +33,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from glmnet.gam import (GAM, GAMControl, s, lo, cubic_regression_spline, cyclic_spline, gaussian_process,
-                        tensor_spline, random_effect as re, categorical)
+                        tensor_spline, random_effect as re, categorical, TransformerSmoother, RegressorSmoother)
 
 rng = np.random.default_rng(0)
 n = 300
@@ -124,6 +126,43 @@ ax = gallery(lambda v: gaussian_process('x', range=v, k=40, lam=1e-3), [0.02, 0.
              'range')
 ax.set_title("gaussian_process('x', range=..., lam=1e-3)");
 ```
+
+## A P-spline from scikit-learn: `TransformerSmoother`
+
+`SplineTransformer`'s B-splines with a penalty on their coefficients'
+second differences (Eilers and Marx, 1996). The number of knots matters
+little once there are enough; the penalty does the smoothing:
+
+```{code-cell} ipython3
+from sklearn.preprocessing import SplineTransformer
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 3.5))
+gallery(lambda v: TransformerSmoother('x', SplineTransformer(n_knots=v), lam=1e-4),
+        [5, 10, 40], 'n_knots', ax=axes[0])
+axes[0].set_title('SplineTransformer(n_knots=...), lam=1e-4')
+gallery(lambda v: TransformerSmoother('x', SplineTransformer(n_knots=40), lam=v),
+        [1e-6, 1e-3, 1e-1], 'lam', ax=axes[1])
+axes[1].set_title('SplineTransformer(n_knots=40), lam=...')
+fig.tight_layout()
+```
+
+## A tree: `RegressorSmoother`
+
+Any scikit-learn regressor that takes `sample_weight` is a smoother for
+backfitting. A tree's depth sets its number of steps; the jump at 0.7 is
+easy for it, the waves are not:
+
+```{code-cell} ipython3
+from sklearn.tree import DecisionTreeRegressor
+
+ax = gallery(lambda v: RegressorSmoother('x', DecisionTreeRegressor(max_depth=v), df=2 ** v - 1),
+             [1, 2, 3, 6], 'max_depth')
+ax.set_title("RegressorSmoother('x', DecisionTreeRegressor(max_depth=...))");
+```
+
+(`df` is given, its number of leaves less 1, to skip the Monte Carlo estimate of
+its generalized degrees of freedom; it changes only the fit's degrees of
+freedom, not its predictions.)
 
 ## Random effects: `random_effect(g, lam=...)`
 
