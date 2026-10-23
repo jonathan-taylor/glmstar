@@ -6,6 +6,8 @@ Main classes and functions
 
 .. automodule:: glmnet
    :members:
+   :imported-members:
+   :exclude-members: version, PackageNotFoundError
    :undoc-members:
    :show-inheritance:
    :no-index:
