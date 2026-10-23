@@ -30,7 +30,7 @@
   only a basis and its penalties (`basis()`, `penalty_matrices()`, `lam`)
   and inherits the smoothing, degrees of freedom and prediction, and with
   them the joint solve, standard errors and a GLMM's estimates. The GAM
-  page shows how to write both (#PR).
+  page shows how to write both (#194).
 - **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingSmoother`,
   mgcv's `by=`; Hastie and Tibshirani, 1993). Any smooth varies with a
   categorical, a curve per level (`varying(s('x'), by='f')`, mgcv's `s(x,
@@ -62,13 +62,13 @@
 - **`re()` is now `random_effect()`**, an explicit name (the docs import
   it as `re`: `from glmnet.gam import random_effect as re`); `re()` still
   works, with a FutureWarning. Its terms are named `random_effect(...)`, as
-  are their rows of `variance_components_` and `smoothing_.terms` (#PR).
+  are their rows of `variance_components_` and `smoothing_.terms` (#194).
 - **The smoothers' former names:** `Term`, `SplineTerm`, `LoessTerm`,
   `SlopeTerm` (now `LinearSmoother`), `ColumnsTerm`, `RandomEffectTerm`,
   `CorrelatedRandomEffectTerm`, `PenalizedColumnsTerm`, `GPTerm`
   (`GaussianProcessSmoother`), `TensorTerm` (`TensorSplineSmoother`) and
   `CyclicSplineTerm` are now `...Smoother`; the old names still work, with
-  a FutureWarning, as does `FactorTerm` (`CategoricalSmoother`) (#PR).
+  a FutureWarning, as does `FactorTerm` (`CategoricalSmoother`) (#194).
 
 ### Removed
 
@@ -97,7 +97,7 @@
   smoothers' structure and on writing one (a step function, a Fourier
   basis, a P-spline from `SplineTransformer`, a tree); **a new page,
   Generalized linear mixed models,** has REML and ML, holding some
-  parameters fixed, other methods and large random effects (#PR).
+  parameters fixed, other methods and large random effects (#194).
 - The GAM page's section on factor-by smooths is now on varying
   coefficients (per level, pooled, and a numeric `by`); the R translation
   page lists `varying()` and `cubic_regression_spline()`. The Bikeshare
