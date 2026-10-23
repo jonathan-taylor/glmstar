@@ -48,8 +48,8 @@ implements it as `s(x, bs="gp")` (Wood, 2017, section 5.8.2).
 
 Like a spline term `s()`, it takes a fixed smoothing parameter `lam`, a
 number of degrees of freedom `df`, or neither, to have its smoothing
-parameter estimated by REML or ML; it works with both solvers (backfitting
-and the joint fit), every family, weights and offsets, and has standard
+parameter estimated by a `GLMM` (REML or ML); it works with both solvers
+(backfitting and the joint fit), every family, weights and offsets, and has standard
 errors and `plot`.
 
 ```{code-cell} ipython3

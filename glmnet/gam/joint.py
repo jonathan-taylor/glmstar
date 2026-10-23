@@ -38,7 +38,7 @@ class JointDesign(object):
 
     - with the sum-to-zero constraint over the training rows absorbed (as
       mgcv: `B Z`, `Z` a basis of the coefficients `c` with `1' B c = 0`)
-      when the constant is among the functions it fits (a spline, a factor's
+      when the constant is among the functions it fits (a spline, a categorical's
       indicators);
     - centered (`B - mean(B)`) when it is not (a linear term, a block of
       columns);
@@ -88,6 +88,7 @@ class JointDesign(object):
 
     @property
     def n_coef(self):
+        """The number of columns of the design (with the intercept)."""
         return self.X.shape[1]
 
     def block(self, j, x):

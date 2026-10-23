@@ -1,6 +1,6 @@
 """
-Terms of a generalized additive model: each is a weighted smoother of one
-column of `X`, as in Hastie & Tibshirani's local scoring.
+Terms of a generalized additive model: each is a weighted smoother of a
+column of `X` (or of several), as in Hastie & Tibshirani's local scoring.
 
 A term is set up on its column of the training data (`setup`), told the
 weights of the current working (IRLS) problem (`set_weights`), and then asked
@@ -17,11 +17,12 @@ from which it predicts at new values (`predict`).
 For modified backfitting (Buja, Hastie & Tibshirani, 1989) a term also gives
 the columns of the functions its smoother reproduces, other than the
 constant (`linear_columns()`: `x` for a spline or a linear term; the
-indicators for a factor), which are fitted jointly with those of the other
-terms, and smooths only the rest (`smooth_nonlinear`). A term that is itself a
-projection on its columns (linear, factor) is not smoothed then. This needs a
-symmetric smoother (in the weighted inner product), for which it has the same
-fixed point as plain backfitting; loess is not, and gives no columns.
+indicators for a categorical), which are fitted jointly with those of the
+other terms, and smooths only the rest (`smooth_nonlinear`). A term that is
+itself a projection on its columns (linear, categorical) is not smoothed
+then. This needs a symmetric smoother (in the weighted inner product), for
+which it has the same fixed point as plain backfitting; loess is not, and
+gives no columns.
 
 For the joint (mgcv-style) solve of the working problems, and the Bayesian
 covariance of a fit, a term also gives its design operator: its basis
@@ -129,6 +130,7 @@ class Smoother(BaseEstimator):
 
     @property
     def name(self):
+        """The term's name, as `s(age, df=5)`: its label, or the prefix and column."""
         label = getattr(self, 'label', None)
         prefix = getattr(self, '_label', None) or type(self).__name__
         return label if label else f'{prefix}({self.column})'
@@ -290,6 +292,7 @@ class PenalizedSmoother(Smoother):
 
     @property
     def has_objective(self):
+        """Whether every smoothing parameter is given (the fit minimizes a fixed objective)."""
         return self.lam is not None and not any(
             v is None for v in np.atleast_1d(np.asarray(self.lam, dtype=object)))
 
@@ -896,6 +899,7 @@ class RandomEffectSmoother(Smoother):
 
     @property
     def name(self):
+        """The term's name, as `random_effect(g, by=x)` (or its label)."""
         label = getattr(self, 'label', None)
         if label:
             return label
@@ -1033,8 +1037,8 @@ class CorrelatedRandomEffectSmoother(Smoother):
     The penalty is `sum_g b_g' B b_g / 2`, `B` the precision on the scale
     of the GAM's objective (`precision`, a `q x q` matrix, `q` the number of
     effects per group; `Sigma = dispersion (sum(weights) B)^{-1}`). With
-    `precision` None it is estimated by `method='REML'` or `'ML'` (a given
-    precision is used as it is, whatever the structure).
+    `precision` None it is estimated by a `GLMM` (a given precision is used
+    as it is, whatever the structure).
 
     The penalty identifies the effects: the term is not centered. Groups
     not seen in fitting predict 0.
@@ -1061,6 +1065,7 @@ class CorrelatedRandomEffectSmoother(Smoother):
 
     @property
     def effect_names(self):
+        """The names of the effects per group: `'(Intercept)'` and the slopes' columns."""
         return (['(Intercept)'] if self.intercept else []) + [str(v) for v in self.slopes]
 
     def _split(self, x):
@@ -1182,8 +1187,10 @@ def correlated_random_effect(column, slopes=(), intercept=True, precision=None,
     """
     Correlated random effects per group of `column` (see
     `CorrelatedRandomEffectSmoother`): an intercept and slopes in the columns
-    `slopes`, with an unstructured covariance, lme4's `(1 + v | g)`; its
-    precision estimated by `method='REML'` or `'ML'` unless given.
+    `slopes`, lme4's `(1 + v | g)`; its precision estimated by a `GLMM`
+    unless given. `covariance` is its structure: `'unstructured'` (the
+    default), `'compound_symmetry'` or `'diagonal'`; `name` overrides the
+    term's name.
     """
     if _is_interaction(column):
         column = list(column)
@@ -1206,7 +1213,9 @@ def random_effect(column, by=None, lam=None, df=None, name=None):
     group. `column` may be a list of columns: the groups are then their
     combinations, so that `random_effect('batch') + random_effect(['batch',
     'cask'])` are the nested effects of lme4's `(1 | batch/cask)`. (Short, on
-    import: `from glmnet.gam import random_effect as re`.)
+    import: `from glmnet.gam import random_effect as re`.) `lam` (or `df`)
+    fixes its smoothing; neither: estimated by a `GLMM`. `name` overrides the
+    term's name.
     """
     if _is_interaction(column):
         column = list(column)
@@ -1228,7 +1237,8 @@ def penalized_columns(columns, penalties, lam=None, name=None):
     A block of columns with quadratic penalties on their coefficients (see
     `PenalizedColumnsSmoother`), as mgcv's `paraPen`: `columns` a list of
     columns, `penalties` a list of matrices, `lam` one smoothing parameter
-    per penalty (None: estimated, with `method='REML'` or `'ML'`).
+    per penalty (None: estimated by a `GLMM`); `name` overrides the term's
+    name.
     """
     columns = list(columns) if isinstance(columns, (list, tuple)) else [columns]
     term = PenalizedColumnsSmoother(columns, penalties=list(penalties),
@@ -1239,8 +1249,9 @@ def penalized_columns(columns, penalties, lam=None, name=None):
 
 def s(column, df=None, lam=None, name=None):
     """
-    A smoothing spline term (see `SplineSmoother`): `df=4` by default in a
-    `GAM`; its smoothing parameter estimated in a `GLMM`.
+    A smoothing spline term (see `SplineSmoother`), its smoothing fixed by
+    `df` or `lam`; with neither, `df=4` in a `GAM` and its smoothing parameter
+    estimated in a `GLMM`. `name` overrides the term's name.
     """
     term = SplineSmoother(column, df=df, lam=lam)
     term.label = name or _name('s', column, df=df, lam=lam)
@@ -1248,7 +1259,7 @@ def s(column, df=None, lam=None, name=None):
 
 
 def lo(column, span=0.5, degree=1, name=None):
-    """A loess term (see `LoessSmoother`)."""
+    """A loess term of span `span` and degree `degree` (see `LoessSmoother`)."""
     term = LoessSmoother(column, span=span, degree=degree)
     term.label = name or _name('lo', column, span=None if span == 0.5 else span,
                                degree=None if degree == 1 else degree)

@@ -49,7 +49,8 @@ are columns named by `weight_id` and `offset_id`; the family is a
 statsmodels family (`sm.families.Binomial()`) or glmstar's `CoxFamily`.
 
 The term functions have descriptive names. Shorter ones are a matter of
-import, e.g. `from glmnet.gam import tensor_spline as te`.
+import, e.g. `from glmnet.gam import tensor_spline as te`; the tables below
+write `random_effect` as `re` (`from glmnet.gam import random_effect as re`).
 
 ## From `gam::gam`
 
@@ -73,9 +74,9 @@ evenly spaced among the sorted distinct values.
 
 ## From `mgcv`
 
-`method='REML'` or `'ML'` estimates the smoothing parameters as
-`mgcv::gam(method=...)` (Wood, 2011). See the page "REML and ML for GAMs:
-the design".
+`GLMM(method='REML')` or `'ML'` estimates the smoothing parameters as
+`mgcv::gam(method=...)` (Wood, 2011). See [REML and ML for GAMs: the
+design](gam_reml.md).
 
 | R (`mgcv`) | `glmnet.gam` | Checked against R |
 |---|---|---|
@@ -123,8 +124,8 @@ fits agree to about 1e-4 and our criterion is as low.
 ## From `lme4` and `nlme`
 
 A random effect is a term whose penalty is the Gaussian prior on its
-effects (see the page "Mixed models as GAMs"). For a Gaussian response the
-REML and ML criteria are exactly lme4's.
+effects (see [Mixed models as GAMs](gam_mixed_models.md)). For a Gaussian
+response the REML and ML criteria are exactly lme4's.
 
 | R (`lme4`, `nlme`) | `glmnet.gam` | Checked against R |
 |---|---|---|
@@ -141,7 +142,7 @@ REML and ML criteria are exactly lme4's.
 | `(1 \| obs)` (observation-level) | `re('obs')`, a column with a label per row | `glmer` |
 | `VarCorr(m)` | `fit.variance_components_`, and a correlated term's `covariance_` | |
 | `ranef(m)` | the term's `effects_` (`fit.terms_[j].effects_`) | |
-| `fixef(m)` | the linear terms' `coef_` and `fit.intercept_` | |
+| `fixef(m)` | `fit.fixed_effects_` (with standard errors): the intercept and the linear terms' `coef_` | |
 | `fitted(m)` | `fit.predict(X)` | |
 
 Two differences in what is reported:
@@ -158,10 +159,9 @@ Two differences in what is reported:
 
 These have no translation yet:
 
-- shrinkage
-  bases (`bs="ts"`, `select=TRUE`), P-spline bases, and
-  thin-plate splines (`bs="tp"`; `gaussian_process` and `tensor_spline` are
-  the multi-column smooths);
+- shrinkage bases (`bs="ts"`, `select=TRUE`) and thin-plate splines
+  (`bs="tp"`; `gaussian_process` and `tensor_spline` are the multi-column
+  smooths);
 - mgcv's `Vc` correction of the covariance for the uncertainty in the
   smoothing parameters;
 - `bam()` and its discretized fits for very large data;
@@ -170,6 +170,10 @@ These have no translation yet:
   functions;
 - `glmer` with adaptive Gauss–Hermite quadrature (`nAGQ > 1`);
 - Kenward–Roger or Satterthwaite degrees of freedom.
+
+A P-spline (`bs="ps"`) is a `TransformerSmoother` of scikit-learn's
+`SplineTransformer` ([Generalized additive
+models](gam.md#from-scikit-learn-a-p-spline)), not compared with mgcv's.
 
 ## References
 

@@ -80,6 +80,7 @@ class GAMState(object):
             self.obj_val = objective(self)
 
     def logl_score(self, family, y, sample_weight):
+        """The score of the log-likelihood in the linear predictor (GLM's or Cox's)."""
         if getattr(family, 'base', None) is None:
             return CoxState.logl_score(self, family, y, sample_weight)
         return GLMState.logl_score(self, family, y, sample_weight)
@@ -133,9 +134,11 @@ class GAMRegularizer(object):
 
     @property
     def has_objective(self):
+        """Whether every term minimizes a fixed objective."""
         return all(term.has_objective for term in self.terms)
 
     def half_step(self, state, oldstate):
+        """The state halfway between `oldstate` and `state` (fits and coefficients)."""
         return GAMState(0.5 * (oldstate.fits + state.fits),
                         0.5 * (oldstate.intercept + state.intercept),
                         coefs=[_average(c_old, c) for c_old, c in zip(_coefs(oldstate, self.terms),
@@ -145,6 +148,7 @@ class GAMRegularizer(object):
         return f'Intercept: {state.intercept}, Objective: {state.obj_val}'
 
     def check_state(self, state):
+        """Raise if the fits or the intercept have NaNs."""
         if np.any(np.isnan(state.fits)):
             raise ValueError('fits have NaNs')
         if np.isnan(state.intercept):
@@ -286,6 +290,7 @@ class GAMRegularizer(object):
         return fits, intercept, coefs, sweep, change
 
     def objective(self, state):
+        """The terms' penalties at `state`, plus the linear term."""
         coefs = _coefs(state, self.terms)
         value = sum(term.penalty(state.fits[:, j], coef)
                     for j, (term, coef) in enumerate(zip(self.terms, coefs)))

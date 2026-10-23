@@ -350,8 +350,8 @@ and Owen (2022b) fit $\operatorname{logit} P(y_{ij} = 1) = x_{ij}^T\beta + a_i
    $Z^TWZ + \operatorname{diag}(\sigma_k^{-2}I)$, at the working weights
    $W$. $\nu_k$ is the number of effects the penalty shrinks away, so
    $R_k - \nu_k$ is their degrees of freedom. This is the same identity
-   as on the page "REML and ML for GAMs: the design", now used as an
-   update.
+   as on the page [REML and ML for GAMs: the design](gam_reml.md), now
+   used as an update.
 3. Repeat until the variances settle.
 
 $T$ is $(R + C) \times (R + C)$, and its inverse is the expensive part.

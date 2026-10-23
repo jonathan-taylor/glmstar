@@ -71,7 +71,7 @@ class CubicRegressionSplineSmoother(Smoother):
         The knots.
     lam : float, optional
         The smoothing parameter, on the scale of the GAM's objective; None:
-        estimated (`method='REML'` or `'ML'`).
+        estimated by a `GLMM`.
     """
     k: int = 10
     knots: Optional[np.ndarray] = None
@@ -200,8 +200,8 @@ class VaryingSmoother(Smoother):
         The smoothing parameters, on the scale of the GAM's objective: one
         for all, or one for each penalty of each level (the level's
         penalties in order, level by level), or with `pooled_lam`, one per
-        penalty of `inner`. None: `inner`'s, else estimated (`method='REML'`
-        or `'ML'`).
+        penalty of `inner`. None: `inner`'s, else estimated by a
+        `GLMM`.
     pooled_lam : bool
         A categorical `by`: the levels share the smoothing parameters (mgcv's
         `id`); by default each level has its own.
@@ -237,7 +237,7 @@ class VaryingSmoother(Smoother):
 
     @property
     def categorical_column(self):
-        # (GAM records a categorical's categories; a numeric `by` has none)
+        """The categorical column `by` (None if numeric), whose categories `GAM` records."""
         return self.by if self.as_categorical else None
 
     @property

@@ -134,7 +134,7 @@ class RegressorSmoother(Smoother):
     weights, `tr(dF/dr)`, by Monte Carlo (`n_df_samples` fits to noise at the
     weights, Hutchinson's estimator of the trace for a linear smoother, with
     a standard error of about `sqrt(2 (df + 1) / n_df_samples)`), less 1 for
-    the constant.
+    the constant; `random_state` seeds the noise.
 
     >>> from sklearn.tree import DecisionTreeRegressor
     >>> RegressorSmoother('age', DecisionTreeRegressor(max_depth=3))

@@ -10,6 +10,15 @@ Main classes and functions
    :show-inheritance:
    :no-index:
 
+Generalized additive models
+---------------------------
+
+.. automodule:: glmnet.gam
+   :members:
+   :imported-members:
+   :show-inheritance:
+   :no-index:
+
 Paths module
 ------------
 

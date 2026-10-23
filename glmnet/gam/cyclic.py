@@ -95,7 +95,7 @@ class CyclicSplineSmoother(Smoother):
         The knots, the first and last the ends of the cycle.
     lam : float, optional
         The smoothing parameter, on the scale of the GAM's objective; None:
-        estimated (`method='REML'` or `'ML'`).
+        estimated by a `GLMM`.
     """
     k: int = 10
     period: Optional[tuple] = None
