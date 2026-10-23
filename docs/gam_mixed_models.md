@@ -49,7 +49,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, s, re, linear, categorical, correlated_random_effect
+from glmnet.gam import GAM, GLMM, s, re, linear, categorical, correlated_random_effect
 
 
 def effects(rng, labels, sd):

@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import (GAM, s, re, categorical, tensor_spline, varying, cubic_regression_spline,
+from glmnet.gam import (GLMM, s, re, categorical, tensor_spline, varying, cubic_regression_spline,
                         QuasiPoisson, NegativeBinomial, ExperimentalWarning)
 
 Bike = load_data('Bikeshare')
