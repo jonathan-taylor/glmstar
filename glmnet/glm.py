@@ -1149,6 +1149,9 @@ class GLM(GLMBase):
     def _fixed_dispersion(self):
         """Is the dispersion of the family fixed at 1 (binomial, Poisson, negative binomial, Cox)?"""
         base = getattr(self._family, 'base', None)
+        if getattr(base, 'fixed_dispersion', None) is not None:
+            # (a family that says, e.g. `glmnet.gam.JaxFamily`)
+            return bool(base.fixed_dispersion)
         return base is None or isinstance(base, (sm_family.Binomial,
                                                  sm_family.Poisson,
                                                  sm_family.NegativeBinomial))

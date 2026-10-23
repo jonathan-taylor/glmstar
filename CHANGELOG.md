@@ -4,6 +4,14 @@
 
 ### New features
 
+- **A family of one's own, in JAX** (`glmnet.gam.JaxFamily(linkinv,
+  unit_deviance, saturated_loglike=None, fixed_dispersion=True)`): the
+  link's derivatives and the variance function (`2 / d''(mu, mu)`) follow
+  by `jax.grad`, for a `GAM` and for `GLMM` REML and ML. Any family with
+  `jax_pieces()` has REML and ML. A probit by hand matches statsmodels'
+  probit (fitted values, smoothing parameters, REML score, edf, standard
+  errors to 1e-8 or better). REML's built-in probit and complementary
+  log-log were the logit's: statsmodels derives them from `Logit` (#PR).
 - **REML and ML with one large random effect, factored by blocks**
   (`glmnet.gam.blocked`, `GAMControl(reml_backend='auto' | 'dense' |
   'blocked')`). The random effect with the most levels is kept implicit

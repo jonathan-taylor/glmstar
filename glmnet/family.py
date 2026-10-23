@@ -252,7 +252,12 @@ class GLMFamilySpec(object):
         mu = np.asarray(state.mu)
         if not np.all(np.isfinite(mu)):
             return False
-        if not isinstance(self.base, sm_family.Gaussian) and np.any(mu <= 0):
+        valid_mean = getattr(self.base, '_valid_mean', None)
+        if valid_mean is not None:
+            # (a family of its own domain, e.g. `glmnet.gam.JaxFamily`)
+            if not valid_mean(mu):
+                return False
+        elif not isinstance(self.base, sm_family.Gaussian) and np.any(mu <= 0):
             return False
         with np.errstate(all='ignore'):
             varmu = self.base.variance(mu)
