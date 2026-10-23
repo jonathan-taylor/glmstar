@@ -84,6 +84,11 @@
 
 ### Fixes
 
+- **REML and ML: Newton's steps at most 5** in each log smoothing parameter
+  (as mgcv's), and a step where the criterion cannot be computed is halved:
+  near a smoothing parameter going to infinity the Hessian is nearly
+  singular, and its full step could take the dispersion to 0 (a
+  `ZeroDivisionError`) (#193).
 - **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
   basis, as before #189: a varying term has a basis when its inner term does
   (`has_basis`) (#191).
