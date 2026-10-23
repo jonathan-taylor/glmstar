@@ -151,6 +151,7 @@ def test_backend_choice(data):
         GAM([s('u')], method='REML', control=GAMControl(reml_backend='blocked')).fit(data, data['y'])
 
 
+@pytest.mark.large
 def test_large():
     # 5 * 10^4 levels: REML without the dense 5 * 10^4 square matrices
     rng = np.random.default_rng(3)
