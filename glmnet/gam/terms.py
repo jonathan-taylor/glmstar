@@ -165,7 +165,25 @@ class Term(object):
 
     def penalty_lams(self):
         """The smoothing parameters of the penalties, at the current weights."""
-        return [self.penalty_lam()] if self.penalty_matrix() is not None else []
+        return [self.penalty_lam()] if self.penalized else []
+
+    # cheap questions about the basis and the penalty, which do not form
+    # them (a random effect's are of the size of its levels: of its basis,
+    # rows by levels; of its penalty, levels squared)
+
+    @property
+    def has_basis(self):
+        """Does the term have a basis (`basis()`; loess does not)?"""
+        return type(self).basis is not Term.basis
+
+    @property
+    def penalized(self):
+        """Is the term penalized (has it a `penalty_matrix()`)?"""
+        return self.penalty_matrix() is not None
+
+    def n_coef(self):
+        """The number of columns of its basis (set up; 0 without one)."""
+        return self.basis().shape[1] if self.has_basis else 0
 
     def set_penalty_lams(self, lams):
         """Fix the smoothing parameters, one per penalty (as REML and ML do)."""
@@ -312,6 +330,9 @@ class CategoricalTerm(Term):
         # the indicators of all the levels (unseen levels: 0)
         codes = self.codes_ if x is None else self._codes(x)
         return (codes[:, None] == np.arange(len(self.levels_))[None, :]).astype(float)
+
+    def n_coef(self):
+        return len(self.levels_)
 
     def smooth(self, r):
         nl = len(self.levels_)
@@ -491,6 +512,10 @@ class SplineTerm(Term):
                 self._basis = self._basis_values(self.x_)
             return self._basis
         return self._basis_values(np.asarray(x, float))
+
+    def n_coef(self):
+        # (without forming the basis: a column per knot)
+        return len(self.knots_)
 
     def penalty_matrix(self):
         """
@@ -844,6 +869,11 @@ class RandomEffectTerm(Term):
     def penalty_matrix(self):
         return np.identity(len(self.levels_))
 
+    penalized = True
+
+    def n_coef(self):
+        return len(self.levels_)
+
     def penalty_lam(self):
         return self.lam_
 
@@ -997,6 +1027,11 @@ class CorrelatedRandomEffectTerm(Term):
 
     def penalty_matrices(self):
         return [np.kron(np.identity(len(self.levels_)), self.precision)]
+
+    penalized = True
+
+    def n_coef(self):
+        return len(self.levels_) * self.q_
 
     def penalty_matrix(self):
         if self.precision is None:

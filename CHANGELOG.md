@@ -55,6 +55,31 @@
   page uses `varying()` (its import of `by_factor_spline` had been lost in
   a merge, so the page did not run in 0.5.0) (#188).
 
+### Fixes
+
+- **Large random effects without dense matrices.** Fitting a GAM with a
+  random effect of many levels no longer forms its `R x R` penalty (each
+  term says whether it is `penalized`, has a basis, `has_basis`, and how
+  many coefficients, `n_coef()`, without forming them), and the dense
+  covariance is formed only for at most `GAMControl(max_dense_coef=20000)`
+  coefficients: above, `posterior_covariance_`, `edf_influence_` and
+  `design_` are None, standard errors raise saying so, plots have no bands,
+  and REML and ML (whose Hessian is dense) raise. The fit,
+  `fixed_effects_`, `summary()` and predictions do not need them. On
+  simulated ratings of the size of Ghosh, Hastie and Owen's (5 million
+  ratings, 750,000 customers, 4,000 items; the docs' `ratings()`
+  generator, not their data, which is not public), the crossed-effects fit
+  of the docs takes 56 s and 2.9 GB (it would have taken about 14 GB); at
+  1 million ratings 0.8 GB, down from 2.9 GB (#189).
+
+### Packaging
+
+- **Fewer CI runs.** The tests run on pull requests (Linux only) and on
+  pushes to main (macOS, Linux and Windows), not on every push to every
+  branch; by hand too (`workflow_dispatch`). A new push cancels the run in
+  progress for its branch, and changes only to the docs or Markdown files
+  do not run them (#187).
+
 ## 0.5.0 (2026-10-22)
 
 ### New features

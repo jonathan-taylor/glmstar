@@ -487,8 +487,11 @@ customer, PQL's bias does not shrink with more data.
   effects (Bellio et al., 2023) are consistent, and also scale.
 - `fixed_effects_` is for linear terms and blocks of columns; a categorical
   among the fixed effects is given as a block of its indicator columns.
-- Standard errors of predictions, `predict(..., return_std=True)`, form the
-  dense covariance.
+- Standard errors of predictions, `predict(..., return_std=True)`, need
+  the dense covariance. Above `GAMControl(max_dense_coef=20000)`
+  coefficients it is not formed: they raise, saying so, and plots are drawn
+  without their bands. The fit, `fixed_effects_` and `summary()` never
+  form a dense matrix of the random effects' size.
 
 ## References
 

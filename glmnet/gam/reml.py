@@ -1044,7 +1044,7 @@ def estimated_terms(gam):
     normed = gam._normed_weight
     estimated = []
     for j, term in enumerate(gam.terms_):
-        if term.penalty_matrix() is None:
+        if not term.penalized:
             continue
         if getattr(term, 'penalty_varies', False):
             if term.precision is None:
@@ -1066,8 +1066,15 @@ def select_smoothing(gam, dispersion=None):
     (`gam.method`), and set them on its terms. `gam` is set up for fitting.
     """
     terms = gam.terms_
-    if any(term.basis() is None for term in terms):
+    if not all(term.has_basis for term in terms):
         raise ValueError('REML and ML need a basis for every term (not lo())')
+    n_coef = 1 + sum(term.n_coef() for term in terms)
+    if n_coef > gam.control.max_dense_coef:
+        # (the criterion's H is dense: P x P)
+        raise ValueError(f'method="{gam._method.name}" forms the dense {n_coef} x {n_coef} '
+                         'Hessian of the coefficients, more than '
+                         f'GAMControl(max_dense_coef={gam.control.max_dense_coef}); raise it, '
+                         'or use a method for large data (glmnet.gam.selection)')
     normed = gam._normed_weight
     estimated = estimated_terms(gam)
     if not estimated:
