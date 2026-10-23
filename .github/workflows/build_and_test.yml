@@ -2,6 +2,8 @@ name: Build and run python tests
 
 # Linux on pull requests; all three systems on pushes to main (merges) and
 # by hand. Changes only to the docs or Markdown files do not run the tests.
+# The tests are --test-size=small, in parallel; by hand (Actions, "Run
+# workflow") they can be --test-size=large, the exhaustive ones.
 on:
   push:
     branches: [main]
@@ -9,11 +11,24 @@ on:
   pull_request:
     paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
+    inputs:
+      test_size:
+        description: 'pytest --test-size'
+        type: choice
+        options: [small, large]
+        default: small
 
 # a new push to a branch cancels the run still going for it
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  TEST_SIZE: ${{ inputs.test_size || 'small' }}
+  # one BLAS / OpenMP thread per pytest worker (-n auto: one per core)
+  OPENBLAS_NUM_THREADS: 1
+  OMP_NUM_THREADS: 1
+  MKL_NUM_THREADS: 1
 
 jobs:
 
@@ -54,8 +69,8 @@ jobs:
 
       - name: Test pyglmnet
         run: |
-          pip install pytest matplotlib
-          pytest tests --test-size=small
+          pip install pytest pytest-xdist matplotlib
+          pytest tests --test-size=$TEST_SIZE -n auto --dist loadfile --durations=15
 
   build-linux:
     runs-on: ubuntu-latest
@@ -84,8 +99,8 @@ jobs:
 
       - name: Test pyglmnet
         run: |
-          pip install pytest matplotlib
-          pytest tests --test-size=small
+          pip install pytest pytest-xdist matplotlib
+          pytest tests --test-size=$TEST_SIZE -n auto --dist loadfile --durations=15
 
 
 
@@ -121,5 +136,5 @@ jobs:
 
       - name: Test pyglmnet
         run: |
-          pip install pytest matplotlib
-          pytest tests --test-size=small
+          pip install pytest pytest-xdist matplotlib
+          pytest tests --test-size=$TEST_SIZE -n auto --dist loadfile --durations=15

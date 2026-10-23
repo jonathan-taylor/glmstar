@@ -1033,11 +1033,15 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         return start[self.est_index]
 
 
-def _newton(crit, x, bounds, maxit=100, tol=1e-8):
+def _newton(crit, x, bounds, maxit=100, tol=1e-8, max_step=5.):
     """
     Newton's method from `x` (the quasi-Newton optimum), its Hessian by
     central differences of the gradient (step `crit.hess_eps`), with step
-    halving: the optimum to the precision of the gradient. Near the
+    halving: the optimum to the precision of the gradient. A step is at
+    most `max_step` in each parameter (as mgcv's `maxNstep`, 5 on the log
+    scale): near a parameter going to infinity the Hessian is nearly
+    singular, and its full step would leave the region where the criterion
+    is computed accurately. Near the
     optimum a step's decrease of the criterion can be below its precision
     (`crit.value_tol`, relative): a step that does not increase it beyond
     that, and halves the gradient, is taken. Parameters on their bounds (a
@@ -1066,10 +1070,20 @@ def _newton(crit, x, bounds, maxit=100, tol=1e-8):
             Hf = Hf + (1e-6 - ev.min()) * np.identity(Hf.shape[0])
         step = np.zeros(k)
         step[free] = -np.linalg.solve(Hf, grad[free])
+        largest = np.max(np.abs(step))
+        if largest > max_step:
+            step *= max_step / largest
         t = 1.
         while t > 1e-8:
             x_new = np.clip(x + t * step, lo, hi)
-            v_new, g_new = crit.value_and_grad(x_new)
+            try:
+                v_new, g_new = crit.value_and_grad(x_new)
+            except (ZeroDivisionError, FloatingPointError, OverflowError, np.linalg.LinAlgError):
+                v_new = np.inf
+            if not np.isfinite(v_new):
+                # (outside the region where the criterion can be computed)
+                t /= 2
+                continue
             if v_new <= value + 1e-12 * abs(value):
                 break
             free_new = free & ~(((x_new <= lo + 1e-8) & (g_new > 0)) |

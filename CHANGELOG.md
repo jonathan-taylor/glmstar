@@ -122,6 +122,11 @@
 
 ### Fixes
 
+- **REML and ML: Newton's steps at most 5** in each log smoothing parameter
+  (as mgcv's), and a step where the criterion cannot be computed is halved:
+  near a smoothing parameter going to infinity the Hessian is nearly
+  singular, and its full step could take the dispersion to 0 (a
+  `ZeroDivisionError`) (#193).
 - **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
   basis, as before #189: a varying term has a basis when its inner term does
   (`has_basis`) (#191).
@@ -142,6 +147,11 @@
 
 ### Packaging
 
+- **Faster CI.** The tests run in parallel (pytest-xdist, `-n auto`, one BLAS
+  thread per worker; `--dist loadfile`, a test file to a worker, so each
+  module's random draws are those of a serial run), at `--test-size=small`; a
+  run by hand (Actions, "Run workflow", or `gh workflow run build_and_test.yml
+  -f test_size=large`) can be `--test-size=large` (#192).
 - **Fewer CI runs.** The tests run on pull requests (Linux only) and on
   pushes to main (macOS, Linux and Windows), not on every push to every
   branch; by hand too (`workflow_dispatch`). A new push cancels the run in
