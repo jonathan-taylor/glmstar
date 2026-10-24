@@ -7,7 +7,7 @@
 - **The wheels carry the license files** (`license-files`, PEP 639):
   glmstar's `LICENSE.txt` and glmnetpp's, whose code they contain; 0.6.0's
   wheels declared GPL-2.0-only without the text. The build needs
-  meson-python 0.18 or later (#PR).
+  meson-python 0.18 or later (#205).
 
 ## 0.6.0 (2026-10-23)
 
