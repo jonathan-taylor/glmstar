@@ -120,6 +120,7 @@ import numpy as np
 from scipy.optimize import minimize
 from statsmodels.genmod.families import family as sm_family, links as sm_links
 
+from ..family import is_link
 from .joint import JointDesign
 from .linalg import DenseHessian
 from .blocked import (SplitDesign, SplitPenalty, BlockedHessian, SplitJointDesign,
@@ -180,19 +181,21 @@ def _jax_family(family):
     from jax.scipy.stats import norm
 
     link = family.link
-    if isinstance(link, sm_links.Identity):
+    # (is_link, not isinstance: statsmodels derives Probit, CLogLog, LogLog and
+    # Cauchy from Logit)
+    if is_link(link, sm_links.Identity):
         linkinv = lambda eta: eta
-    elif isinstance(link, sm_links.Log):
+    elif is_link(link, sm_links.Log):
         linkinv = jnp.exp
-    elif isinstance(link, sm_links.Logit):
+    elif is_link(link, sm_links.Logit):
         linkinv = jax.nn.sigmoid
-    elif isinstance(link, sm_links.Probit):
+    elif is_link(link, sm_links.Probit):
         linkinv = norm.cdf
-    elif isinstance(link, sm_links.CLogLog):
+    elif is_link(link, sm_links.CLogLog):
         linkinv = lambda eta: -jnp.expm1(-jnp.exp(eta))
-    elif isinstance(link, sm_links.InverseSquared):
+    elif is_link(link, sm_links.InverseSquared):
         linkinv = lambda eta: 1 / jnp.sqrt(eta)
-    elif isinstance(link, sm_links.InversePower) and getattr(link, 'power', -1.) == -1.:
+    elif is_link(link, sm_links.InversePower) and getattr(link, 'power', -1.) == -1.:
         linkinv = lambda eta: 1 / eta
     else:
         raise NotImplementedError(f'REML and ML: the link {type(link).__name__} is not supported')
