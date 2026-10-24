@@ -124,7 +124,7 @@
 
 - `test_gil_released_during_solve` failed on macOS when the tests ran in
   parallel: the spinner thread shares the runner's cores. The bar is now 5%
-  of its unobstructed rate, not 30% (#PR).
+  of its unobstructed rate, not 30% (#200).
 
 - **REML and ML: Newton's steps at most 5** in each log smoothing parameter
   (as mgcv's), and a step where the criterion cannot be computed is halved:
