@@ -34,13 +34,16 @@ sources_gaussnet = [
 sources_coxnet = [
   'src/coxnet.cpp',
   'src/internal.cpp',
-  'src/update_pb.cpp',
-  'src/glmnetpp/coxdev/cpp/src/coxdev.cpp'
+  'src/update_pb.cpp'
 ]
 
-# Cox additionally needs the coxdev headers (nested submodule of glmnetpp)
+# Cox additionally needs coxdev's headers: header-only since coxdev 0.4.0,
+# installed with its Python package (coxdev.get_include(), a build
+# requirement), and compiled into _coxnet
+coxdev_incdir = run_command(py, ['-c', 'import coxdev; print(coxdev.get_include())'],
+                            check : true).stdout().strip()
 inc_cox = include_directories('eigen', 'src/glmnetpp/include', 'src/glmnetpp/src', 'src/glmnetpp/test',
-                              'src/glmnetpp/coxdev/cpp/include')
+                              coxdev_incdir)
 
 sources_multigaussnet = [
   'src/multigaussnet.cpp',
