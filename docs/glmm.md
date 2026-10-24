@@ -201,6 +201,12 @@ Each random effect is shrunk towards 0, the more the smaller its group:
 the 19 widowed workers' effect moves the most, from $-14.0$ to $-10.8$
 (relative to the married workers, whose own effect is shrunk little).
 
+The standard errors of a GLMM are from the posterior covariance, which
+already models the grouping through the random effects. A sandwich
+covariance (`sandwich_covariance(groups=...)`, or a meat of your own from
+a grouped bootstrap) is a check against a wrong variance model: see [Sandwich
+(robust) standard errors](gam.md#sandwich-robust-standard-errors).
+
 ## Holding some parameters fixed
 
 A term given `lam` (or `df`, matched at the prior weights and then held, as

@@ -173,6 +173,10 @@ class GAM(BaseEstimator):
         The frequentist covariance of the same coefficients, `V X' W X V /
         dispersion` with `V = posterior_covariance_`: mgcv's `Ve`. None if
         a term has no basis.
+    working_weights_, penalty_matrix_: np.ndarray
+        `W` and `S` above (see there). The sandwich covariance,
+        `sandwich_covariance()`, has the same bread `X' W X + S`, and the
+        meat from `score_contributions()` (HC0, clustered, or one's own).
     design_: JointDesign
         The terms' bases side by side (None if a term has none).
 
@@ -633,7 +637,8 @@ class GAM(BaseEstimator):
         """
         if getattr(self, '_covariance', None) is not None:
             return self._covariance
-        cov = dict(design=None, posterior=None, frequentist=None, edf=None)
+        cov = dict(design=None, posterior=None, frequentist=None, edf=None,
+                   bread_inv=None, penalty=None)
         self._covariance_reason = None
         if not all(term.has_basis for term in self.terms_):
             self._covariance_reason = 'standard errors need a basis for every term (not lo())'
@@ -663,6 +668,8 @@ class GAM(BaseEstimator):
             # on the scale of the prior weights: X' W X and S times sum(weights)
             cov['posterior'] = self.dispersion_ * Ainv / self.weight_total_
             cov['frequentist'] = self.dispersion_ * Ainv @ XWX @ Ainv / self.weight_total_
+            # the bread of the sandwich (`sandwich_covariance`)
+            cov['bread_inv'], cov['penalty'] = Ainv, A - XWX
             F = np.einsum('ij,ji->i', Ainv, XWX)
             cov['edf'] = pd.Series([F[sl].sum() for sl in D.slices],
                                    index=[term.name for term in self.terms_],
@@ -686,13 +693,147 @@ class GAM(BaseEstimator):
     def edf_influence_(self):
         return self._get_covariance()['edf']
 
+    @property
+    def working_weights_(self):
+        """
+        `W`, the weights of the final IRLS working problem at the training
+        rows: `v_i mu'(eta_i)^2 / V(mu_i)`, with `v_i = w_i / sum(w)` the
+        prior weights normalized to sum to 1, so that `X' W X` is the
+        Hessian of `deviance / (2 sum(w))` (the objective's scale, without
+        the dispersion). For the Cox family, the diagonal of the partial
+        likelihood's information (its covariances use the full information).
+        """
+        return self._covariance_weights
+
+    @property
+    def penalty_matrix_(self):
+        """
+        `S_lambda`, the penalty on the coefficients of `design_`: `sum_j
+        sum_m lam_jm S_jm`, each term's penalties with its constraint
+        absorbed (0 for the intercept and the unpenalized terms), so that
+        `beta' S_lambda beta / 2` is the objective's penalty. None when
+        `design_` is.
+        """
+        return self._get_covariance()['penalty']
+
+    def score_contributions(self):
+        """
+        The score of the penalized objective, observation by observation: an
+        `n x P` array whose row `i` is
+
+            s_i = W_i (z_i - eta_i) x_i = v_i (y_i - mu_i) mu'(eta_i) / V(mu_i) x_i,
+
+        the negative gradient in `beta` of observation `i`'s part of
+        `deviance / (2 sum(w))`. `x_i` is row `i` of `design_.X` (the column
+        of ones, then each term's basis with its sum-to-zero constraint
+        absorbed, or centered, as `JointDesign`): the coordinates of
+        `posterior_covariance_`. `W_i` is `working_weights_[i]`, `z_i` the
+        working response and `v_i = w_i / sum(w)` the normalized prior
+        weight. The rows are the training rows (0 where the weight is 0).
+
+        At the penalized fit `sum_i s_i = S_lambda beta` (`penalty_matrix_`,
+        `beta = design_.gamma(state_)`; plus `X' linear_term` if `fit` had
+        one). The empirical meat is `sum_i s_i s_i'`; its model-based value
+        is `dispersion_ X' W X / sum(w)` (`s_i` has no dispersion in it, and
+        is per `sum(w)`).
+
+        Not for the Cox family: its risk sets couple the rows
+        (NotImplementedError).
+        """
+        if getattr(self, '_cox', False):
+            raise NotImplementedError('score_contributions of a Cox GAM: the risk sets couple '
+                                      'the rows, so there are no per-observation scores; '
+                                      'give sandwich_covariance a meat of your own')
+        self._check_covariance()
+        z, w = self._family.get_response_and_weights(self.state_, self._response,
+                                                     self._offset, self._normed_weight)
+        return (w * (z - self.state_.eta))[:, None] * self.design_.X
+
+    def sandwich_covariance(self, meat=None, groups=None):
+        """
+        The sandwich (robust) covariance `A^{-1} M A^{-1}` of the
+        coefficients of `design_`, on the scale of `posterior_covariance_`
+        and `frequentist_covariance_`.
+
+        - The bread `A = X' W X + S_lambda` is the Hessian of the penalized
+          objective `deviance / (2 sum(w)) + beta' S_lambda beta / 2` at the
+          fit: `X = design_.X` (the column of ones, then each term's basis
+          with its constraint absorbed, as `JointDesign`), `W =
+          working_weights_` (the final IRLS weights, the prior weights
+          normalized to sum to 1), `S_lambda = penalty_matrix_` (at the
+          fitted smoothing parameters). `posterior_covariance_` is
+          `dispersion_ A^{-1} / sum(w)`.
+        - The meat `M` is the covariance of the objective's score `sum_i
+          s_i` (`score_contributions`, which gives the scale). The
+          model-based meat `dispersion_ X' W X / sum(w)` gives
+          `frequentist_covariance_` (mgcv's `Ve`).
+
+        Parameters
+        ----------
+        meat: np.ndarray, optional
+            A `P x P` meat of one's own, on the scale of
+            `score_contributions()`: e.g. the covariance, over a grouped
+            (cluster) bootstrap, of the sum of the score contributions, or
+            one from block sums for serial correlation. For the Cox family
+            (no score contributions) the only choice.
+        groups: array-like, optional
+            A label per training row: the cluster-robust meat `sum_g (sum_{i
+            in g} s_i)(sum_{i in g} s_i)'`, without a small-sample correction.
+
+        By default the meat is HC0's, `sum_i s_i s_i'`. The dispersion does
+        not enter. With penalties the sandwich is the variance around the
+        penalized (biased) fit: it does not account for the bias.
+        """
+        if meat is not None and groups is not None:
+            raise ValueError('give meat or groups, not both')
+        self._check_covariance()
+        Ainv = self._get_covariance()['bread_inv']
+        P = Ainv.shape[0]
+        if meat is None:
+            s = self.score_contributions()
+            if groups is not None:
+                groups = np.asarray(groups).reshape(-1)
+                if groups.shape[0] != s.shape[0]:
+                    raise ValueError(f'groups should have a label per training row ({s.shape[0]})')
+                codes, uniques = pd.factorize(groups)
+                if np.any(codes < 0):
+                    raise ValueError('groups has missing labels')
+                sums = np.zeros((len(uniques), P))
+                np.add.at(sums, codes, s)
+                s = sums
+            meat = s.T @ s
+        else:
+            meat = np.asarray(meat, float)
+            if meat.shape != (P, P):
+                raise ValueError(f'meat should be {P} x {P}, on the coefficients of design_')
+        V = Ainv @ meat @ Ainv
+        return (V + V.T) / 2
+
+    def _coef_covariance(self, covariance):
+        """The covariance of `design_`'s coefficients that `covariance` names or gives."""
+        self._check_covariance()
+        if isinstance(covariance, str):
+            if covariance == 'posterior':
+                return self.posterior_covariance_
+            if covariance == 'frequentist':
+                return self.frequentist_covariance_
+            if covariance == 'sandwich':
+                return self.sandwich_covariance()
+            raise ValueError("covariance should be 'posterior', 'frequentist', 'sandwich' "
+                             "or a P x P array")
+        V = np.asarray(covariance, float)
+        P = self.posterior_covariance_.shape[0]
+        if V.shape != (P, P):
+            raise ValueError(f'covariance should be {P} x {P}, on the coefficients of design_')
+        return V
+
     def _on_train_index_frame(self, value, names):
         index = getattr(self, '_train_index', None)
         if index is None:
             return value
         return pd.DataFrame(value, index=index, columns=names)
 
-    def partial_effect(self, term, x, return_std=False):
+    def partial_effect(self, term, x, return_std=False, covariance='posterior'):
         """
         The fitted function of a term: `term` is its index or its name (e.g.
         `'s(age, df=5)'`), and `x` its values, or a DataFrame of the data
@@ -702,7 +843,11 @@ class GAM(BaseEstimator):
         posterior covariance `posterior_covariance_` (as mgcv's
         `predict(type="terms", se.fit=TRUE)`; the curve of a centered term is
         centered, so they are those of the centered curve): returns `(fit,
-        std)`.
+        std)`. `covariance` chooses the coefficients' covariance:
+        `'posterior'` (the default), `'frequentist'`
+        (`frequentist_covariance_`), `'sandwich'` (HC0's
+        `sandwich_covariance()`) or a `P x P` array, such as
+        `sandwich_covariance(groups=...)`.
         """
         if not isinstance(term, (int, np.integer)):
             term = [t.name for t in self.terms_].index(term)
@@ -712,10 +857,10 @@ class GAM(BaseEstimator):
         fit = term.predict(x)
         if not return_std:
             return fit
-        self._check_covariance()
+        V = self._coef_covariance(covariance)
         B = self.design_.block(j, x)
         sl = self.design_.slices[j]
-        V = self.posterior_covariance_[sl, sl]
+        V = V[sl, sl]
         return fit, np.sqrt(np.maximum(np.einsum('ij,jk,ik->i', B, V, B), 0))
 
     def _check_covariance(self):
@@ -730,22 +875,24 @@ class GAM(BaseEstimator):
             eta = eta + offset
         return np.asarray(eta, float)
 
-    def predict(self, X, prediction_type='response', offset=None, return_std=False):
+    def predict(self, X, prediction_type='response', offset=None, return_std=False,
+                covariance='posterior'):
         """
         Predictions at `X`: of the mean (`'response'`) or of the linear
         predictor (`'link'`). With `return_std=True`, also their standard
         errors from the posterior covariance `posterior_covariance_` (as
         mgcv's `predict(se.fit=TRUE)`; for the mean, by the delta method):
-        returns `(prediction, std)`.
+        returns `(prediction, std)`. `covariance` chooses another covariance
+        of the coefficients, as for `partial_effect`: `'frequentist'`,
+        `'sandwich'` or a `P x P` array (`sandwich_covariance(groups=...)`).
         """
         if prediction_type not in ('link', 'response'):
             raise ValueError("prediction_type should be one of 'response' or 'link'")
         eta = self._linear_predictor(X, offset)
         if return_std:
-            self._check_covariance()
+            V = self._coef_covariance(covariance)
             rows = self.design_.rows(self._columns(self._design(X), self.terms_))
-            se_eta = np.sqrt(np.maximum(np.einsum('ij,jk,ik->i', rows,
-                                                  self.posterior_covariance_, rows), 0))
+            se_eta = np.sqrt(np.maximum(np.einsum('ij,jk,ik->i', rows, V, rows), 0))
         if prediction_type == 'link':
             return (eta, se_eta) if return_std else eta
         if self._cox:

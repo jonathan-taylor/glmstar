@@ -171,6 +171,83 @@ curve, std = gam.partial_effect('s(age, df=5)', ages, return_std=True)
 pd.DataFrame({'age': ages, 's(age)': curve, 'std err': std})
 ```
 
+### Sandwich (robust) standard errors
+
+The posterior covariance trusts the model's variance function. A sandwich
+covariance (Huber, 1967; White, 1980) instead takes the variance of the
+score from the data: `sandwich_covariance()` is $A^{-1} M A^{-1}$, with
+
+- the **bread** $A = X^\top W X + S_\lambda$, the Hessian of the penalized
+  objective $\text{deviance} / (2 \sum_i w_i) + \beta^\top S_\lambda \beta / 2$.
+  $X$ is `design_.X`: a column of ones, then each term's basis with its
+  sum-to-zero constraint absorbed (or centered). $W$ is
+  `working_weights_`, the final IRLS weights $v_i \mu'(\eta_i)^2 /
+  V(\mu_i)$, with the prior weights normalized to $v_i = w_i / \sum_j
+  w_j$. $S_\lambda$ is `penalty_matrix_`, at the fitted smoothing
+  parameters. So `posterior_covariance_` is $\phi A^{-1} / \sum_i w_i$;
+- the **meat** $M$, the covariance of the score $\sum_i s_i$ of the same
+  objective. Its rows $s_i = v_i (y_i - \mu_i) \mu'(\eta_i) / V(\mu_i)
+  \, x_i$ are `score_contributions()`, and they sum to $S_\lambda \beta$ at
+  the fit. The model-based meat $\phi X^\top W X / \sum_i w_i$ gives
+  `frequentist_covariance_` (mgcv's `Ve`). The default is HC0's,
+  $\sum_i s_i s_i^\top$. With `groups`, it is the cluster-robust meat
+  $\sum_g \big(\sum_{i \in g} s_i\big)\big(\sum_{i \in g} s_i\big)^\top$, with no
+  small-sample correction. Or pass a meat of your own, on the scale of
+  `score_contributions()`.
+
+The dispersion $\phi$ does not enter the sandwich. `predict`,
+`partial_effect` and `plot` take `covariance=`: `'posterior'` (the
+default), `'frequentist'`, `'sandwich'` (HC0) or a matrix.
+
+For grouped rows the score contributions of a group are correlated. Here
+40 groups share a shock that the GAM leaves out, so the model's errors
+are too small, and the clustered ones are not:
+
+```{code-cell} ipython3
+rng = np.random.default_rng(1)
+n_groups, size = 40, 25
+g = np.repeat(np.arange(n_groups), size)
+x = rng.uniform(0, 1, n_groups * size)
+shock = rng.normal(0, 0.5, n_groups)
+grouped = pd.DataFrame({'x': x, 'g': g,
+                        'y': np.sin(6 * x) + shock[g] + 0.5 * rng.standard_normal(len(x))})
+fit = GAM(terms=[s('x', df=5)]).fit(grouped, grouped['y'])
+V_cluster = fit.sandwich_covariance(groups=grouped['g'])
+new = pd.DataFrame({'x': [0.1, 0.5, 0.9]})
+table = {'x': new['x']}
+for name, cov in [('posterior', 'posterior'), ('HC0', 'sandwich'), ('cluster (g)', V_cluster)]:
+    table[name] = fit.predict(new, return_std=True, covariance=cov)[1]
+```
+
+A meat of your own can come from a bootstrap. For grouped data, resample
+the groups' sums of the score contributions (a grouped, or cluster,
+bootstrap). Here the meat is the covariance of their resampled totals:
+
+```{code-cell} ipython3
+sums = pd.DataFrame(fit.score_contributions()).groupby(grouped['g'].values).sum().values
+totals = np.array([sums[rng.integers(0, n_groups, n_groups)].sum(0) for _ in range(1000)])
+V_boot = fit.sandwich_covariance(meat=np.cov(totals, rowvar=False))
+table['grouped bootstrap'] = fit.predict(new, return_std=True, covariance=V_boot)[1]
+pd.DataFrame(table)
+```
+
+Which to use:
+
+- independent rows whose variance the family may get wrong: HC0;
+- grouped rows (repeated measures, clusters): `groups=`, or a grouped
+  bootstrap with few or unequal groups;
+- serial correlation: a meat from sums over blocks of consecutive rows (a
+  block bootstrap);
+- a `GLMM` whose random effects already model the grouping: the posterior
+  covariance, the default.
+
+With penalties, the sandwich is the variance around the penalized fit. It
+says nothing about the penalty's bias, which the posterior covariance
+partly accounts for. mgcv's `vcov(m, sandwich=TRUE, freq=TRUE)` is HC0's
+sandwich times $n / (n - \text{edf})$ (with unit prior weights). Without
+`freq=TRUE` it adds `Vp - Ve`, here `posterior_covariance_ -
+frequentist_covariance_`.
+
 ## A logistic GAM
 
 The lab also models the probability that a worker earns more than 250
@@ -676,6 +753,9 @@ modified backfitting (`linear_columns()`).
   Chapman & Hall.
 - Hastie, T. and Tibshirani, R. (1993). Varying-coefficient models.
   *Journal of the Royal Statistical Society, Series B* 55(4), 757–796.
+- Huber, P. J. (1967). The behavior of maximum likelihood estimates under
+  nonstandard conditions. *Proceedings of the Fifth Berkeley Symposium on
+  Mathematical Statistics and Probability* 1, 221–233.
 - James, G., Witten, D., Hastie, T., Tibshirani, R. and Taylor, J. (2023).
   *An Introduction to Statistical Learning, with Applications in Python*.
   Springer.
@@ -687,6 +767,9 @@ modified backfitting (`linear_columns()`).
 - Wahba, G. (1983). Bayesian "confidence intervals" for the cross-validated
   smoothing spline. *Journal of the Royal Statistical Society, Series B*
   45(1), 133–150.
+- White, H. (1980). A heteroskedasticity-consistent covariance matrix
+  estimator and a direct test for heteroskedasticity. *Econometrica* 48(4),
+  817–838.
 - Wood, S. N. (2011). Fast stable restricted maximum likelihood and marginal
   likelihood estimation of semiparametric generalized linear models.
   *Journal of the Royal Statistical Society, Series B* 73(1), 3–36.

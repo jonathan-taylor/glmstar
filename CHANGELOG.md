@@ -11,6 +11,17 @@
   `jax_pieces()` has REML and ML. A probit by hand matches statsmodels'
   probit (fitted values, smoothing parameters, REML score, edf, standard
   errors to 1e-8 or better) (#199).
+- **Sandwich (robust) covariances for `GAM` and `GLMM`.**
+  `sandwich_covariance(meat=None, groups=None)` is `A^{-1} M A^{-1}`, the
+  bread `A = X' W X + S_lambda` the one `posterior_covariance_` inverts,
+  the meat HC0's (`sum_i s_i s_i'`), cluster-robust (`groups=`) or one's
+  own (e.g. from a grouped or block bootstrap). `score_contributions()`
+  gives the per-row scores `s_i`, and `working_weights_` and
+  `penalty_matrix_` give `W` and `S_lambda`. `predict`, `partial_effect`
+  and `plot` take `covariance='posterior' | 'frequentist' | 'sandwich'` or
+  a matrix. They match statsmodels' HC0 and cluster covariances without
+  penalties, and mgcv's `vcov(sandwich=TRUE)` up to its `n / (n - edf)`.
+  Not for the Cox family's per-row scores (#196).
 - **REML and ML with one large random effect, factored by blocks**
   (`glmnet.gam.blocked`, `GAMControl(reml_backend='auto' | 'dense' |
   'blocked')`). The random effect with the most levels is kept implicit
