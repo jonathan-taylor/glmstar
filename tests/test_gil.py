@@ -102,6 +102,10 @@ def test_gil_released_during_solve(model):
     separates the two cases is what fraction of the spinner's unobstructed
     rate it sustains: ~all of it when the GIL is released for the solve,
     versus a switch interval or two out of the whole solve when it is not.
+    "All of it" assumes a free core: with the tests in parallel on a small
+    runner the spinner shares cores with the solve and other workers and has
+    sustained as little as a quarter, so the bar is 5%, still some 50 times
+    the held case.
     """
     solve, args = SOLVES[model]()
 
@@ -134,7 +138,7 @@ def test_gil_released_during_solve(model):
         pytest.skip(f'solve too fast ({elapsed:.3f}s) to say anything about the GIL')
 
     fraction = solve_rate / free_rate
-    assert fraction > 0.3, (
+    assert fraction > 0.05, (
         f'other thread ran at {fraction:.1%} of its unobstructed rate during a '
         f'{elapsed:.3f}s solve; the GIL looks held'
     )
