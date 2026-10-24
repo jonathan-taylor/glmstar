@@ -28,8 +28,8 @@ $$b_k \sim N(0, \sigma_b^2) \ \text{independently}, \qquad \sigma_b^2 = \phi/\la
 
 $\phi$ the dispersion and $\lambda$ the term's smoothing parameter (on the
 scale of the prior weights); `re(g, by=x)` is a random slope, a coefficient
-$b_k x$ per group. With `method='REML'` (or `'ML'`) the variances are
-estimated by maximizing the restricted (or full) marginal likelihood: for
+$b_k x$ per group. A `GLMM` (`method='REML'`, or `'ML'`) estimates the
+variances by maximizing the restricted (or full) marginal likelihood: for
 the Gaussian this is exactly the REML (or ML) of the linear mixed model, as
 lme4's `lmer` (Bates et al., 2015) and nlme's `lme` (Pinheiro and Bates,
 2000); for other families it is its Laplace approximation, as mgcv's

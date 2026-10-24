@@ -94,7 +94,7 @@ additive.smoothing_.converged, dict(zip(additive.smoothing_.terms, additive.smoo
 ```
 
 The hour has 24 distinct values, so its spline has at most 23 degrees of
-freedom beyond the constant: REML gives it 22.9, nearly a factor, as in
+freedom beyond the constant: REML gives it 22.9, nearly a categorical, as in
 the lab. The temperature has 48 distinct values (it is recorded to 0.02),
 and REML gives its spline 44.7 degrees of freedom: a wiggly curve.
 
@@ -408,14 +408,14 @@ pd.Series({days[wd]: np.exp(np.diff(final[wd].partial_effect('s(temp)', [0.3, 0.
 A warm day draws more riders than a cool one, and more so when it is not a
 working day: commuters ride anyway.
 
-## What `glmnet.gam` does not have
+## What is left out
 
-- **Cyclic splines,** mgcv's `bs="cc"`: the hour's curve should join at
-  midnight, and here 11pm and midnight are not tied. `cyclic_spline('hour',
-  period=(0, 24))` ties them; this page keeps `s('hour')`.
-- **Correlated residuals:** the hours of a day are a time series. The
-  random effect of the day gives them a common correlation, not one that
-  decays with the time between them.
+- **A cyclic hour:** the hour's curve should join at midnight, and here
+  11pm and midnight are not tied. `cyclic_spline('hour', period=(0, 24))`
+  (mgcv's `bs="cc"`) ties them; this page keeps `s('hour')`.
+- **Correlated residuals** (not in `glmnet.gam`): the hours of a day are a
+  time series. The random effect of the day gives them a common
+  correlation, not one that decays with the time between them.
 
 ## References
 

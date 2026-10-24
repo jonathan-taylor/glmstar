@@ -19,8 +19,8 @@ same terms as a `GAM` ([Generalized additive models](gam.md)): each
 penalized term is a random effect, its penalty $\frac{\lambda}{2} c^\top
 S c$ the Gaussian prior $c \sim N(0, \phi (\lambda S)^{-1})$ of its
 coefficients ($\phi$ the dispersion), so a smoothing spline is a random
-effect on its basis' wiggly part, as in mgcv, and `re(group)` is a random
-intercept, as in lme4. A `GLMM` estimates the variances, the
+effect on its basis' wiggly part, as in mgcv, and `random_effect(group)`
+is a random intercept, as in lme4. A `GLMM` estimates the variances, the
 smoothing parameters $\lambda$, by
 
 - **REML** (`method='REML'`, the default) or **ML** (`method='ML'`): the

@@ -141,6 +141,10 @@
   page lists `varying()` and `cubic_regression_spline()`. The Bikeshare
   page uses `varying()` (its import of `by_factor_spline` had been lost in
   a merge, so the page did not run in 0.5.0) (#188).
+- An audit of the GAM and GLMM docstrings and pages: missing docstrings
+  filled, REML and ML named as a `GLMM`'s, the Bikeshare and mixed models
+  pages import `GLMM` (they did not run), and `glmnet.gam` is in the API
+  reference (#201).
 
 ### Fixes
 

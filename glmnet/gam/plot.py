@@ -102,7 +102,7 @@ def plot_term(gam,
     `plot.Gam(fit, se=TRUE)`.
 
     A term of a numeric column (a spline, loess, a linear term) is drawn as
-    its curve over the range of the column (`n_grid` points); a factor or a
+    its curve over the range of the column (`n_grid` points); a categorical or a
     random effect as one point per level (per group; for `random_effect(g, by=x)` the
     groups' slopes). The fits are centered, as the GAM's terms. A term of
     two columns (`gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn

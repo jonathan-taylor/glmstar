@@ -104,12 +104,13 @@ class GAM(BaseEstimator):
     smoothing parameters (and random effects' variances), by REML, ML or a
     method of one's own, fit a `GLMM`, which has the same terms.
 
-    The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `gaussian_process`, `linear`,
-    `categorical`, or a `ColumnsSmoother` of several columns fitted as one parametric
-    block), each naming a column of `X` (ISLP's `ISLP.gam` builds them from
-    a ModelSpec). The smoothing of each term is fixed: by its smoothing parameter
-    `lam`, or by its degrees of freedom `df` (as R's `gam`). When every term
-    has a fixed smoothing parameter (`s(lam=...)`, `random_effect(lam=...)`, `linear`,
+    The model is a list of terms (`glmnet.gam.s`, `lo`, `random_effect`,
+    `gaussian_process`, `linear`, `categorical`, or a `ColumnsSmoother` of
+    several columns fitted as one parametric block), each naming a column
+    of `X` (ISLP's `ISLP.gam` builds them from a ModelSpec). The smoothing
+    of each term is fixed: by its smoothing parameter `lam`, or by its
+    degrees of freedom `df` (as R's `gam`). When every term has a fixed
+    smoothing parameter (`s(lam=...)`, `random_effect(lam=...)`, `linear`,
     `categorical`), the fit minimizes
 
         deviance / (2 sum(w)) + sum_j lam_j / 2 * pen_j(f_j) + linear_term @ eta,
@@ -185,7 +186,7 @@ class GAM(BaseEstimator):
     df_resid_: float
         Residual degrees of freedom, the number of observations (of positive
         weight) less 1 less the sum of `edf_` (as R's `gam`).
-    deviance_, null_deviance_, dispersion_, loglike_, aic_: float
+    deviance_, null_deviance_, dispersion_, loglike_, aic_, bic_: float
         As for `GLM`; the AIC counts `1 + sum(edf_)` parameters, plus 1 for a
         free dispersion, as R's `gam` (for the Gamma and inverse Gaussian the
         log-likelihood is at the dispersion deviance / sum(weights), as R's),
@@ -194,8 +195,13 @@ class GAM(BaseEstimator):
     negative_binomial_theta_: float
         The negative binomial's theta, given (or estimated by a `GLMM`); None
         for other families.
+    fixed_effects_: pd.DataFrame
+        The intercept and the linear terms' coefficients, with standard
+        errors (see the property).
     n_iter_: int
         Number of IRLS iterations.
+    converged_: bool
+        Whether local scoring converged.
     """
     terms: list = field(default_factory=list)
     family: object = field(default_factory=GLMFamilySpec)
@@ -475,6 +481,10 @@ class GAM(BaseEstimator):
         return term.get_params(deep=True)
 
     def get_params(self, deep=True):
+        """
+        The GAM's parameters (scikit-learn's); with `deep`, also each term
+        (`terms__<j>`) and its arguments (`terms__<j>__<param>`).
+        """
         params = super().get_params(deep=deep)
         if deep:
             for j, term in enumerate(self.terms or []):
@@ -485,6 +495,10 @@ class GAM(BaseEstimator):
         return params
 
     def set_params(self, **params):
+        """
+        Set the parameters (scikit-learn's): `terms__<j>` replaces term `j`,
+        `terms__<j>__<param>` sets its argument (on a copy). Returns `self`.
+        """
         whole, nested = {}, {}
         for key in [k for k in params if k.startswith('terms__')]:
             parts = key.split('__', 2)
@@ -579,8 +593,8 @@ class GAM(BaseEstimator):
         For a `SmoothingMethod`: the fit (local scoring) at the terms' current
         parameters, from `state` (by default the intercept-only fit), as a
         `GAMState` (its fits, intercept and means; whether it converged in
-        `converged_`). The terms' parameters are set by the method (e.g.
-        `term.set_penalty_lams`).
+        `converged_`), with `control` (default the GAM's). The terms'
+        parameters are set by the method (e.g. `term.set_penalty_lams`).
         """
         return self._local_scoring(state=state, control=control, warn=False)
 
@@ -679,18 +693,22 @@ class GAM(BaseEstimator):
 
     @property
     def design_(self):
+        """The `JointDesign` of the terms' bases (None if a term has none)."""
         return self._get_covariance()['design']
 
     @property
     def posterior_covariance_(self):
+        """The posterior covariance of the joint design's coefficients (mgcv's `Vp`)."""
         return self._get_covariance()['posterior']
 
     @property
     def frequentist_covariance_(self):
+        """The frequentist covariance of the joint design's coefficients (mgcv's `Ve`)."""
         return self._get_covariance()['frequentist']
 
     @property
     def edf_influence_(self):
+        """Each term's degrees of freedom in the joint fit (mgcv's `edf`)."""
         return self._get_covariance()['edf']
 
     @property
@@ -882,9 +900,11 @@ class GAM(BaseEstimator):
         predictor (`'link'`). With `return_std=True`, also their standard
         errors from the posterior covariance `posterior_covariance_` (as
         mgcv's `predict(se.fit=TRUE)`; for the mean, by the delta method):
-        returns `(prediction, std)`. `covariance` chooses another covariance
-        of the coefficients, as for `partial_effect`: `'frequentist'`,
+        returns `(prediction, std)`. `offset` is added to the linear
+        predictor. `covariance` chooses another covariance of the
+        coefficients, as for `partial_effect`: `'frequentist'`,
         `'sandwich'` or a `P x P` array (`sandwich_covariance(groups=...)`).
+        For the Cox family `'response'` is the relative risk.
         """
         if prediction_type not in ('link', 'response'):
             raise ValueError("prediction_type should be one of 'response' or 'link'")

@@ -51,7 +51,10 @@ class SmoothingMethod(object):
     experimental = True
 
     def select(self, gam, dispersion=None):
-        """Set the estimated terms' parameters of the set-up `gam`; return a `SmoothingSelection`."""
+        """
+        Set the estimated terms' parameters of the set-up `gam`, at the
+        given `dispersion` (None: estimated); return a `SmoothingSelection`.
+        """
         raise NotImplementedError
 
     def __repr__(self):

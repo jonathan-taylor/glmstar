@@ -1,7 +1,7 @@
 """
 REML and ML with one large random effect, exactly and without dense `P x P`
 matrices: the blocked factorization of the Hessian (as lme4's and
-MixedModels.jl's, for one grouping factor first).
+MixedModels.jl's, for its first grouping categorical).
 
 A random effect `random_effect(g)` (or `random_effect(g, by=v)`) of `R` levels has a column per
 level, each row in one of them: its block of `X' W X` is diagonal, as is its

@@ -54,6 +54,7 @@ class NegativeBinomial(sm_family.NegativeBinomial):
 
     @property
     def theta(self):
+        """The negative binomial's theta, `1 / alpha`."""
         return 1 / self.alpha
 
     def set_theta(self, theta):

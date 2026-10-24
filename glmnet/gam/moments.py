@@ -10,11 +10,11 @@ effects' predictions, each sweep in linear time. The documentation's page
 this, around `moment_equations`.
 
 For the model `r_i = sum_k a^k_{g_k(i)} + e_i` (`r` the residuals, the
-`a^k` the effects of factor `k`, variances `s_k^2`, errors' `s_E^2`), with
-`N` observations, `N_kl` of them at level `l` of factor `k` (`R_k` levels),
+`a^k` the effects of categorical `k`, variances `s_k^2`, errors' `s_E^2`), with
+`N` observations, `N_kl` of them at level `l` of categorical `k` (`R_k` levels),
 and `N_kl,ml'` at level `l` of `k` and `l'` of `m`:
 
-- `U_k`, the sum of squares within the levels of factor `k`, has
+- `U_k`, the sum of squares within the levels of categorical `k`, has
   expectation `sum_{m != k} s_m^2 (N - sum_l sum_l' N_kl,ml'^2 / N_kl) +
   s_E^2 (N - R_k)`;
 - `U_E`, `N` times the total sum of squares, has expectation
@@ -41,7 +41,7 @@ def moment_equations(r, codes):
     """
     The U statistics of the residuals `r` and the matrix of their
     expectations' coefficients in `(s_1^2, ..., s_K^2, s_E^2)`, for the
-    factors' level codes `codes` (a list of `K` integer arrays).
+    categoricals' level codes `codes` (a list of `K` integer arrays).
     """
     r = np.asarray(r, float)
     N = r.shape[0]

@@ -17,7 +17,7 @@ kernelspec:
 This page explains how `GLMM(method='REML')` and `GLMM(method='ML')` choose
 the smoothing parameters (the code is `glmnet.gam.reml`). It writes the
 criterion out in a few lines of JAX for a small example, minimizes it
-"by hand", and checks that `GAM` gets the same answer. The same check is
+"by hand", and checks that `GLMM` gets the same answer. The same check is
 a test, `tests/gam/test_gam_reml_byhand.py`.
 
 The method is that of mgcv (Wood, 2011), and the notation follows Wood
@@ -175,13 +175,13 @@ fit = minimize(lambda p: [np.asarray(v, float) for v in value_and_grad(p)],
 fit.x, fit.fun
 ```
 
-`GAM`'s smoothing parameters (on the scale of the prior weights,
+The `GLMM`'s smoothing parameters (on the scale of the prior weights,
 `lam_raw`), dispersion and criterion are the same:
 
 ```{code-cell} ipython3
 sel = G.smoothing_
 pd.DataFrame({'by hand': np.r_[np.exp(fit.x), fit.fun],
-              'GAM': np.r_[sel.lam_raw, sel.dispersion, sel.score]},
+              'GLMM': np.r_[sel.lam_raw, sel.dispersion, sel.score]},
              index=['lam_1', 'lam_2', 'phi', 'criterion'])
 ```
 
@@ -321,13 +321,13 @@ G_pois = GLMM(terms=[s('x1'), s('x2')], family=sm.families.Poisson(),
              method='REML').fit(data, data['count'])
 sel = G_pois.smoothing_
 pd.DataFrame({'by hand': np.r_[np.exp(fit.x), fit.fun],
-              'GAM': np.r_[sel.lam_raw, sel.score]},
+              'GLMM': np.r_[sel.lam_raw, sel.score]},
              index=['lam_1', 'lam_2', 'criterion'])
 ```
 
 ### The gradient, and the implicit derivative
 
-Differentiating through 30 Newton steps works, but it is wasteful. `GAM`
+Differentiating through 30 Newton steps works, but it is wasteful. `GLMM`
 instead uses the implicit function theorem. $\hat\beta$ solves
 $\partial D_p/\partial\beta = 0$, so
 
@@ -367,7 +367,7 @@ the same local scoring (IRLS) that a `GAM` uses, with the joint
 penalized least squares solve (`GAMControl(solver='joint')`). It is in
 numpy, warm started from the last fit, with a tighter tolerance. So the
 REML fit at its optimum *is* the fixed-$\lambda$ fit at those $\lambda$s,
-and the final `GAM` has all of the usual attributes. The criterion then
+and the final `GLMM` has all of a `GAM`'s attributes. The criterion then
 takes one Newton step from the inner fit's $\hat\beta$ with its own
 factorization of $H$. That gives $\hat\beta$ the criterion's precision,
 independent of the inner fit's warm start, so the inner fit can stop at
@@ -483,7 +483,7 @@ The covariances are at the last IRLS step's working weights. They ignore
 the uncertainty in $\hat\rho$ (mgcv's `Vc` correction is not
 implemented).
 
-**Cox.** For `family='cox'` the likelihood is the partial likelihood (as
+**Cox.** With a `CoxFamily` the likelihood is the partial likelihood (as
 mgcv's `cox.ph`), with no intercept and no $\phi$. Its $W$ is not
 diagonal, and coxdev gives it as an operator. `CoxLaplaceCriterion` is in
 numpy, on the same penalty objects and `DenseHessian`. The derivative of

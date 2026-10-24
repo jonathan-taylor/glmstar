@@ -16,11 +16,11 @@ install glmstar[gam]`, not needed for the Cox family), or by a
 given `lam`, or a list of them with None for those to estimate.
 
 >>> from glmnet.gam import GLMM, s, random_effect as re
->>> GLMM(terms=[s('Days'), random_effect('Subject'), random_effect('Subject', by='Days')])
+>>> GLMM(terms=[s('Days'), re('Subject'), re('Subject', by='Days')])
 
-The terms are `Smoother`s (backfitting needs only their `smooth`), most
-of them `PenalizedSmoother`s: a basis and quadratic penalties, what the
-joint solve, the covariance and a GLMM need. A new term is a subclass of
+The terms are smoothers, `Smoother` (backfitting needs only their
+`smooth`), most of them `PenalizedSmoother`: a basis and quadratic
+penalties, what the joint solve, the covariance and a GLMM need. A new term is a subclass of
 one of them (the documentation's page on GAMs, "Writing a smoother").
 
 (ISLP's `ISLP.gam` builds the terms from a ModelSpec, smooth features next

@@ -183,6 +183,7 @@ class GaussianProcessSmoother(Smoother):
 
     @property
     def kernel_name(self):
+        """The name of the kernel used (set up)."""
         return _KERNELS[self.kernel_code_]
 
     def _as_matrix(self, x):

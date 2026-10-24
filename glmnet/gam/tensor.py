@@ -121,7 +121,7 @@ class TensorSplineSmoother(Smoother):
         The knots of each margin (by default mgcv's `place.knots`).
     lam : list, optional
         One smoothing parameter per margin (on the scale of the GAM's
-        objective); None: estimated (`method='REML'` or `'ML'`).
+        objective); None: estimated by a `GLMM`.
     """
     k: Optional[tuple] = None
     knots: Optional[list] = None
