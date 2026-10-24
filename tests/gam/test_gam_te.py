@@ -11,7 +11,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, categorical, tensor_spline as te
+from glmnet.gam import GAM, GLMM, GAMControl, s, categorical, tensor_spline as te
 from glmnet.gam.tensor import CubicRegressionSpline, place_knots
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -92,7 +92,7 @@ def test_predict_and_three_columns(data):
 def test_reml_gradient(data, method):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
-    G = GAM(terms=[te('x', 'z'), s('u')], family=sm.families.Poisson(), method=method,
+    G = GLMM(terms=[te('x', 'z'), s('u')], family=sm.families.Poisson(), method=method,
             control=GAMControl(**TIGHT)).fit(data, data['yp'])
     assert G.smoothing_.converged
     np.testing.assert_allclose(G.smoothing_.gradient, 0, atol=1e-5)
@@ -130,7 +130,7 @@ def test_mgcv(Rinfo, data, family, method):
     if not rpy.r('isTRUE(requireNamespace("mgcv", quietly=TRUE))')[0]:
         pytest.skip('requires the R package mgcv')
     y, Rfamily, fam = MGCV[family]
-    G = GAM(terms=[te('x', 'z', k=(5, 6)), s('u'), categorical('c')], family=fam, method=method,
+    G = GLMM(terms=[te('x', 'z', k=(5, 6)), s('u'), categorical('c')], family=fam, method=method,
             control=GAMControl(**TIGHT)).fit(data, data[y])
     assert G.smoothing_.converged
     ku = data['u'].nunique()

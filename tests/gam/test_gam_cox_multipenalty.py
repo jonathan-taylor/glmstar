@@ -12,7 +12,7 @@ pytest.importorskip('scatter_smooth')
 pytest.importorskip('coxdev')
 
 from glmnet.cox import CoxFamily
-from glmnet.gam import (GAM, GAMControl, s, penalized_columns, tensor_spline as te,
+from glmnet.gam import (GAM, GLMM, GAMControl, s, penalized_columns, tensor_spline as te,
                         correlated_random_effect as cre)
 
 TIGHT = GAMControl(epsnr=1e-12, mxitnr=500, bf_tol=1e-13, bf_maxit=5000)
@@ -61,10 +61,10 @@ def test_split_penalties_are_separate_terms(data, method):
     rotated = [f'q{k}' for k in range(6)]
     D[rotated] = D[COLS].to_numpy() @ Q
     E1, E2 = np.diag([1., 1, 1, 0, 0, 0]), np.diag([0., 0, 0, 1, 1, 1])
-    G_two = GAM(terms=[s('x'), penalized_columns(COLS[:3], [np.identity(3)]),
+    G_two = GLMM(terms=[s('x'), penalized_columns(COLS[:3], [np.identity(3)]),
                        penalized_columns(COLS[3:], [np.identity(3)])],
                 family=_family(), method=method, control=TIGHT).fit(D, D)
-    G_one = GAM(terms=[s('x'), penalized_columns(rotated, [Q.T @ E1 @ Q, Q.T @ E2 @ Q])],
+    G_one = GLMM(terms=[s('x'), penalized_columns(rotated, [Q.T @ E1 @ Q, Q.T @ E2 @ Q])],
                 family=_family(), method=method, control=TIGHT).fit(D, D)
     assert G_one.smoothing_.converged and G_two.smoothing_.converged
     # (a smoothing parameter going to infinity, in both: where the
@@ -77,7 +77,7 @@ def test_split_penalties_are_separate_terms(data, method):
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 def test_gradient(data, method):
     from glmnet.gam.reml import CoxLaplaceCriterion
-    G = GAM(terms=[te('x', 'z'), cre('g', slopes=['z'])], family=_family('time2', 'status2'),
+    G = GLMM(terms=[te('x', 'z'), cre('g', slopes=['z'])], family=_family('time2', 'status2'),
             method=method, control=TIGHT).fit(data, data)
     assert G.smoothing_.converged
     C = CoxLaplaceCriterion(G, [0, 1], method=method)
@@ -98,7 +98,7 @@ def test_mgcv_te(Rinfo, data):
     rpy = Rinfo['rpy']
     if not rpy.r('isTRUE(requireNamespace("mgcv", quietly=TRUE))')[0]:
         pytest.skip('requires the R package mgcv')
-    G = GAM(terms=[te('x', 'z')], family=_family(), method='REML', control=TIGHT).fit(data, data)
+    G = GLMM(terms=[te('x', 'z')], family=_family(), method='REML', control=TIGHT).fit(data, data)
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('D', data[['x', 'z', 'time', 'status']])

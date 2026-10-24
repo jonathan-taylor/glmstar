@@ -1,7 +1,7 @@
 """
 REML "by hand" (as docs/gam_reml.md): the Laplace approximate REML written
 out in a few lines of JAX on the GAM's design and penalties, minimized
-directly, against `GAM(method='REML')`; and, for the Gaussian, the
+directly, against `GLMM(method='REML')`; and, for the Gaussian, the
 optimum's identities in the residuals (the dispersion, and each term's
 prior size against its penalized degrees of freedom).
 """
@@ -16,7 +16,7 @@ jax = pytest.importorskip('jax')
 import jax.numpy as jnp
 from jax.scipy.special import gammaln, xlogy
 
-from glmnet.gam import GAM, s
+from glmnet.gam import GAM, GLMM, s
 
 
 @pytest.fixture(scope='module')
@@ -89,7 +89,7 @@ def test_reml_by_hand(data, family):
     gaussian = family == 'gaussian'
     response = 'y' if gaussian else 'count'
     fam = sm.families.Gaussian() if gaussian else sm.families.Poisson()
-    G = GAM(terms=[s('x1'), s('x2')], family=fam, method='REML').fit(data, data[response])
+    G = GLMM(terms=[s('x1'), s('x2')], family=fam, method='REML').fit(data, data[response])
     sel = G.smoothing_
     with jax.enable_x64(True):
         x, value, _, _ = _by_hand(G, data[response].values, gaussian)
@@ -102,7 +102,7 @@ def test_reml_by_hand(data, family):
 def test_gaussian_identities(data):
     # at the REML optimum: phi = (RSS + b' S b) / (n - M), and
     # lam_j b_j' S_j b_j / phi = r_j - lam_j tr(H^{-1} S_j) = edf_j - (K_j - r_j)
-    G = GAM(terms=[s('x1'), s('x2')], method='REML').fit(data, data['y'])
+    G = GLMM(terms=[s('x1'), s('x2')], method='REML').fit(data, data['y'])
     D, sel = G.design_, G.smoothing_
     y, n = data['y'].values, data.shape[0]
     lam, phi = sel.lam_raw, sel.dispersion

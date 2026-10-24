@@ -13,7 +13,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, re, penalized_columns
+from glmnet.gam import GAM, GLMM, GAMControl, s, re, penalized_columns
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 
@@ -79,8 +79,8 @@ def test_one_identity_penalty_is_re(data):
     names = [f'is_{g}' for g in groups]
     for g, name in zip(groups, names):
         D[name] = (D['g'] == g).astype(float)
-    G_re = GAM(terms=[s('a'), re('g')], method='REML', control=GAMControl(**TIGHT)).fit(D, D['y'])
-    G_pen = GAM(terms=[s('a'), penalized_columns(names, [np.identity(len(groups))])], method='REML',
+    G_re = GLMM(terms=[s('a'), re('g')], method='REML', control=GAMControl(**TIGHT)).fit(D, D['y'])
+    G_pen = GLMM(terms=[s('a'), penalized_columns(names, [np.identity(len(groups))])], method='REML',
                 control=GAMControl(**TIGHT)).fit(D, D['y'])
     np.testing.assert_allclose(G_pen.predict(D), G_re.predict(D), rtol=1e-6)
     np.testing.assert_allclose(G_pen.smoothing_.lam, G_re.smoothing_.lam, rtol=1e-5)
@@ -100,9 +100,9 @@ def test_split_penalties_are_separate_terms(data, family, method):
     D[rotated] = D[COLS].to_numpy() @ Q
     E1, E2 = np.diag([1., 1, 1, 0, 0, 0]), np.diag([0., 0, 0, 1, 1, 1])
     control = GAMControl(**TIGHT)
-    G_two = GAM(terms=[s('a'), penalized_columns(COLS[:3], [np.identity(3)]), penalized_columns(COLS[3:], [np.identity(3)])],
+    G_two = GLMM(terms=[s('a'), penalized_columns(COLS[:3], [np.identity(3)]), penalized_columns(COLS[3:], [np.identity(3)])],
                 family=fam, method=method, control=control).fit(D, D[y])
-    G_one = GAM(terms=[s('a'), penalized_columns(rotated, [Q.T @ E1 @ Q, Q.T @ E2 @ Q])],
+    G_one = GLMM(terms=[s('a'), penalized_columns(rotated, [Q.T @ E1 @ Q, Q.T @ E2 @ Q])],
                 family=fam, method=method, control=control).fit(D, D[y])
     np.testing.assert_allclose(G_one.smoothing_.lam, G_two.smoothing_.lam, rtol=1e-4)
     np.testing.assert_allclose(G_one.reml_score_, G_two.reml_score_, rtol=1e-9)
@@ -120,7 +120,7 @@ def test_gradient(data, family, method):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
     fam, y = FAMILIES[family]
-    G = GAM(terms=[s('a'), penalized_columns(COLS, _overlapping()), re('g')], family=fam, method=method,
+    G = GLMM(terms=[s('a'), penalized_columns(COLS, _overlapping()), re('g')], family=fam, method=method,
             control=GAMControl(**TIGHT), weight_id='w', response_id=y).fit(data, data[[y, 'w']])
     estimated = [j for j, t in enumerate(G.terms_) if t.penalty_matrices()]
     with jax.enable_x64(True):
@@ -157,7 +157,7 @@ def test_mgcv_parapen(Rinfo, data, family, method):
     D1 = np.diff(np.identity(4), axis=0)
     S1, S2 = D1.T @ D1, np.diag([0., 0., 1., 1.])
     bcols = [f'b{k}' for k in range(4)]
-    G = GAM(terms=[s('a'), penalized_columns(bcols, [S1, S2])], family=fam, method=method,
+    G = GLMM(terms=[s('a'), penalized_columns(bcols, [S1, S2])], family=fam, method=method,
             control=GAMControl(**TIGHT)).fit(data, data[y])
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('D', data[['a', y] + bcols])

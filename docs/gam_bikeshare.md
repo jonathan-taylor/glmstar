@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import (GAM, s, re, categorical, tensor_spline, varying, cubic_regression_spline,
+from glmnet.gam import (GLMM, s, re, categorical, tensor_spline, varying, cubic_regression_spline,
                         QuasiPoisson, NegativeBinomial, ExperimentalWarning)
 
 Bike = load_data('Bikeshare')
@@ -70,7 +70,7 @@ The data are the 8645 hours of 365 days (`day` is the day of the year).
 REML and ML are **experimental** in glmstar 0.5: the fits, smoothing
 parameters and variance components agree with mgcv, lme4 and nlme in the
 tests, but the interface may change and the optimization is less tested than
-the rest of `glmnet.gam`. `GAM(method='REML')` warns
+the rest of `glmnet.gam`. `GLMM(method='REML')` warns
 (`glmnet.gam.ExperimentalWarning`); check `smoothing_.converged`, and
 compare with fixed smoothing parameters or with R.
 :::
@@ -82,7 +82,7 @@ estimated by REML:
 ```{code-cell} ipython3
 poisson = sm.families.Poisson()
 terms = [s('hour'), s('temp'), categorical('weather'), categorical('workingday'), categorical('month')]
-additive = GAM(terms=terms, family=poisson, method='REML').fit(Bike, Bike['bikers'])
+additive = GLMM(terms=terms, family=poisson, method='REML').fit(Bike, Bike['bikers'])
 additive.summary()
 ```
 
@@ -145,8 +145,8 @@ def compare(fits):
                         index=list(fits))
 
 t0 = time.time()
-additive_ml = GAM(terms=terms, family=poisson, method='ML').fit(Bike, Bike['bikers'])
-tensor = GAM(terms=[tensor_spline('hour', 'temp', k=(24, 10)), categorical('weather'),
+additive_ml = GLMM(terms=terms, family=poisson, method='ML').fit(Bike, Bike['bikers'])
+tensor = GLMM(terms=[tensor_spline('hour', 'temp', k=(24, 10)), categorical('weather'),
                     categorical('workingday'), categorical('month')],
              family=poisson, method='ML').fit(Bike, Bike['bikers'])
 print(f'{time.time() - t0:.1f}s')
@@ -208,7 +208,7 @@ the log-likelihoods, the ML criteria and the AIC of the two fits add, and
 compare with the additive model's.
 
 ```{code-cell} ipython3
-by_hour = GAM(terms=[varying(cubic_regression_spline('hour', k=24), by='workingday'), s('temp'),
+by_hour = GLMM(terms=[varying(cubic_regression_spline('hour', k=24), by='workingday'), s('temp'),
                      categorical('weather'), categorical('workingday'), categorical('month')],
               family=poisson, method='ML').fit(Bike, Bike['bikers'])
 by_hour.terms_[0].level_edf()
@@ -217,7 +217,7 @@ by_hour.terms_[0].level_edf()
 ```{code-cell} ipython3
 days = {1: 'working days', 0: 'other days'}
 split_terms = [s('hour'), s('temp'), categorical('weather'), categorical('month')]
-split = {wd: GAM(terms=split_terms, family=poisson, method='ML')
+split = {wd: GLMM(terms=split_terms, family=poisson, method='ML')
              .fit(Bike[Bike['workingday'] == wd], Bike.loc[Bike['workingday'] == wd, 'bikers'])
          for wd in days}
 table = compare({'additive': additive_ml, 'tensor': tensor, 'hour by working day': by_hour,
@@ -294,7 +294,7 @@ t0 = time.time()
 families = {'Poisson': (poisson, []), 'quasi-Poisson': (QuasiPoisson(), []),
             'negative binomial': (NegativeBinomial(), []), 'day': (poisson, [re('day')]),
             'day + dispersion': (QuasiPoisson(), [re('day')])}
-fits = {name: GAM(terms=split_terms + extra, family=family, method='REML').fit(work, work['bikers'])
+fits = {name: GLMM(terms=split_terms + extra, family=family, method='REML').fit(work, work['bikers'])
         for name, (family, extra) in families.items()}
 print(f'{time.time() - t0:.1f}s')
 pd.DataFrame({'converged': [f.smoothing_.converged for f in fits.values()],
@@ -371,8 +371,8 @@ standard errors (the delta method, from the posterior covariance).
 ```{code-cell} ipython3
 final = {1: fits['day + dispersion']}
 other = Bike[Bike['workingday'] == 0]
-first = GAM(terms=split_terms + [re('day')], family=poisson, method='REML').fit(other, other['bikers'])
-final[0] = GAM(terms=split_terms + [re('day')], family=poisson, method='REML').fit(
+first = GLMM(terms=split_terms + [re('day')], family=poisson, method='REML').fit(other, other['bikers'])
+final[0] = GLMM(terms=split_terms + [re('day')], family=poisson, method='REML').fit(
     other, other['bikers'], dispersion=pearson(first, other))
 
 hours = np.arange(24)

@@ -22,7 +22,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GAMControl, s, re, linear, categorical
+from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, categorical
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 LMER_CONTROL = 'lme4::lmerControl(optCtrl=list(ftol_abs=1e-12, xtol_abs=1e-10))'
@@ -128,7 +128,7 @@ def growth():
 
 
 def _gaussian(D, terms, y, method):
-    return GAM(terms=terms, method=method, control=GAMControl(**TIGHT)).fit(D, D[y])
+    return GLMM(terms=terms, method=method, control=GAMControl(**TIGHT)).fit(D, D[y])
 
 
 def _check_lmer(Rinfo, G, D, formula, method, terms, grouping, rtol_sd=1e-4):
@@ -262,7 +262,7 @@ def test_slopes_mgcv(Rinfo):
 
 
 def _binomial(D, method):
-    return GAM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(), method=method,
+    return GLMM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(), method=method,
                control=GAMControl(**TIGHT), response_id='p', weight_id='size').fit(D, D[['p', 'size']])
 
 
@@ -312,7 +312,7 @@ def test_glmer_olre(Rinfo, nAGQ):
     # an observation-level random effect: Poisson-lognormal counts
     D = counts()
     rpy = _R(Rinfo, D, 'lme4')
-    G = GAM(terms=[linear('x'), re('obs')], family=sm.families.Poisson(), method='ML',
+    G = GLMM(terms=[linear('x'), re('obs')], family=sm.families.Poisson(), method='ML',
             control=GAMControl(**TIGHT)).fit(D, D['y'])
     rpy.r(f"""p <- lme4::glmer(y ~ x + (1|obs), data=D, family=poisson, nAGQ={nAGQ},
                               control={GLMER_CONTROL})""")

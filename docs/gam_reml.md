@@ -14,7 +14,7 @@ kernelspec:
 
 # REML and ML for GAMs: the design
 
-This page explains how `GAM(method='REML')` and `GAM(method='ML')` choose
+This page explains how `GLMM(method='REML')` and `GLMM(method='ML')` choose
 the smoothing parameters (the code is `glmnet.gam.reml`). It writes the
 criterion out in a few lines of JAX for a small example, minimizes it
 "by hand", and checks that `GAM` gets the same answer. The same check is
@@ -103,7 +103,7 @@ from jax.scipy.special import gammaln, xlogy
 
 jax.config.update('jax_enable_x64', True)
 
-from glmnet.gam import GAM, s
+from glmnet.gam import GAM, GLMM, s
 
 rng = np.random.default_rng(0)
 n = 300
@@ -112,7 +112,7 @@ eta = np.sin(2 * np.pi * data['x1']) + 3 * (data['x2'] - 0.5)**2
 data['y'] = eta + 0.4 * rng.standard_normal(n)
 data['count'] = rng.poisson(np.exp(0.5 + 0.7 * eta))
 
-G = GAM(terms=[s('x1'), s('x2')], method='REML').fit(data, data['y'])
+G = GLMM(terms=[s('x1'), s('x2')], method='REML').fit(data, data['y'])
 G.summary()
 ```
 
@@ -317,7 +317,7 @@ value_and_grad = jax.jit(jax.value_and_grad(V_poisson))
 fit = minimize(lambda p: [np.asarray(v, float) for v in value_and_grad(p)],
                np.zeros(2), jac=True, method='BFGS', options=dict(gtol=1e-9))
 
-G_pois = GAM(terms=[s('x1'), s('x2')], family=sm.families.Poisson(),
+G_pois = GLMM(terms=[s('x1'), s('x2')], family=sm.families.Poisson(),
              method='REML').fit(data, data['count'])
 sel = G_pois.smoothing_
 pd.DataFrame({'by hand': np.r_[np.exp(fit.x), fit.fun],

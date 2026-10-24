@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, re, linear
+from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear
 
 N, R = 200_000, 100_000
 
@@ -75,8 +75,8 @@ def test_reml_refuses(big):
     # are refused, without forming either)
     small = big.iloc[:30_000].assign(h=lambda d: (d['g'] * 7919) % 25_000)
     with pytest.raises(ValueError, match='max_dense_coef'):
-        GAM(terms=[linear('x'), re('g'), re('h')], method='REML',
-            control=GAMControl(max_dense_coef=10_000)).fit(small, small['y'])
+        GLMM(terms=[linear('x'), re('g'), re('h')], method='REML',
+             control=GAMControl(max_dense_coef=10_000)).fit(small, small['y'])
 
 
 def test_threshold(big):

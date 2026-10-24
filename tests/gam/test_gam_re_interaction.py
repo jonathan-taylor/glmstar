@@ -9,9 +9,14 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, re
+from glmnet.gam import GAM, GLMM, GAMControl, s, re
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
+
+
+def _model(method, **kwargs):
+    # fixed smoothing is a GAM; estimated, a GLMM
+    return GAM(**kwargs) if method == 'fixed' else GLMM(method=method, **kwargs)
 
 
 @pytest.fixture(scope='module')
@@ -39,9 +44,9 @@ def test_is_re_of_the_labels(data, method):
     lam = dict(lam=0.05) if method == 'fixed' else {}
     smooth = s('x', df=4) if method == 'fixed' else s('x')
     control = GAMControl(**TIGHT)
-    G = GAM(terms=[smooth, re('batch', **lam), re(['batch', 'cask'], **lam)], method=method,
+    G = _model(method, terms=[smooth, re('batch', **lam), re(['batch', 'cask'], **lam)],
             control=control).fit(data, data['y'])
-    G0 = GAM(terms=[smooth, re('batch', **lam), re('batch_cask', **lam)], method=method,
+    G0 = _model(method, terms=[smooth, re('batch', **lam), re('batch_cask', **lam)],
              control=control).fit(data, data['y'])
     np.testing.assert_allclose(G.predict(data), G0.predict(data), rtol=1e-10)
     effects, effects0 = G.terms_[2].effects_, G0.terms_[2].effects_
@@ -81,7 +86,7 @@ def test_lmer_nested(Rinfo, data, method):
     rpy = Rinfo['rpy']
     if not rpy.r('isTRUE(requireNamespace("lme4", quietly=TRUE))')[0]:
         pytest.skip('requires the R package lme4')
-    G = GAM(terms=[re('batch'), re(['batch', 'cask'])], method=method,
+    G = _model(method, terms=[re('batch'), re(['batch', 'cask'])],
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     with Rinfo['np_cv_rules'].context():
         rpy.r.assign('D', data[['batch', 'cask', 'y']])

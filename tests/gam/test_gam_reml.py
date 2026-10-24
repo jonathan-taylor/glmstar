@@ -1,5 +1,5 @@
 """
-Smoothing parameter selection by REML and ML (`GAM(method=...)`): the
+Smoothing parameter selection by REML and ML (`GLMM(method=...)`): the
 criterion's gradient, the Gaussian mixed model's (exact) REML and ML against
 statsmodels' MixedLM, the consistency of the final fit, and errors.
 """
@@ -11,7 +11,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GAMControl, s, lo, re, linear, categorical
+from glmnet.gam import GAM, GLMM, GAMControl, s, lo, re, linear, categorical
 from glmnet.gam.reml import LaplaceCriterion
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
@@ -60,7 +60,7 @@ def test_gradient(data, family, method):
     # with prior weights and an offset
     fam, y = FAMILIES[family]
     terms = [s('a'), s('b'), categorical('c'), re('g')] if 'inverse' in family else _terms()
-    G = GAM(terms=terms, family=fam, method=method, control=GAMControl(**TIGHT),
+    G = GLMM(terms=terms, family=fam, method=method, control=GAMControl(**TIGHT),
             response_id=y, weight_id='w', offset_id='o').fit(data, data[[y, 'w', 'o']])
     estimated = [j for j, t in enumerate(G.terms_) if t.penalty_matrix() is not None]
     with jax.enable_x64(True):
@@ -81,7 +81,7 @@ def test_gradient(data, family, method):
 def test_gaussian_random_intercept_is_mixedlm(data, method):
     # a Gaussian random intercept model: REML and ML are exact, those of the
     # linear mixed model (statsmodels' MixedLM)
-    G = GAM(terms=[linear('a'), categorical('c'), re('g')], method=method,
+    G = GLMM(terms=[linear('a'), categorical('c'), re('g')], method=method,
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     X = sm.add_constant(pd.get_dummies(data[['a', 'c']], drop_first=True).astype(float))
     M = sm.MixedLM(data['y'], X, groups=data['g']).fit(reml=method == 'REML', method='bfgs',
@@ -107,7 +107,7 @@ def test_final_fit_is_the_fixed_fit(data, family, method):
     # (joint or backfitted), with mgcv's edf; the variance components are
     # the dispersion over the smoothing parameters
     fam, y = FAMILIES[family]
-    G = GAM(terms=_terms(), family=fam, method=method, control=GAMControl(**TIGHT)).fit(data, data[y])
+    G = GLMM(terms=_terms(), family=fam, method=method, control=GAMControl(**TIGHT)).fit(data, data[y])
     lam = dict(zip(G.smoothing_.terms, G.smoothing_.lam))
     assert G.smoothing_.terms == ['s(a)', 's(b)', 're(g)', 're(g, by=v)']
     fixed = [s('a', lam=lam['s(a)']), s('b', lam=lam['s(b)']), categorical('c'),
@@ -131,7 +131,7 @@ def test_final_fit_is_the_fixed_fit(data, family, method):
 def test_weights_scale_and_rows(data):
     # Gaussian prior weights are precisions: scaling them scales the
     # dispersion, the fit is unchanged
-    fits = [GAM(terms=[s('a'), categorical('c'), re('g')], method='REML', control=GAMControl(**TIGHT),
+    fits = [GLMM(terms=[s('a'), categorical('c'), re('g')], method='REML', control=GAMControl(**TIGHT),
                 response_id='y', weight_id='w').fit(data, data[['y', 'w']].assign(w=c * data['w']))
             for c in (1., 3.)]
     np.testing.assert_allclose(fits[1].state_.linear_predictor, fits[0].state_.linear_predictor,
@@ -140,10 +140,10 @@ def test_weights_scale_and_rows(data):
     # rows of zero weight are left out (with terms whose bases do not
     # depend on them: a spline's knots are at all the distinct values)
     W = data.assign(w=np.where(np.arange(data.shape[0]) % 5 == 0, 0., data['w']))
-    G0 = GAM(terms=[linear('a'), categorical('c'), re('g')], method='REML', control=GAMControl(**TIGHT),
+    G0 = GLMM(terms=[linear('a'), categorical('c'), re('g')], method='REML', control=GAMControl(**TIGHT),
              response_id='y', weight_id='w').fit(W, W[['y', 'w']])
     keep = W['w'] > 0
-    G1 = GAM(terms=[linear('a'), categorical('c'), re('g')], method='REML', control=GAMControl(**TIGHT),
+    G1 = GLMM(terms=[linear('a'), categorical('c'), re('g')], method='REML', control=GAMControl(**TIGHT),
              response_id='y', weight_id='w').fit(W[keep], W.loc[keep, ['y', 'w']])
     # (the score differs by a constant: the zero weight rows are among those
     # the terms are centered over, which parametrizes the unpenalized part)
@@ -161,9 +161,9 @@ def test_given_dispersion_fixed_family(data, family, method):
     fam, y = FAMILIES[family]
     phi = 3.
     terms = [s('a'), categorical('c'), re('g')]
-    G = GAM(terms=terms, family=fam, method=method,
+    G = GLMM(terms=terms, family=fam, method=method,
             control=GAMControl(**TIGHT)).fit(data, data[y], dispersion=phi)
-    W = GAM(terms=terms, family=fam, method=method, control=GAMControl(**TIGHT),
+    W = GLMM(terms=terms, family=fam, method=method, control=GAMControl(**TIGHT),
             response_id=y, weight_id='w').fit(data, data[[y]].assign(w=1 / phi))
     assert G.smoothing_.dispersion == phi and G.dispersion_ == phi
     np.testing.assert_allclose(G.state_.linear_predictor, W.state_.linear_predictor,
@@ -172,7 +172,7 @@ def test_given_dispersion_fixed_family(data, family, method):
     np.testing.assert_allclose(G.posterior_covariance_, W.posterior_covariance_,
                                rtol=1e-3, atol=1e-6)
     # and differs from the fit at dispersion 1
-    D = GAM(terms=terms, family=fam, method=method,
+    D = GLMM(terms=terms, family=fam, method=method,
             control=GAMControl(**TIGHT)).fit(data, data[y])
     assert not np.allclose(D.smoothing_.lam_raw, G.smoothing_.lam_raw, rtol=1e-2)
 
@@ -180,7 +180,7 @@ def test_given_dispersion_fixed_family(data, family, method):
 def test_df_and_lam_terms_are_fixed(data):
     # a term with lam keeps it, one with df has it matched at the prior
     # weights; the others are estimated
-    G = GAM(terms=[s('a', df=5), s('b', lam=1e-2), re('g')], family=sm.families.Poisson(),
+    G = GLMM(terms=[s('a', df=5), s('b', lam=1e-2), re('g')], family=sm.families.Poisson(),
             method='REML', control=GAMControl(**TIGHT)).fit(data, data['yp'])
     assert G.smoothing_.terms == ['re(g)']
     assert G.terms_[1].lam == 1e-2
@@ -192,7 +192,7 @@ def test_df_and_lam_terms_are_fixed(data):
 def test_random_effects_reml(data):
     # a random intercept and slope by REML: the effects named by the groups,
     # the standard errors from the posterior covariance at REML's dispersion
-    G = GAM(terms=[s('a'), categorical('c'), re('g'), re('g', by='v')], method='REML',
+    G = GLMM(terms=[s('a'), categorical('c'), re('g'), re('g', by='v')], method='REML',
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert list(G.terms_[2].effects_.index) == GROUPS
     assert list(G.variance_components_.index) == ['s(a)', 're(g)', 're(g, by=v)', 'scale']
@@ -204,13 +204,13 @@ def test_random_effects_reml(data):
 
 def test_errors(data):
     with pytest.raises(ValueError, match="method should be"):
-        GAM(terms=[s('a')], method='GCV').fit(data, data['y'])
+        GLMM(terms=[s('a')], method='GCV').fit(data, data['y'])
     with pytest.raises(ValueError, match='need a basis'):
-        GAM(terms=[lo('a'), s('b')], method='REML').fit(data, data['y'])
+        GLMM(terms=[lo('a'), s('b')], method='REML').fit(data, data['y'])
     with pytest.raises(ValueError, match='no smoothing parameter to estimate'):
-        GAM(terms=[s('a', df=4), categorical('c')], method='REML').fit(data, data['y'])
+        GLMM(terms=[s('a', df=4), categorical('c')], method='REML').fit(data, data['y'])
     with pytest.raises(NotImplementedError, match='Tweedie'):
-        GAM(terms=[s('a')], family=sm.families.Tweedie(var_power=1.5),
+        GLMM(terms=[s('a')], family=sm.families.Tweedie(var_power=1.5),
             method='REML').fit(data, data['yp'] + 0.5)
     # method='fixed': s() without arguments has df=4
     G = GAM(terms=[s('a')]).fit(data, data['y'])
@@ -228,7 +228,7 @@ def test_without_jax(data, monkeypatch):
 
     monkeypatch.setattr(builtins, '__import__', fake_import)
     with pytest.raises(ImportError, match='pip install jax'):
-        GAM(terms=[s('a')], method='REML').fit(data, data['y'])
+        GLMM(terms=[s('a')], method='REML').fit(data, data['y'])
     # the fixed method does not need it
     GAM(terms=[s('a')]).fit(data, data['y'])
 
@@ -239,7 +239,7 @@ def test_reml_is_experimental(data):
     from glmnet.gam import ExperimentalWarning
     for method in ['REML', 'ML']:
         with pytest.warns(ExperimentalWarning, match=f"method='{method}'.*experimental"):
-            GAM(terms=[s('a')], method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
+            GLMM(terms=[s('a')], method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     with warnings.catch_warnings():
         warnings.simplefilter('error', ExperimentalWarning)
         GAM(terms=[s('a', df=4)]).fit(data, data['y'])

@@ -191,7 +191,7 @@ def cyclic_spline(column, k=10, period=None, knots=None, lam=None, name=None):
     """
     A cyclic cubic regression spline of the column (see `CyclicSplineTerm`):
     mgcv's `s(column, bs="cc", k=k)`. With `lam` None its smoothing parameter
-    is estimated (`GAM(method='REML')` or `'ML'`).
+    is estimated (`GLMM(method='REML')` or `'ML'`).
 
     >>> cyclic_spline('hour', period=(0, 24))
     """

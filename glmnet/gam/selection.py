@@ -1,6 +1,6 @@
 """
 How a GAM's penalty parameters (smoothing parameters, random effects'
-variances and covariances) are chosen: `GAM(method=...)` is a string
+variances and covariances) are chosen: `GLMM(method=...)` is a string
 (`'fixed'`, `'REML'`, `'ML'`) or a `SmoothingMethod`, an object whose
 `select(gam, dispersion)` sets the estimated terms' parameters and returns
 a `SmoothingSelection`. `GAM` then fits with them.
@@ -86,7 +86,7 @@ class Laplace(SmoothingMethod):
 
 
 def resolve_method(method):
-    """The `SmoothingMethod` of `GAM(method=...)`: a string or a `SmoothingMethod`."""
+    """The `SmoothingMethod` of `GLMM(method=...)`: a string or a `SmoothingMethod`."""
     if isinstance(method, SmoothingMethod):
         return method
     if method == 'fixed':

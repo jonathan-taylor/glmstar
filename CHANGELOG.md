@@ -15,6 +15,15 @@
   that many. The inner fit is then by backfitting, polished. A random
   intercept of 5 x 10^4 levels in 1.5 x 10^5 rows: REML in under 5 minutes
   and about 3 GB, where the dense Hessian alone would be 18 GB (#190).
+- **`GLMM`: a GAM whose smoothing parameters are estimated.** It has a
+  `GAM`'s terms, its penalized terms random effects, and `method='REML'`
+  (the default), `'ML'` or a `SmoothingMethod`; `smoothing_`,
+  `variance_components_` and `reml_score_` are its own. A `GAM`'s smoothing
+  is fixed (#193).
+- **Some smoothing parameters held fixed in a GLMM:** besides a term given
+  `lam`, a term with several penalties takes a list with `None` for those
+  to estimate (`tensor_spline('x', 'z', lam=[1e-2, None])`, a varying
+  term's levels, `penalized_columns`) (#193).
 - **Varying-coefficient terms, `varying(term, by=...)`** (`VaryingTerm`,
   mgcv's `by=`; Hastie and Tibshirani, 1993). Any smooth varies with a
   categorical, a curve per level (`varying(s('x'), by='f')`, mgcv's `s(x,
@@ -36,6 +45,13 @@
 - **`cubic_regression_spline(x, k=10)`** (`CubicRegressionSplineTerm`),
   mgcv's `s(x, bs="cr")`: the low-rank natural cubic spline with values at
   `k` knots (mgcv's `place.knots`) (#188).
+
+### Deprecated
+
+- **`GAM(method=...)`:** `'fixed'` is a GAM's only smoothing (drop it);
+  `'REML'`, `'ML'` and a `SmoothingMethod` are a `GLMM`'s
+  (`GLMM(method=...)`). Both still work, with a FutureWarning, as does
+  `GLMM(method='fixed')` (#193).
 
 ### Removed
 
@@ -68,6 +84,11 @@
 
 ### Fixes
 
+- **REML and ML: Newton's steps at most 5** in each log smoothing parameter
+  (as mgcv's), and a step where the criterion cannot be computed is halved:
+  near a smoothing parameter going to infinity the Hessian is nearly
+  singular, and its full step could take the dispersion to 0 (a
+  `ZeroDivisionError`) (#193).
 - **REML and ML with the binomial's probit and cloglog links used the
   logit's criterion** (since REML was added): statsmodels derives `Probit`,
   `CLogLog`, `LogLog` and `Cauchy` from `Logit`, and the criterion's choice

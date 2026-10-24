@@ -35,7 +35,7 @@ from .display import model_latex
 from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning, _blocked_term
-from .selection import resolve_method, SmoothingMethod
+from .selection import resolve_method, SmoothingMethod, Fixed
 from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, CategoricalTerm
 
 
@@ -97,9 +97,12 @@ class GAM(BaseEstimator):
     Generalized additive model, `g(E[y]) = intercept + sum_j f_j(x_j)`,
     fitted by local scoring: IRLS, each working problem solved by weighted
     backfitting of the terms (Hastie & Tibshirani, 1986, 1990); or, with
-    `GAMControl(solver='joint')`, jointly on the terms' bases, and with
-    `method='REML'` or `'ML'` with the smoothing parameters estimated, as
-    mgcv (Wood, 2011, 2017). See the References of `glmnet.gam`.
+    `GAMControl(solver='joint')`, jointly on the terms' bases, as mgcv
+    (Wood, 2011, 2017). See the References of `glmnet.gam`.
+
+    A GAM's smoothing is fixed: each term's `lam` or `df`. To estimate the
+    smoothing parameters (and random effects' variances), by REML, ML or a
+    method of one's own, fit a `GLMM`, which has the same terms.
 
     The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `gaussian_process`, `linear`,
     `categorical`, or a `ColumnsTerm` of several columns fitted as one parametric
@@ -140,23 +143,10 @@ class GAM(BaseEstimator):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
-    method: str or SmoothingMethod
-        How the smoothing parameters are chosen: `'fixed'` (the default, as
-        R's `gam`: each term's `lam` or `df`; `s()` without them has
-        `df=4`), `'REML'` or `'ML'`, or a `glmnet.gam.selection.SmoothingMethod`
-        (a user's: the documentation's page "Crossed random effects at
-        scale" writes one, the method of moments for the variances of
-        crossed random effects in large data). With `'REML'`
-        or `'ML'` (as mgcv's `gam(method=...)`, with JAX) the smoothing
-        parameters of the penalized terms without `lam` or `df` (or a given
-        precision) maximize the restricted (or full) marginal likelihood,
-        by Laplace's method, the dispersion with them. Terms with `lam` keep
-        it; terms with `df` have it matched at the prior weights, then fixed.
-        The working problems are solved jointly, and `edf_`, `df_resid_`
-        and `dispersion_` follow mgcv (its edf, its residual df, the REML
-        or ML estimate of the dispersion). **Experimental**: `'REML'` and
-        `'ML'` warn (`glmnet.gam.ExperimentalWarning`); check
-        `smoothing_.converged`.
+    method: str, optional
+        Deprecated. `'fixed'`, the only smoothing of a GAM, is the default;
+        `'REML'`, `'ML'` or a `SmoothingMethod` are a `GLMM`'s
+        (`GLMM(method=...)`). Either raises a FutureWarning.
 
     Attributes
     ----------
@@ -198,24 +188,10 @@ class GAM(BaseEstimator):
         plus 1 for an estimated negative binomial theta. A quasi family
         (`glmnet.gam.families`) has no log-likelihood or AIC (NaN).
     negative_binomial_theta_: float
-        The negative binomial's theta, estimated (`NegativeBinomial(theta=None)`
-        with `method='REML'` or `'ML'`, as mgcv's `nb()`) or given; None for
-        other families.
+        The negative binomial's theta, given (or estimated by a `GLMM`); None
+        for other families.
     n_iter_: int
         Number of IRLS iterations.
-    smoothing_: SmoothingSelection
-        With `method='REML'` or `'ML'`: the estimated smoothing parameters,
-        the dispersion and the criterion (`glmnet.gam.reml`).
-    reml_score_: float
-        The minimized criterion (the negative log REML or ML; as mgcv's
-        `gcv.ubre`, up to a constant for REML, which depends on the
-        parametrization of the unpenalized coefficients).
-    variance_components_: pd.DataFrame
-        With REML or ML: the variances (and standard deviations) of the
-        penalized terms' coefficients as random effects, the dispersion over
-        their smoothing parameters (on the prior weights' scale), and the
-        dispersion (`scale`), as mgcv's `gam.vcomp` and lme4's `VarCorr`
-        for random effects.
     """
     terms: list = field(default_factory=list)
     family: object = field(default_factory=GLMFamilySpec)
@@ -223,7 +199,7 @@ class GAM(BaseEstimator):
     offset_id: Union[str, int] = None
     weight_id: Union[str, int] = None
     response_id: Union[str, int] = None
-    method: str = 'fixed'
+    method: Optional[str] = None
 
     fit_intercept = True
 
@@ -323,10 +299,11 @@ class GAM(BaseEstimator):
         normed_weight = self._normed_weight = weight / weight_total
         self.weight_total_ = weight_total
 
-        method = self._method = resolve_method(self.method)
+        method = self._method = self._smoothing_method()
         if getattr(self.family, 'estimate_theta', False) and not method.estimates:
-            raise ValueError('the negative binomial\'s theta is estimated by method="REML" or '
-                             '"ML": give theta (NegativeBinomial(theta=...)) to fix it')
+            raise ValueError('the negative binomial\'s theta is estimated by a GLMM '
+                             '(method="REML" or "ML"): give theta (NegativeBinomial(theta=...)) '
+                             'to fix it')
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
             categorical_column = (term.column if isinstance(term, CategoricalTerm)
@@ -378,7 +355,7 @@ class GAM(BaseEstimator):
 
         if method.estimates:
             if method.experimental:
-                warnings.warn(f"GAM(method='{method.name}') is experimental: the selection of the "
+                warnings.warn(f"{type(self).__name__}(method='{method.name}') is experimental: the selection of the "
                               "smoothing parameters may change, and its convergence should be "
                               "checked (smoothing_.converged)", ExperimentalWarning, stacklevel=2)
             self.smoothing_ = method.select(self, dispersion)
@@ -480,18 +457,44 @@ class GAM(BaseEstimator):
             self._set_covariance(w)
         return self
 
+    def _smoothing_method(self):
+        """
+        The `SmoothingMethod`: `Fixed()` for a GAM. `GAM(method=...)` is
+        deprecated: `'fixed'` is a GAM's only smoothing, and the others are
+        a `GLMM`'s.
+        """
+        method = self.method
+        if method is None:
+            return Fixed()
+        method = resolve_method(method)
+        if isinstance(method, Fixed):
+            warnings.warn("GAM(method='fixed') is deprecated: a GAM's smoothing is always "
+                          "fixed (each effect's lam or df), so drop method",
+                          FutureWarning, stacklevel=3)
+        else:
+            warnings.warn(f"GAM(method={self.method!r}) is deprecated: smoothing parameters "
+                          f"are estimated by a GLMM, GLMM(method={self.method!r})",
+                          FutureWarning, stacklevel=3)
+        return method
+
     def _resolve_terms(self, terms):
         """
         The smoothing of the terms for the method: `s()` with neither `df`
-        nor `lam` has `df=4` with `method='fixed'` (as R's `gam`), and its
-        smoothing parameter estimated with `'REML'` or `'ML'`, as `re()`
-        without them.
+        nor `lam` has `df=4` in a GAM (as R's `gam`), and its smoothing
+        parameter estimated by a GLMM, as `re()` without them. In a GAM a
+        term's `lam` list has no None (one to estimate).
         """
-        method = resolve_method(self.method)
+        method = self._method
         for term in terms:
             if (isinstance(term, SplineTerm) and not method.estimates and
                 term.df is None and term.lam is None):
                 term.df = 4.
+            lam = getattr(term, 'lam', None)
+            if (not method.estimates and lam is not None and
+                any(v is None or np.isnan(float(v))
+                    for v in np.atleast_1d(np.asarray(lam, dtype=object)))):
+                raise ValueError(f'{term.name}: a GAM fixes every smoothing parameter: give each '
+                                 'lam, or estimate those that are None with a GLMM')
         return terms
 
     def inner_fit(self, state=None, control=None):
@@ -869,3 +872,81 @@ class GAM(BaseEstimator):
                                 var_weights=self._weight[keep],
                                 scale=self.deviance_ / self._weight.sum())
         return GLM._loglike(self)
+
+
+@dataclass
+class GLMM(GAM):
+    """
+    Generalized linear mixed model: a `GAM` whose penalized terms are random
+    effects, their smoothing parameters (the variances of the effects, over
+    the dispersion) estimated. Smooths are random effects here too, as in
+    mgcv: `s(x)` is a random effect on its basis' wiggly part, of variance
+    `dispersion / lam`. The terms, family, control and attributes are a
+    GAM's; a GLMM adds the estimated smoothing (`smoothing_`,
+    `variance_components_`, `reml_score_`).
+
+    `method` chooses the estimates: `'REML'` (the default) or `'ML'`, the
+    restricted (or full) marginal likelihood by Laplace's method, as mgcv's
+    `gam(method=...)` and lme4's `glmer` (with JAX, `pip install
+    glmstar[gam]`; not needed for the Cox family); or a
+    `glmnet.gam.selection.SmoothingMethod` of one's own (the documentation's
+    page "Crossed random effects at scale" writes one, the method of moments
+    for the variances of crossed random effects in large data).
+
+    Some parameters can be held fixed while the others are estimated:
+
+    - a term given `lam` (or `df`, matched at the prior weights, then fixed,
+      as mgcv's `sp`) keeps it: `GLMM([s('x', lam=1e-3), re('g')])`
+      estimates only the random effect's variance;
+    - a term with several penalties (`tensor_spline`, `penalized_columns`,
+      a categorical `varying` smooth) takes a list with `None` for those to
+      estimate: `tensor_spline('x', 'z', lam=[1e-2, None])` fixes the first
+      margin's and estimates the second's;
+    - correlated random effects given `precision` keep it.
+
+    `smoothing_.terms` names the estimated parameters.
+
+    Parameters
+    ----------
+    terms, family, control, offset_id, weight_id, response_id:
+        As for `GAM`.
+    method: str or SmoothingMethod
+        `'REML'` (the default), `'ML'` or a `SmoothingMethod`. With `'REML'`
+        or `'ML'` the working problems are solved jointly (or, for one large
+        random effect, by backfitting with the criterion factored by blocks:
+        `GAMControl(reml_backend=...)`), and `edf_`, `df_resid_` and
+        `dispersion_` follow mgcv (its edf, its residual df, the REML or ML
+        estimate of the dispersion). **Experimental**: `'REML'` and `'ML'`
+        warn (`glmnet.gam.ExperimentalWarning`); check
+        `smoothing_.converged`. (`'fixed'` is a `GAM`: deprecated here, with
+        a FutureWarning.)
+
+    Attributes
+    ----------
+    The attributes of a `GAM`, and:
+
+    smoothing_: SmoothingSelection
+        The estimated smoothing parameters, the dispersion and the criterion
+        (`glmnet.gam.reml`).
+    reml_score_: float
+        The minimized criterion (the negative log REML or ML; as mgcv's
+        `gcv.ubre`, up to a constant for REML, which depends on the
+        parametrization of the unpenalized coefficients).
+    variance_components_: pd.DataFrame
+        The variances (and standard deviations) of the penalized terms'
+        coefficients as random effects, the dispersion over their smoothing
+        parameters (on the prior weights' scale), and the dispersion
+        (`scale`), as mgcv's `gam.vcomp` and lme4's `VarCorr` for random
+        effects.
+    negative_binomial_theta_: float
+        The negative binomial's theta: estimated with
+        `NegativeBinomial(theta=None)`, as mgcv's `nb()`.
+    """
+    method: Union[str, SmoothingMethod] = 'REML'
+
+    def _smoothing_method(self):
+        method = resolve_method('REML' if self.method is None else self.method)
+        if isinstance(method, Fixed):
+            warnings.warn("GLMM(method='fixed') is deprecated: fixed smoothing is a GAM, "
+                          "GAM(terms)", FutureWarning, stacklevel=3)
+        return method

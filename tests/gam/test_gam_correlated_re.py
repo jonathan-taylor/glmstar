@@ -12,7 +12,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import (GAM, GAMControl, linear, re, s,
+from glmnet.gam import (GAM, GLMM, GAMControl, linear, re, s,
                         correlated_random_effect as cre)
 from glmnet.gam.penalties import CholeskyPenalty
 
@@ -103,10 +103,10 @@ def test_gradient(data, family, method):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
     if family == 'gaussian':
-        G = GAM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])],
+        G = GLMM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])],
                 method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     else:
-        G = GAM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])],
+        G = GLMM(terms=[linear('days'), s('x'), cre('subject', slopes=['days'])],
                 family=sm.families.Binomial(), method=method, control=GAMControl(**TIGHT),
                 response_id='pb', weight_id='trials').fit(data, data[['pb', 'trials']])
     assert G.smoothing_.converged
@@ -144,7 +144,7 @@ def test_lmer(Rinfo, data, method):
                              control=lme4::lmerControl(optimizer='bobyqa',
                                                        optCtrl=list(rhoend=1e-12)))
               vc <- as.data.frame(lme4::VarCorr(m))""")
-    G = GAM(terms=[linear('days'), cre('subject', slopes=['days'])], method=method,
+    G = GLMM(terms=[linear('days'), cre('subject', slopes=['days'])], method=method,
             control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.smoothing_.converged
     Sigma = G.terms_[1].covariance_.to_numpy()
@@ -172,7 +172,7 @@ def test_glmer(Rinfo, data):
                               control=lme4::glmerControl(optimizer='bobyqa', tolPwrss=1e-12,
                                                          optCtrl=list(rhoend=1e-10)))
              vc <- as.data.frame(lme4::VarCorr(m))""")
-    G = GAM(terms=[linear('days'), cre('subject', slopes=['days'])], family=sm.families.Binomial(),
+    G = GLMM(terms=[linear('days'), cre('subject', slopes=['days'])], family=sm.families.Binomial(),
             method='ML', control=GAMControl(**TIGHT)).fit(data, data['yb'])
     assert G.smoothing_.converged
     Sigma = G.terms_[1].covariance_.to_numpy()
@@ -189,7 +189,7 @@ def test_glmer_proportions(Rinfo, data, method):
     # first fits the covariance diagonal, then all of it)
     pytest.importorskip('jax')
     rpy = _R(Rinfo, data[['subject', 'days', 'pb', 'trials']])
-    G = GAM(terms=[linear('days'), cre('subject', slopes=['days'])], family=sm.families.Binomial(),
+    G = GLMM(terms=[linear('days'), cre('subject', slopes=['days'])], family=sm.families.Binomial(),
             method=method, control=GAMControl(**TIGHT), response_id='pb',
             weight_id='trials').fit(data, data[['pb', 'trials']])
     assert G.smoothing_.converged

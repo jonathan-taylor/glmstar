@@ -13,7 +13,7 @@ from scipy.optimize import minimize_scalar
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, s, categorical, varying, cubic_regression_spline
+from glmnet.gam import GAM, GLMM, GAMControl, s, categorical, varying, cubic_regression_spline
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
 
@@ -90,7 +90,7 @@ def test_mgcv(Rinfo, data, family, method, pooled):
         pytest.skip('requires the R package mgcv')
     fam, y, Rfamily = ((sm.families.Gaussian(), 'y', 'gaussian()') if family == 'gaussian'
                        else (sm.families.Poisson(), 'yp', 'poisson()'))
-    G = GAM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', pooled_lam=pooled)],
+    G = GLMM(terms=[categorical('f'), varying(cubic_regression_spline('x'), by='f', pooled_lam=pooled)],
             family=fam, method=method, control=GAMControl(**TIGHT)).fit(data, data[y])
     assert G.smoothing_.converged
     with Rinfo['np_cv_rules'].context():

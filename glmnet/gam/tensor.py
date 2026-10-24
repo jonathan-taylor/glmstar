@@ -255,7 +255,7 @@ def tensor_spline(*columns, k=None, knots=None, lam=None, name=None):
     """
     A tensor product smooth of the columns (see `TensorTerm`): mgcv's
     `te(*columns, bs="cr", k=k)`. With `lam` None its smoothing parameters,
-    one per column, are estimated (`GAM(method='REML')` or `'ML'`).
+    one per column, are estimated (`GLMM(method='REML')` or `'ML'`).
 
     >>> tensor_spline('x', 'z')
     >>> tensor_spline('lon', 'lat', k=(8, 6))

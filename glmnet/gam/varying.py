@@ -165,7 +165,7 @@ def cubic_regression_spline(column, k=10, knots=None, lam=None, name=None):
     """
     A cubic regression spline of the column (see `CubicRegressionSplineTerm`):
     mgcv's `s(column, bs="cr", k=k)`. With `lam` None its smoothing parameter
-    is estimated (`GAM(method='REML')` or `'ML'`).
+    is estimated (`GLMM(method='REML')` or `'ML'`).
     """
     term = CubicRegressionSplineTerm(column, k=k, knots=knots, lam=lam)
     args = ''.join(f', {a}={v}' for a, v in [('k', None if k == 10 else k), ('lam', lam)]
@@ -513,7 +513,7 @@ def varying(term, by, lam=None, pooled_lam=False, as_categorical=True, name=None
     `s(x, by=z)`). With
     `pooled_lam=True` the levels share the smoothing parameters (mgcv's
     `id`). With `lam` None (and none in `term`) they are estimated
-    (`GAM(method='REML')` or `'ML'`).
+    (`GLMM(method='REML')` or `'ML'`).
 
     >>> varying(s('age'), by='sex', pooled_lam=True)
     """

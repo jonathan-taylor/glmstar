@@ -16,7 +16,7 @@ from scipy.optimize import minimize_scalar
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import (GAM, GAMControl, s, lo, re, categorical, linear, varying, cyclic_spline,
+from glmnet.gam import (GAM, GLMM, GAMControl, s, lo, re, categorical, linear, varying, cyclic_spline,
                         tensor_spline, cubic_regression_spline)
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -42,7 +42,7 @@ def data():
 
 def _fit(D, terms, family='gaussian', method='fixed', solver='backfit'):
     fam, y = (sm.families.Gaussian(), 'y') if family == 'gaussian' else (sm.families.Poisson(), 'yp')
-    return GAM(terms=terms, family=fam, method=method,
+    return GLMM(terms=terms, family=fam, method=method,
                control=GAMControl(solver=solver, **TIGHT)).fit(D, D[y])
 
 
@@ -212,7 +212,7 @@ def test_plot(data):
 
 
 def test_display(data):
-    g = GAM([categorical('f'), varying(s('x'), by='f', pooled_lam=True),
+    g = GLMM([categorical('f'), varying(s('x'), by='f', pooled_lam=True),
              varying(s('u'), by='z', as_categorical=False), varying(lo('h'), by='f'),
              cubic_regression_spline('u')], method='REML')
     latex = g.model_latex()

@@ -49,7 +49,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, s, re, linear, categorical, correlated_random_effect
+from glmnet.gam import GAM, GLMM, s, re, linear, categorical, correlated_random_effect
 
 
 def effects(rng, labels, sd):
@@ -72,7 +72,7 @@ School = pd.DataFrame({'school': np.repeat([f's{i:02d}' for i in range(30)], siz
 School['score'] = (50 + School['school'].map(effects(rng, School['school'], 3))
                    + rng.normal(0, 8, School.shape[0]))
 
-oneway = GAM(terms=[re('school')], method='REML').fit(School, School['score'])
+oneway = GLMM(terms=[re('school')], method='REML').fit(School, School['score'])
 oneway.variance_components_
 ```
 
@@ -139,7 +139,7 @@ effects. `reml_score_` is the minimized criterion, the negative log REML
 `lmer(score ~ 1 + (1|school), REML=TRUE)` (or `FALSE`).
 
 ```{code-cell} ipython3
-oneway_ml = GAM(terms=[re('school')], method='ML').fit(School, School['score'])
+oneway_ml = GLMM(terms=[re('school')], method='ML').fit(School, School['score'])
 pd.DataFrame({'REML': oneway.variance_components_['sd'],
               'ML': oneway_ml.variance_components_['sd']})
 ```
@@ -166,7 +166,7 @@ Plates['diameter'] = (23 + Plates['plate'].map(effects(rng, Plates['plate'], 0.8
                       + Plates['sample'].map(effects(rng, Plates['sample'], 1.9))
                       + rng.normal(0, 0.55, Plates.shape[0]))
 
-crossed = GAM(terms=[re('plate'), re('sample')], method='REML').fit(Plates, Plates['diameter'])
+crossed = GLMM(terms=[re('plate'), re('sample')], method='REML').fit(Plates, Plates['diameter'])
 crossed.variance_components_
 ```
 
@@ -200,7 +200,7 @@ Pastes['strength'] = (60 + Pastes['batch'].map(effects(rng, Pastes['batch'], 1.3
                       + Pastes['sample'].map(effects(rng, Pastes['sample'], 2.9))
                       + rng.normal(0, 0.8, Pastes.shape[0]))
 
-nested = GAM(terms=[re('batch'), re(['batch', 'cask'])],
+nested = GLMM(terms=[re('batch'), re(['batch', 'cask'])],
              method='REML').fit(Pastes, Pastes['strength'])
 nested.variance_components_
 ```
@@ -230,7 +230,7 @@ Sleep['reaction'] = (250 + 10 * Sleep['days'] + Sleep['subject'].map(effects(rng
                      + Sleep['days'] * Sleep['subject'].map(effects(rng, Sleep['subject'], 6))
                      + rng.normal(0, 25, Sleep.shape[0]))
 
-slopes = GAM(terms=[linear('days'), re('subject'), re('subject', by='days')], method='REML')
+slopes = GLMM(terms=[linear('days'), re('subject'), re('subject', by='days')], method='REML')
 slopes.fit(Sleep, Sleep['reaction'])
 slopes.variance_components_
 ```
@@ -282,7 +282,7 @@ covariance factor), so a singular $\Sigma$, a correlation of $\pm 1$, is
 reached as one of its diagonal entries goes to 0.
 
 ```{code-cell} ipython3
-correlated = GAM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
+correlated = GLMM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
                  method='REML').fit(Sleep, Sleep['reaction'])
 correlated.variance_components_
 ```
@@ -307,7 +307,7 @@ Unlike the independent model, this one does not depend on the origin of
 
 ```{code-cell} ipython3
 shifted = Sleep.assign(days=Sleep['days'] - 4.5)
-refit = GAM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
+refit = GLMM(terms=[linear('days'), correlated_random_effect('subject', slopes=['days'])],
             method='REML').fit(shifted, shifted['reaction'])
 np.abs(refit.predict(shifted) - correlated.predict(Sleep)).max()
 ```
@@ -337,7 +337,7 @@ Herds['p'] = Herds['incidence'] / Herds['size']
 
 glmm = {}
 for method in ['ML', 'REML']:
-    glmm[method] = GAM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(),
+    glmm[method] = GLMM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(),
                        method=method, response_id='p', weight_id='size')
     glmm[method].fit(Herds, Herds[['p', 'size']])
 pd.DataFrame({method: glmm[method].variance_components_['sd'] for method in glmm})
@@ -395,7 +395,7 @@ poisson = GAM(terms=[linear('x')], family=sm.families.Poisson()).fit(Counts, Cou
 pearson = np.sum((Counts['y'] - poisson.predict(Counts))**2 / poisson.predict(Counts))
 print(f'Poisson fit: Pearson chi-squared over its df = {pearson / poisson.df_resid_:.2f}')
 
-olre = GAM(terms=[linear('x'), re('obs')], family=sm.families.Poisson(), method='ML')
+olre = GLMM(terms=[linear('x'), re('obs')], family=sm.families.Poisson(), method='ML')
 olre.fit(Counts, Counts['y'])
 olre.variance_components_
 ```
@@ -431,7 +431,7 @@ Growth = pd.DataFrame({'subject': np.repeat([f'S{i:02d}' for i in range(30)], 12
 Growth['y'] = (np.sin(2 * np.pi * Growth['time']) + Growth['subject'].map(effects(rng, Growth['subject'], 0.7))
                + rng.normal(0, 0.3, Growth.shape[0]))
 
-gamm = GAM(terms=[s('time'), re('subject')], method='REML').fit(Growth, Growth['y'])
+gamm = GLMM(terms=[s('time'), re('subject')], method='REML').fit(Growth, Growth['y'])
 gamm.summary()
 ```
 

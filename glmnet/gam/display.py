@@ -164,7 +164,7 @@ def model_latex(gam):
     surrounding `$$`): the response's distribution and link, the linear
     predictor `eta_i` and a line per term.
     """
-    method = getattr(gam, 'method', 'fixed')
+    method = getattr(gam, 'method', None) or 'fixed'
     method = method if isinstance(method, str) else getattr(method, 'name', type(method).__name__)
     if method == 'fixed':
         method = 'fixed smoothing'

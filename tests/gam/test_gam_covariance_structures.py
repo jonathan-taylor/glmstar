@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, re, linear, categorical, correlated_random_effect as cre
+from glmnet.gam import GAM, GLMM, GAMControl, re, linear, categorical, correlated_random_effect as cre
 from glmnet.gam.penalties import CompoundSymmetryPenalty, DiagonalPenalty
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100, bf_tol=1e-13, bf_maxit=5000)
@@ -68,10 +68,10 @@ def test_penalty(Penalty):
 def test_compound_symmetry_is_nested_re(data, method):
     # Sigma = s1 J + s2 I: a subject effect and a subject-by-condition effect
     pytest.importorskip('jax')
-    G = GAM(terms=[categorical('cond'), cre('subject', slopes=CONDITIONS, intercept=False,
+    G = GLMM(terms=[categorical('cond'), cre('subject', slopes=CONDITIONS, intercept=False,
                                        covariance='compound_symmetry')],
             method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
-    G0 = GAM(terms=[categorical('cond'), re('subject'), re(['subject', 'cond'])], method=method,
+    G0 = GLMM(terms=[categorical('cond'), re('subject'), re(['subject', 'cond'])], method=method,
              control=GAMControl(**TIGHT)).fit(data, data['y'])
     assert G.smoothing_.converged
     S = G.terms_[1].covariance_.to_numpy()
@@ -86,9 +86,9 @@ def test_compound_symmetry_is_nested_re(data, method):
 @pytest.mark.parametrize('method', ['REML', 'ML'])
 def test_diagonal_is_independent_re(data, method):
     pytest.importorskip('jax')
-    G = GAM(terms=[linear('x'), cre('subject', slopes=['x'], covariance='diagonal')],
+    G = GLMM(terms=[linear('x'), cre('subject', slopes=['x'], covariance='diagonal')],
             method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
-    G0 = GAM(terms=[linear('x'), re('subject'), re('subject', by='x')], method=method,
+    G0 = GLMM(terms=[linear('x'), re('subject'), re('subject', by='x')], method=method,
              control=GAMControl(**TIGHT)).fit(data, data['y'])
     S = G.terms_[1].covariance_.to_numpy()
     np.testing.assert_allclose(np.diag(S), G0.variance_components_['variance'].iloc[:2], rtol=1e-6)
@@ -100,7 +100,7 @@ def test_diagonal_is_independent_re(data, method):
 def test_gradient(data, structure):
     jax = pytest.importorskip('jax')
     from glmnet.gam.reml import LaplaceCriterion
-    G = GAM(terms=[categorical('cond'), cre('subject', slopes=CONDITIONS, intercept=False,
+    G = GLMM(terms=[categorical('cond'), cre('subject', slopes=CONDITIONS, intercept=False,
                                        covariance=structure)],
             method='REML', control=GAMControl(**TIGHT)).fit(data, data['y'])
     with jax.enable_x64(True):
@@ -131,7 +131,7 @@ def test_lme_compound_symmetry(Rinfo, data, method):
                              method='{method}', control=nlme::lmeControl(tolerance=1e-12,
                                                                          msMaxIter=500))
               V <- nlme::getVarCov(m)""")
-    G = GAM(terms=[categorical('cond'), cre('subject', slopes=CONDITIONS, intercept=False,
+    G = GLMM(terms=[categorical('cond'), cre('subject', slopes=CONDITIONS, intercept=False,
                                        covariance='compound_symmetry')],
             method=method, control=GAMControl(**TIGHT)).fit(data, data['y'])
     with Rinfo['np_cv_rules'].context():

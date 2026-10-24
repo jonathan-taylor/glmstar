@@ -15,7 +15,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GAMControl, s, re, linear, factor
+from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, factor
 from glmnet.gam.blocked import SplitDesign, SplitPenalty, BlockedHessian
 from glmnet.gam.linalg import DenseHessian
 from glmnet.gam.reml import LaplaceCriterion
@@ -100,7 +100,7 @@ FAMILIES = {'gaussian': (sm.families.Gaussian(), 'y'), 'poisson': (sm.families.P
 def _fit(data, family, method, backend):
     fam, y = FAMILIES[family]
     terms = [linear('x'), s('u'), factor('c'), re('g'), re('g', by='v')]
-    return GAM(terms, family=fam, method=method,
+    return GLMM(terms, family=fam, method=method,
                control=GAMControl(reml_backend=backend, **TIGHT)).fit(data, data[y])
 
 
@@ -136,19 +136,19 @@ def test_fits(data, family, method):
 
 def test_backend_choice(data):
     # auto: blocked above max_dense_coef, with one random effect taking the excess
-    G = GAM([linear('x'), re('g')], method='REML',
+    G = GLMM([linear('x'), re('g')], method='REML',
             control=GAMControl(max_dense_coef=20)).fit(data, data['y'])
-    H = GAM([linear('x'), re('g')], method='REML').fit(data, data['y'])
+    H = GLMM([linear('x'), re('g')], method='REML').fit(data, data['y'])
     assert type(G.regularizer_).__name__ == 'GAMRegularizer'
     assert G.smoothing_.edf is not None and H.smoothing_.edf is None
     np.testing.assert_allclose(G.reml_score_, H.reml_score_, rtol=1e-10)
     # two large random effects: not blocked (matrix-free is to come)
     D = data.assign(h=np.random.default_rng(2).integers(0, 50, len(data)))
     with pytest.raises(ValueError, match='not one large one'):
-        GAM([re('g'), re('h')], method='REML',
+        GLMM([re('g'), re('h')], method='REML',
             control=GAMControl(max_dense_coef=40)).fit(D, D["y"])
     with pytest.raises(ValueError, match='needs a random effect'):
-        GAM([s('u')], method='REML', control=GAMControl(reml_backend='blocked')).fit(data, data['y'])
+        GLMM([s('u')], method='REML', control=GAMControl(reml_backend='blocked')).fit(data, data['y'])
 
 
 @pytest.mark.large
@@ -162,7 +162,7 @@ def test_large():
     D['y'] = 0.3 * D['x'] + np.sin(3 * D['u']) + b[D['g']] + rng.standard_normal(n)
     tracemalloc.start()
     try:
-        M = GAM([linear('x'), s('u'), re('g')], method='REML').fit(D, D['y'])
+        M = GLMM([linear('x'), s('u'), re('g')], method='REML').fit(D, D['y'])
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()

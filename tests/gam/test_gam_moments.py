@@ -15,7 +15,7 @@ pytest.importorskip('scatter_smooth')
 
 from statsmodels.genmod.families import family as sm_family, links as sm_links
 
-from glmnet.gam import GAM, GAMControl, re, linear, s, SmoothingMethod
+from glmnet.gam import GAM, GLMM, GAMControl, re, linear, s, SmoothingMethod
 from glmnet.gam.reml import SmoothingSelection
 from glmnet.gam.terms import RandomEffectTerm
 from glmnet.gam.moments import moment_equations
@@ -94,7 +94,7 @@ def test_balanced_is_anova():
     row, col = np.repeat(np.arange(R), C), np.tile(np.arange(C), R)
     y = 2 + rng.normal(0, 1.5, R)[row] + rng.normal(0, 0.8, C)[col] + rng.normal(0, 1, R * C)
     D = pd.DataFrame({'row': row, 'col': col, 'y': y})
-    G = GAM(terms=[re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
+    G = GLMM(terms=[re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
     Y = y.reshape(R, C)
     m = Y.mean()
     MSA = C * ((Y.mean(1) - m)**2).sum() / (R - 1)
@@ -117,7 +117,7 @@ def test_large_crossed():
     x = rng.standard_normal(N)
     y = 1 + 0.5 * x + a[row] + b[col] + rng.normal(0, 2, N)
     D = pd.DataFrame({'row': row, 'col': col, 'x': x, 'y': y})
-    G = GAM(terms=[linear('x'), re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
+    G = GLMM(terms=[linear('x'), re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
     v = G.variance_components_['variance']
     # (against the effects' realized variances, the columns' that occur)
     np.testing.assert_allclose(v['re(row)'], a.var(), rtol=0.1)
@@ -137,7 +137,7 @@ def test_nested_and_fixed_smooth():
     y = (np.sin(2 * np.pi * x) + rng.normal(0, 1, 30)[batch] +
          rng.normal(0, 0.6, (30, 4))[batch, cask] + rng.normal(0, 0.5, n))
     D = pd.DataFrame({'batch': batch, 'cask': cask, 'x': x, 'y': y})
-    G = GAM(terms=[s('x', df=5), re('batch'), re(['batch', 'cask'])],
+    G = GLMM(terms=[s('x', df=5), re('batch'), re(['batch', 'cask'])],
             method=CrossedMoments()).fit(D, D['y'])
     v = G.variance_components_['variance']
     # (as gam.vcomp, also the spline's)
@@ -171,7 +171,7 @@ def test_custom_method():
     rng = np.random.default_rng(3)
     D = pd.DataFrame({'g': rng.integers(0, 10, 200), 'x': rng.uniform(size=200)})
     D['y'] = D['x'] + rng.normal(0, 1, 10)[D['g']] + rng.normal(0, 1, 200)
-    G = GAM(terms=[linear('x'), re('g')], method=GivenVariance(2.)).fit(D, D['y'], dispersion=1.)
+    G = GLMM(terms=[linear('x'), re('g')], method=GivenVariance(2.)).fit(D, D['y'], dispersion=1.)
     G0 = GAM(terms=[linear('x'), re('g', lam=0.5 / 200)]).fit(D, D['y'], dispersion=1.)
     np.testing.assert_allclose(G.predict(D), G0.predict(D), rtol=1e-10)
     np.testing.assert_allclose(G.variance_components_.loc['re(g)', 'variance'], 2.)
@@ -185,15 +185,15 @@ def test_errors():
     D['y'] = rng.normal(size=200)
     D['yb'] = rng.integers(0, 2, 200)
     with pytest.raises(ValueError, match='Gaussian'):
-        GAM(terms=[re('g')], family=sm.families.Binomial(),
+        GLMM(terms=[re('g')], family=sm.families.Binomial(),
             method=CrossedMoments()).fit(D, D['yb'])
     with pytest.raises(ValueError, match='equal prior weights'):
-        GAM(terms=[re('g')], method=CrossedMoments(), weight_id='w',
+        GLMM(terms=[re('g')], method=CrossedMoments(), weight_id='w',
             response_id='y').fit(D, D[['y', 'w']])
     with pytest.raises(ValueError, match='random intercepts'):
-        GAM(terms=[re('g', by='x')], method=CrossedMoments()).fit(D, D['y'])
+        GLMM(terms=[re('g', by='x')], method=CrossedMoments()).fit(D, D['y'])
     with pytest.raises(ValueError, match="method should be one of"):
-        GAM(terms=[re('g')], method='GCV').fit(D, D['y'])
+        GLMM(terms=[re('g')], method='GCV').fit(D, D['y'])
 
 
 @pytest.fixture(scope='module')
@@ -217,7 +217,7 @@ def test_fixed_effects_by_backfitting(crossed, method):
     D = crossed
     if method == 'REML':
         pytest.importorskip('jax')
-    G = GAM(terms=[linear('x'), ColumnsTerm(['z1', 'z2']), re('row'), re('col')],
+    G = GLMM(terms=[linear('x'), ColumnsTerm(['z1', 'z2']), re('row'), re('col')],
             method=CrossedMoments() if method == 'moments' else method,
             control=GAMControl(bf_tol=1e-13, bf_maxit=5000, epsnr=1e-12)).fit(D, D['y'])
     fe = G.fixed_effects_
@@ -239,7 +239,7 @@ def test_fixed_effects_lmer(Rinfo, crossed):
         rpy.r.assign('D', crossed)
     rpy.r("""m <- lme4::lmer(y ~ x + z1 + z2 + (1 | row) + (1 | col), data=D, REML=TRUE,
                          control=lme4::lmerControl(optimizer='bobyqa', optCtrl=list(rhoend=1e-12)))""")
-    G = GAM(terms=[linear('x'), linear('z1'), linear('z2'), re('row'), re('col')], method='REML',
+    G = GLMM(terms=[linear('x'), linear('z1'), linear('z2'), re('row'), re('col')], method='REML',
             control=GAMControl(bf_tol=1e-13, bf_maxit=5000, epsnr=1e-12)).fit(crossed, crossed['y'])
     with Rinfo['np_cv_rules'].context():
         se_R = np.sqrt(np.diag(np.asarray(rpy.r('as.matrix(vcov(m))'))))
@@ -259,7 +259,7 @@ def test_fixed_effects_large():
     x = rng.standard_normal(N)
     y = 1 + 0.5 * x + rng.normal(0, 1, R)[row] + rng.normal(0, 0.5, C)[col] + rng.normal(0, 2, N)
     D = pd.DataFrame({'row': row, 'col': col, 'x': x, 'y': y})
-    G = GAM(terms=[linear('x'), re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
+    G = GLMM(terms=[linear('x'), re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
     fe = G.fixed_effects_
     assert G._covariance is None          # (the dense covariance was not formed)
     # near the OLS standard error of the slope: x is independent of the effects

@@ -11,7 +11,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GAMControl, re, linear, SmoothingMethod
+from glmnet.gam import GAM, GLMM, GAMControl, re, linear, SmoothingMethod
 from glmnet.gam.reml import SmoothingSelection
 from glmnet.gam.selection import estimated_terms
 
@@ -73,7 +73,7 @@ def binary_ratings(N, R, C, seed=0):
 @pytest.fixture(scope='module')
 def fit():
     D = binary_ratings(4000, 300, 80)
-    G = GAM(terms=[linear('x'), re('customer'), re('item')], family=sm.families.Binomial(),
+    G = GLMM(terms=[linear('x'), re('customer'), re('item')], family=sm.families.Binomial(),
             method=Schall(tol=1e-10), control=GAMControl(epsnr=1e-12, bf_tol=1e-13,
                                                          bf_maxit=5000)).fit(D, D['y'])
     return G, D
@@ -116,7 +116,7 @@ def test_against_laplace(fit):
     # & Clayton); the fixed effects are close
     pytest.importorskip('jax')
     G, D = fit
-    L = GAM(terms=[linear('x'), re('customer'), re('item')], family=sm.families.Binomial(),
+    L = GLMM(terms=[linear('x'), re('customer'), re('item')], family=sm.families.Binomial(),
             method='ML').fit(D, D['y'])
     v, vL = G.variance_components_['variance'].iloc[:2], L.variance_components_['variance'].iloc[:2]
     assert np.all(v.values < vL.values)
