@@ -4,6 +4,11 @@
 
 ### New features
 
+- **`glmnet.glm.anova` compares `GAM`s** (and a `GLM` with a `GAM`): the
+  residual degrees of freedom of a GAM are the observations less the
+  intercept and its terms' `edf`, as R's `anova.Gam`; the F-test for the
+  Gaussian with identity link, otherwise chi-squared (#202).
+
 - **A family of one's own, in JAX** (`glmnet.gam.JaxFamily(linkinv,
   unit_deviance, saturated_loglike=None, fixed_dispersion=True)`): the
   link's derivatives and the variance function (`2 / d''(mu, mu)`) follow

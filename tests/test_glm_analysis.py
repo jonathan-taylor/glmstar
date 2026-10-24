@@ -553,3 +553,26 @@ def test_islp_stepwise_no_warning():
         warnings.simplefilter('error', UserWarning)
         selected = sklearn_selected(GLM(), strategy).fit(Hitters, Hitters['Salary'])
     assert len(selected.selected_state_) > 0
+
+
+@pytest.mark.parametrize('name', ['gaussian', 'poisson'])
+def test_anova_gam(name):
+    # GAMs of linear terms are the GLMs; with a smooth, the residual degrees of
+    # freedom are n - 1 - edf (R's anova.Gam)
+    from glmnet.gam import GAM, s, linear
+    family, draw = FAMILIES[name]
+    y = draw(0.3 + 0.5 * X[:, 0] - 0.4 * X[:, 1]).astype(float)
+    D = pd.DataFrame(X, columns=['x0', 'x1', 'x2', 'x3'])
+    small, big = (GAM([linear(c) for c in cols], family=family).fit(D, y)
+                  for cols in (['x0'], ['x0', 'x1', 'x2', 'x3']))
+    glms = [GLM(family=family, exclude=exclude, control=TIGHT).fit(X, y)
+            for exclude in ([1, 2, 3], [])]
+    table, expected = anova(small, big), anova(*glms)
+    np.testing.assert_allclose(table, expected, rtol=1e-5)
+    smooth = GAM([s('x0', df=4), linear('x1'), linear('x2'), linear('x3')],
+                 family=family).fit(D, y)
+    table = anova(small, big, smooth)
+    np.testing.assert_allclose(table['df_resid'].iloc[2], n - 1 - smooth.edf_.sum())
+    assert ('F' in table) == (name == 'gaussian')
+    # a GLM and a GAM in one table
+    np.testing.assert_allclose(anova(glms[0], big), expected, rtol=1e-5)
