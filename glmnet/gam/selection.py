@@ -1,7 +1,7 @@
 """
 How a GAM's penalty parameters (smoothing parameters, random effects'
 variances and covariances) are chosen: `GLMM(method=...)` is a string
-(`'fixed'`, `'REML'`, `'ML'`) or a `SmoothingMethod`, an object whose
+(`'REML'`, `'ML'`) or a `SmoothingMethod`, an object whose
 `select(gam, dispersion)` sets the estimated terms' parameters and returns
 a `SmoothingSelection`. `GAM` then fits with them.
 

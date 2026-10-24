@@ -47,16 +47,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 
-from glmnet.gam import GAM, GLMM, GAMControl, re, linear, ExperimentalWarning
+from glmnet.gam import GAM, GLMM, GAMControl, random_effect as re, linear, ExperimentalWarning
 
 warnings.simplefilter('ignore', ExperimentalWarning)
 ```
 
 ## Writing the method
 
-`GLMM(method=...)` takes a string (`'fixed'`, `'REML'`, `'ML'`) or a
+`GLMM(method=...)` takes a string (`'REML'`, `'ML'`) or a
 `SmoothingMethod`. A method chooses the penalty parameters of the terms
-that `GAM` was not given: smoothing parameters, random effects' variances.
+that the GLMM was not given: smoothing parameters, random effects' variances.
 Ghosh, Hastie and Owen's first step is such a method.
 
 **The moments.** For random intercepts of $K$ crossed factors, $r_i =
@@ -93,7 +93,7 @@ from statsmodels.genmod.families import family as sm_family, links as sm_links
 from glmnet.gam import SmoothingMethod
 from glmnet.gam.selection import estimated_terms
 from glmnet.gam.reml import SmoothingSelection
-from glmnet.gam.terms import RandomEffectTerm
+from glmnet.gam.terms import RandomEffectSmoother
 from glmnet.gam.moments import moment_equations
 
 
@@ -113,7 +113,7 @@ class CrossedMoments(SmoothingMethod):
         estimated = estimated_terms(gam)
         terms = gam.terms_
         for j in estimated:
-            if not isinstance(terms[j], RandomEffectTerm) or terms[j].by is not None:
+            if not isinstance(terms[j], RandomEffectSmoother) or terms[j].by is not None:
                 raise ValueError(f'{terms[j].name}: give its lam (only random intercepts here)')
 
         # 1. the fit without the random effects, and its residuals

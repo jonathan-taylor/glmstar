@@ -301,7 +301,7 @@ def test_covariance_mgcv(Rinfo, data, family):
     # effect, bs="re"): edf, the standard errors of predictions (link and
     # response), of the terms and from Ve. The dispersions differ (R's gam's
     # residual df here, mgcv's n - sum(edf)), so they are divided out
-    from glmnet.gam import re
+    from glmnet.gam import random_effect as re
     D = data.copy()
     rng = np.random.default_rng(5)
     groups = [f'g{i:02d}' for i in range(15)]

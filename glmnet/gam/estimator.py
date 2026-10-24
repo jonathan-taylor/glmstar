@@ -36,7 +36,7 @@ from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning, _blocked_term
 from .selection import resolve_method, SmoothingMethod, Fixed
-from .terms import SplineTerm, Term, SlopeTerm, ColumnsTerm, CategoricalTerm
+from .terms import SplineSmoother, Smoother, LinearSmoother, ColumnsSmoother, CategoricalSmoother
 
 
 @dataclass
@@ -105,11 +105,11 @@ class GAM(BaseEstimator):
     method of one's own, fit a `GLMM`, which has the same terms.
 
     The model is a list of terms (`glmnet.gam.s`, `lo`, `re`, `gaussian_process`, `linear`,
-    `categorical`, or a `ColumnsTerm` of several columns fitted as one parametric
+    `categorical`, or a `ColumnsSmoother` of several columns fitted as one parametric
     block), each naming a column of `X` (ISLP's `ISLP.gam` builds them from
     a ModelSpec). The smoothing of each term is fixed: by its smoothing parameter
     `lam`, or by its degrees of freedom `df` (as R's `gam`). When every term
-    has a fixed smoothing parameter (`s(lam=...)`, `re(lam=...)`, `linear`,
+    has a fixed smoothing parameter (`s(lam=...)`, `random_effect(lam=...)`, `linear`,
     `categorical`), the fit minimizes
 
         deviance / (2 sum(w)) + sum_j lam_j / 2 * pen_j(f_j) + linear_term @ eta,
@@ -210,8 +210,8 @@ class GAM(BaseEstimator):
         """The terms of the model and the data whose columns they name."""
         terms = list(self.terms)
         for term in terms:
-            if not isinstance(term, Term):
-                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), re(), '
+            if not isinstance(term, Smoother):
+                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), random_effect(), '
                                  'gaussian_process(), linear(), categorical())')
         return terms, X
 
@@ -225,7 +225,7 @@ class GAM(BaseEstimator):
         cols = []
         for term in terms:
             if isinstance(X, pd.DataFrame):
-                # a name or a list of names (a ColumnsTerm), else positions
+                # a name or a list of names (a ColumnsSmoother), else positions
                 column = term.columns
                 labels = column if isinstance(column, list) else [column]
                 if all(isinstance(c, str) for c in labels):
@@ -306,7 +306,7 @@ class GAM(BaseEstimator):
                              'to fix it')
         self.terms_ = self._resolve_terms([deepcopy(term) for term in terms])
         for term, x in zip(self.terms_, self._columns(X, terms)):
-            categorical_column = (term.column if isinstance(term, CategoricalTerm)
+            categorical_column = (term.column if isinstance(term, CategoricalSmoother)
                                   else getattr(term, 'categorical_column', None))
             if categorical_column is not None and isinstance(X, pd.DataFrame):
                 # a categorical's order of the levels (not the sorted one)
@@ -315,6 +315,9 @@ class GAM(BaseEstimator):
                 if isinstance(column.dtype, pd.CategoricalDtype):
                     term.categories = list(column.cat.categories)
             term.setup(x)
+            if not hasattr(term, 'x_'):
+                # (the training column, to plot: a smoother of one's own need not keep it)
+                term.x_ = np.asarray(x)
         if linear_term is not None:
             linear_term = np.asarray(linear_term, float).reshape(-1)
             if linear_term.shape != (nobs,):
@@ -469,7 +472,7 @@ class GAM(BaseEstimator):
         method = resolve_method(method)
         if isinstance(method, Fixed):
             warnings.warn("GAM(method='fixed') is deprecated: a GAM's smoothing is always "
-                          "fixed (each effect's lam or df), so drop method",
+                          "fixed (each term's lam or df), so drop method",
                           FutureWarning, stacklevel=3)
         else:
             warnings.warn(f"GAM(method={self.method!r}) is deprecated: smoothing parameters "
@@ -481,12 +484,12 @@ class GAM(BaseEstimator):
         """
         The smoothing of the terms for the method: `s()` with neither `df`
         nor `lam` has `df=4` in a GAM (as R's `gam`), and its smoothing
-        parameter estimated by a GLMM, as `re()` without them. In a GAM a
+        parameter estimated by a GLMM, as `random_effect()` without them. In a GAM a
         term's `lam` list has no None (one to estimate).
         """
         method = self._method
         for term in terms:
-            if (isinstance(term, SplineTerm) and not method.estimates and
+            if (isinstance(term, SplineSmoother) and not method.estimates and
                 term.df is None and term.lam is None):
                 term.df = 4.
             lam = getattr(term, 'lam', None)
@@ -764,9 +767,9 @@ class GAM(BaseEstimator):
         cov = self.fixed_effects_covariance_
         estimates = [float(self.intercept_)]
         for term in self.terms_:
-            if isinstance(term, SlopeTerm):
+            if isinstance(term, LinearSmoother):
                 estimates.append(float(np.atleast_1d(term.coef_)[0]))
-            elif isinstance(term, ColumnsTerm):
+            elif isinstance(term, ColumnsSmoother):
                 estimates.extend(np.atleast_1d(term.coef_).astype(float))
         return pd.DataFrame({'estimate': estimates, 'std_error': np.sqrt(np.diag(cov))},
                             index=cov.index)
@@ -784,10 +787,10 @@ class GAM(BaseEstimator):
             raise NotImplementedError('fixed_effects_ of a Cox GAM: no intercept')
         columns, names, others = [np.ones(self.state_.fits.shape[0])], ['intercept'], []
         for j, term in enumerate(self.terms_):
-            if isinstance(term, SlopeTerm):
+            if isinstance(term, LinearSmoother):
                 columns.append(term.linear_columns()[:, 0])
                 names.append(term.name)
-            elif isinstance(term, ColumnsTerm):
+            elif isinstance(term, ColumnsSmoother):
                 X = term.linear_columns()
                 columns.extend(X.T)
                 labels = term.column if isinstance(term.column, list) else [term.column]
@@ -832,7 +835,7 @@ class GAM(BaseEstimator):
             D = self.design_
             idx = [0]
             for j, term in enumerate(self.terms_):
-                if isinstance(term, (SlopeTerm, ColumnsTerm)):
+                if isinstance(term, (LinearSmoother, ColumnsSmoother)):
                     idx.extend(range(D.slices[j].start, D.slices[j].stop))
             cov = self.posterior_covariance_[np.ix_(idx, idx)]
         return pd.DataFrame(cov, index=names, columns=names)
@@ -896,7 +899,7 @@ class GLMM(GAM):
     Some parameters can be held fixed while the others are estimated:
 
     - a term given `lam` (or `df`, matched at the prior weights, then fixed,
-      as mgcv's `sp`) keeps it: `GLMM([s('x', lam=1e-3), re('g')])`
+      as mgcv's `sp`) keeps it: `GLMM([s('x', lam=1e-3), random_effect('g')])`
       estimates only the random effect's variance;
     - a term with several penalties (`tensor_spline`, `penalized_columns`,
       a categorical `varying` smooth) takes a list with `None` for those to

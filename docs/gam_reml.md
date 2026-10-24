@@ -363,7 +363,7 @@ The code computes the same $V$ and gradient as above. These are the
 choices it makes.
 
 **The inner fit is `GAM`'s own.** At each $\rho$, $\hat\beta$ comes from
-the same local scoring (IRLS) that `method='fixed'` uses, with the joint
+the same local scoring (IRLS) that a `GAM` uses, with the joint
 penalized least squares solve (`GAMControl(solver='joint')`). It is in
 numpy, warm started from the last fit, with a tighter tolerance. So the
 REML fit at its optimum *is* the fixed-$\lambda$ fit at those $\lambda$s,

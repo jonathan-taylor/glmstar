@@ -17,7 +17,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 jax = pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, categorical
+from glmnet.gam import GAM, GLMM, GAMControl, s, random_effect as re, linear, categorical
 from glmnet.gam.reml import LaplaceCriterion
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
@@ -225,7 +225,7 @@ def test_glmer_cbpp(Rinfo, nAGQ):
                               family=binomial, nAGQ={nAGQ},
                               control=lme4::glmerControl(optCtrl=list(ftol_abs=1e-12, xtol_abs=1e-10)))""")
     tol = dict(rtol=1e-4, atol=1e-5) if nAGQ == 0 else dict(rtol=3e-2, atol=3e-2)
-    np.testing.assert_allclose(G.variance_components_.loc['re(herd)', 'sd'],
+    np.testing.assert_allclose(G.variance_components_.loc['random_effect(herd)', 'sd'],
                                _get(Rinfo, 'as.data.frame(lme4::VarCorr(b))$sdcor')[0], **tol)
     np.testing.assert_allclose(G.predict(C, 'link'), _get(Rinfo, 'predict(b, type="link")'), **tol)
     if nAGQ == 0:
@@ -246,7 +246,7 @@ def test_glmer_poisson(Rinfo, data, nAGQ):
     rpy.r(f"""p <- lme4::glmer(yp ~ b + c + (1|g) + offset(o), data=D, family=poisson, nAGQ={nAGQ},
                               control=lme4::glmerControl(optCtrl=list(ftol_abs=1e-12, xtol_abs=1e-10)))""")
     tol = dict(rtol=1e-4, atol=1e-5) if nAGQ == 0 else dict(rtol=1e-2, atol=1e-2)
-    np.testing.assert_allclose(G.variance_components_.loc['re(g)', 'sd'],
+    np.testing.assert_allclose(G.variance_components_.loc['random_effect(g)', 'sd'],
                                _get(Rinfo, 'as.data.frame(lme4::VarCorr(p))$sdcor')[0], **tol)
     np.testing.assert_allclose(G.state_.link_parameter, _get(Rinfo, 'predict(p, type="link")'), **tol)
     np.testing.assert_allclose(G.terms_[0].coef_, _get(Rinfo, 'lme4::fixef(p)')[1], **tol)

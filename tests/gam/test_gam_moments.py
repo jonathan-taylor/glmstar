@@ -15,9 +15,9 @@ pytest.importorskip('scatter_smooth')
 
 from statsmodels.genmod.families import family as sm_family, links as sm_links
 
-from glmnet.gam import GAM, GLMM, GAMControl, re, linear, s, SmoothingMethod
+from glmnet.gam import GAM, GLMM, GAMControl, random_effect as re, linear, s, SmoothingMethod
 from glmnet.gam.reml import SmoothingSelection
-from glmnet.gam.terms import RandomEffectTerm
+from glmnet.gam.terms import RandomEffectSmoother
 from glmnet.gam.moments import moment_equations
 from glmnet.gam.selection import estimated_terms
 
@@ -39,7 +39,7 @@ class CrossedMoments(SmoothingMethod):
         estimated = estimated_terms(gam)
         terms = gam.terms_
         for j in estimated:
-            if not isinstance(terms[j], RandomEffectTerm) or terms[j].by is not None:
+            if not isinstance(terms[j], RandomEffectSmoother) or terms[j].by is not None:
                 raise ValueError(f'{terms[j].name}: give its lam (only random intercepts here)')
 
         # 1. the fit without the random effects, and its residuals
@@ -120,8 +120,8 @@ def test_large_crossed():
     G = GLMM(terms=[linear('x'), re('row'), re('col')], method=CrossedMoments()).fit(D, D['y'])
     v = G.variance_components_['variance']
     # (against the effects' realized variances, the columns' that occur)
-    np.testing.assert_allclose(v['re(row)'], a.var(), rtol=0.1)
-    np.testing.assert_allclose(v['re(col)'], b[np.unique(col)].var(), rtol=0.5)
+    np.testing.assert_allclose(v['random_effect(row)'], a.var(), rtol=0.1)
+    np.testing.assert_allclose(v['random_effect(col)'], b[np.unique(col)].var(), rtol=0.5)
     np.testing.assert_allclose(v['scale'], 4, rtol=0.02)
     np.testing.assert_allclose(G.terms_[0].coef_, 0.5, atol=0.02)
     # the predicted effects are the backfitted BLUPs at these variances
@@ -141,10 +141,10 @@ def test_nested_and_fixed_smooth():
             method=CrossedMoments()).fit(D, D['y'])
     v = G.variance_components_['variance']
     # (as gam.vcomp, also the spline's)
-    assert {'re(batch)', 're(batch:cask)', 'scale'} <= set(v.index)
+    assert {'random_effect(batch)', 'random_effect(batch:cask)', 'scale'} <= set(v.index)
     np.testing.assert_allclose(v['scale'], 0.25, rtol=0.1)
-    assert np.all(v[['re(batch)', 're(batch:cask)']] > 0)
-    assert list(G.smoothing_.terms) == ['re(batch)', 're(batch:cask)']
+    assert np.all(v[['random_effect(batch)', 'random_effect(batch:cask)']] > 0)
+    assert list(G.smoothing_.terms) == ['random_effect(batch)', 'random_effect(batch:cask)']
 
 
 def test_custom_method():
@@ -174,7 +174,7 @@ def test_custom_method():
     G = GLMM(terms=[linear('x'), re('g')], method=GivenVariance(2.)).fit(D, D['y'], dispersion=1.)
     G0 = GAM(terms=[linear('x'), re('g', lam=0.5 / 200)]).fit(D, D['y'], dispersion=1.)
     np.testing.assert_allclose(G.predict(D), G0.predict(D), rtol=1e-10)
-    np.testing.assert_allclose(G.variance_components_.loc['re(g)', 'variance'], 2.)
+    np.testing.assert_allclose(G.variance_components_.loc['random_effect(g)', 'variance'], 2.)
     assert G.smoothing_.method == 'given'
 
 
@@ -198,7 +198,7 @@ def test_errors():
 
 @pytest.fixture(scope='module')
 def crossed():
-    from glmnet.gam.terms import ColumnsTerm  # noqa: F401
+    from glmnet.gam.terms import ColumnsSmoother  # noqa: F401
     rng = np.random.default_rng(0)
     N, R, C = 3000, 60, 40
     row, col = rng.integers(0, R, N), rng.integers(0, C, N)
@@ -213,11 +213,11 @@ def crossed():
 def test_fixed_effects_by_backfitting(crossed, method):
     # the backfitted covariance of the linear coefficients is the block of
     # the posterior covariance (the dense design)
-    from glmnet.gam.terms import ColumnsTerm
+    from glmnet.gam.terms import ColumnsSmoother
     D = crossed
     if method == 'REML':
         pytest.importorskip('jax')
-    G = GLMM(terms=[linear('x'), ColumnsTerm(['z1', 'z2']), re('row'), re('col')],
+    G = GLMM(terms=[linear('x'), ColumnsSmoother(['z1', 'z2']), re('row'), re('col')],
             method=CrossedMoments() if method == 'moments' else method,
             control=GAMControl(bf_tol=1e-13, bf_maxit=5000, epsnr=1e-12)).fit(D, D['y'])
     fe = G.fixed_effects_

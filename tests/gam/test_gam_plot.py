@@ -13,7 +13,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from glmnet.cox import CoxFamily
-from glmnet.gam import GAM, GAMControl, ColumnsTerm, s, lo, re, linear, categorical, plot_term
+from glmnet.gam import GAM, GAMControl, ColumnsSmoother, s, lo, random_effect as re, linear, categorical, plot_term
 
 
 @pytest.fixture(scope='module')
@@ -72,7 +72,7 @@ def test_factor_and_random_effect(data):
     assert [t.get_text() for t in ax.get_xticklabels()] == ['x', 'y', 'z']
     assert len(ax.collections) == 1                  # the error bars
     # random intercepts, and slopes (the effect of v = 1)
-    for name in ['re(g, lam=0.1)', 're(g, by=v, lam=1.0)']:
+    for name in ['random_effect(g, lam=0.1)', 'random_effect(g, by=v, lam=1.0)']:
         ax = plot_term(G, name)
         j = [t.name for t in G.terms_].index(name)
         np.testing.assert_allclose(ax.get_lines()[0].get_ydata(), G.terms_[j].effects_.values)
@@ -89,7 +89,7 @@ def test_loess_has_no_bands(data):
 
 
 def test_plot_method(data):
-    G = GAM(terms=[s('a', df=4), linear('b'), categorical('c'), ColumnsTerm(['b', 'b2'])]).fit(
+    G = GAM(terms=[s('a', df=4), linear('b'), categorical('c'), ColumnsSmoother(['b', 'b2'])]).fit(
         data, data['y'])
     axes = G.plot()
     # the block of two columns has no curve

@@ -22,7 +22,7 @@ import statsmodels.api as sm
 pytest.importorskip('scatter_smooth')
 pytest.importorskip('jax')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear, categorical
+from glmnet.gam import GAM, GLMM, GAMControl, s, random_effect as re, linear, categorical
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 LMER_CONTROL = 'lme4::lmerControl(optCtrl=list(ftol_abs=1e-12, xtol_abs=1e-10))'
@@ -161,7 +161,7 @@ def test_oneway(Rinfo, method):
     D = oneway()
     rpy = _R(Rinfo, D, 'lme4')
     G = _gaussian(D, [re('school')], 'score', method)
-    _check_lmer(Rinfo, G, D, 'score ~ 1 + (1|school)', method, ['re(school)'],
+    _check_lmer(Rinfo, G, D, 'score ~ 1 + (1|school)', method, ['random_effect(school)'],
                 [(0, 'lme4::ranef(l)$school', str)])
     np.testing.assert_allclose(G.intercept_, _get(Rinfo, 'lme4::fixef(l)')[0], rtol=1e-7)
 
@@ -186,7 +186,7 @@ def test_crossed(Rinfo, method):
     _R(Rinfo, D, 'lme4')
     G = _gaussian(D, [re('plate'), re('sample')], 'diameter', method)
     _check_lmer(Rinfo, G, D, 'diameter ~ 1 + (1|plate) + (1|sample)', method,
-                ['re(plate)', 're(sample)'],
+                ['random_effect(plate)', 'random_effect(sample)'],
                 [(0, 'lme4::ranef(l)$plate', str), (1, 'lme4::ranef(l)$sample', str)])
 
 
@@ -210,7 +210,7 @@ def test_nested_lmer(Rinfo, method):
     _R(Rinfo, D, 'lme4')
     G = _gaussian(D, [re('batch'), re('sample')], 'strength', method)
     _check_lmer(Rinfo, G, D, 'strength ~ 1 + (1|batch/cask)', method,
-                ['re(sample)', 're(batch)'],
+                ['random_effect(sample)', 'random_effect(batch)'],
                 [(0, 'lme4::ranef(l)$batch', str),
                  (1, 'lme4::ranef(l)$`cask:batch`', lambda v: ':'.join(v.split(':')[::-1]))])
 
@@ -237,7 +237,7 @@ def test_slopes(Rinfo, method):
     _R(Rinfo, D, 'lme4')
     G = _gaussian(D, [linear('days'), re('subject'), re('subject', by='days')], 'reaction', method)
     _check_lmer(Rinfo, G, D, 'reaction ~ days + (days||subject)', method,
-                ['re(subject)', 're(subject, by=days)'], [])
+                ['random_effect(subject)', 'random_effect(subject, by=days)'], [])
     ranef = _get(Rinfo, 'as.matrix(lme4::ranef(l)$subject)')
     subjects = list(Rinfo['rpy'].r('rownames(lme4::ranef(l)$subject)'))
     np.testing.assert_allclose(G.terms_[1].effects_.loc[subjects].values, ranef[:, 0], rtol=1e-4, atol=1e-3)
@@ -276,7 +276,7 @@ def test_glmer_binomial(Rinfo, nAGQ):
     rpy.r(f"""b <- lme4::glmer(cbind(incidence, size - incidence) ~ period + (1|herd), data=D,
                               family=binomial, nAGQ={nAGQ}, control={GLMER_CONTROL})""")
     tol = dict(rtol=1e-4, atol=1e-5) if nAGQ == 0 else dict(rtol=3e-2, atol=3e-2)
-    np.testing.assert_allclose(G.variance_components_.loc['re(herd)', 'sd'],
+    np.testing.assert_allclose(G.variance_components_.loc['random_effect(herd)', 'sd'],
                                _get(Rinfo, 'as.data.frame(lme4::VarCorr(b))$sdcor')[0], **tol)
     np.testing.assert_allclose(G.predict(D, 'link'), _get(Rinfo, 'predict(b, type="link")'), **tol)
     if nAGQ == 0:
@@ -299,7 +299,7 @@ def test_mgcv_binomial(Rinfo, method):
     rpy.r(f"""D$herd <- factor(D$herd); D$period <- factor(D$period)
               m <- mgcv::gam(p ~ period + s(herd, bs='re'), weights=size, data=D, family=binomial,
                              method='{method}', control={MGCV_CONTROL})""")
-    np.testing.assert_allclose(G.variance_components_.loc['re(herd)', 'sd'],
+    np.testing.assert_allclose(G.variance_components_.loc['random_effect(herd)', 'sd'],
                                _get(Rinfo, VCOMP)[0], rtol=1e-4)
     np.testing.assert_allclose(G.predict(D, 'link'), _get(Rinfo, 'predict(m, type="link")'),
                                rtol=1e-5, atol=1e-6)
@@ -317,7 +317,7 @@ def test_glmer_olre(Rinfo, nAGQ):
     rpy.r(f"""p <- lme4::glmer(y ~ x + (1|obs), data=D, family=poisson, nAGQ={nAGQ},
                               control={GLMER_CONTROL})""")
     tol = dict(rtol=1e-4, atol=1e-5) if nAGQ == 0 else dict(rtol=3e-2, atol=3e-2)
-    np.testing.assert_allclose(G.variance_components_.loc['re(obs)', 'sd'],
+    np.testing.assert_allclose(G.variance_components_.loc['random_effect(obs)', 'sd'],
                                _get(Rinfo, 'as.data.frame(lme4::VarCorr(p))$sdcor')[0], **tol)
     np.testing.assert_allclose(G.terms_[0].coef_, _get(Rinfo, 'lme4::fixef(p)')[1], **tol)
     np.testing.assert_allclose(G.predict(D, 'link'), _get(Rinfo, 'predict(p, type="link")'), **tol)

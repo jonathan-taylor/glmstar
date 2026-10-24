@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re, linear
+from glmnet.gam import GAM, GLMM, GAMControl, s, random_effect as re, linear
 
 N, R = 200_000, 100_000
 

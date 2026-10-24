@@ -9,10 +9,10 @@ contours over the data's bounding box, as mgcv's `plot.gam` (`too.far`).
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .terms import CategoricalTerm, ColumnsTerm, RandomEffectTerm, PenalizedColumnsTerm
-from .tensor import TensorTerm
-from .gp import GPTerm
-from .varying import VaryingTerm
+from .terms import CategoricalSmoother, ColumnsSmoother, RandomEffectSmoother, PenalizedColumnsSmoother
+from .tensor import TensorSplineSmoother
+from .gp import GaussianProcessSmoother
+from .varying import VaryingSmoother
 
 
 def _term_index(gam, term):
@@ -33,13 +33,13 @@ def plottable(term):
     Can `plot_term` draw the term (all but blocks of several columns, and
     functions of more than two: Gaussian processes, tensor products)?
     """
-    if isinstance(term, (ColumnsTerm, PenalizedColumnsTerm)):
+    if isinstance(term, (ColumnsSmoother, PenalizedColumnsSmoother)):
         return term.X_.shape[1] == 1
-    if isinstance(term, GPTerm):
+    if isinstance(term, GaussianProcessSmoother):
         return term.dim_ <= 2
-    if isinstance(term, TensorTerm):
+    if isinstance(term, TensorSplineSmoother):
         return term.X_.shape[1] == 2
-    if isinstance(term, VaryingTerm):
+    if isinstance(term, VaryingSmoother):
         # (a curve per level, or the varying coefficient, of one column)
         return len(term._inner_columns) == 1
     return True
@@ -47,13 +47,13 @@ def plottable(term):
 
 def _surface(term):
     """Is the term a function of two columns (drawn as a surface)?"""
-    return ((isinstance(term, GPTerm) and term.dim_ == 2) or
-            (isinstance(term, TensorTerm) and term.X_.shape[1] == 2))
+    return ((isinstance(term, GaussianProcessSmoother) and term.dim_ == 2) or
+            (isinstance(term, TensorSplineSmoother) and term.X_.shape[1] == 2))
 
 
 def _surface_data(term):
     """The training rows of the columns of a surface's term."""
-    if isinstance(term, GPTerm):
+    if isinstance(term, GaussianProcessSmoother):
         return term._X + term.shift_
     return term.X_
 
@@ -102,7 +102,7 @@ def plot_term(gam,
 
     A term of a numeric column (a spline, loess, a linear term) is drawn as
     its curve over the range of the column (`n_grid` points); a factor or a
-    random effect as one point per level (per group; for `re(g, by=x)` the
+    random effect as one point per level (per group; for `random_effect(g, by=x)` the
     groups' slopes). The fits are centered, as the GAM's terms. A term of
     two columns (`gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn
     as filled contours on an `n_grid` by `n_grid` grid over the data's
@@ -144,10 +144,10 @@ def plot_term(gam,
     j = _term_index(gam, term)
     term = gam.terms_[j]
     if not plottable(term):
-        if isinstance(term, (GPTerm, TensorTerm)):
+        if isinstance(term, (GaussianProcessSmoother, TensorSplineSmoother)):
             raise ValueError(f'{term.name} is a function of more than two columns: '
                              'it has no curve or surface to plot')
-        if isinstance(term, VaryingTerm):
+        if isinstance(term, VaryingSmoother):
             raise ValueError(f'{term.name} varies a function of several columns: '
                              'plot it with partial_effect')
         raise ValueError(f'{term.name} is a block of several columns: it has no curve to plot')
@@ -156,9 +156,9 @@ def plot_term(gam,
     if _surface(term):
         return _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap)
     se = se and _has_covariance(gam)
-    column = term.columns if not isinstance(term, ColumnsTerm) else term.column[0]
+    column = term.columns if not isinstance(term, ColumnsSmoother) else term.column[0]
 
-    if isinstance(term, VaryingTerm) and term.is_categorical_:
+    if isinstance(term, VaryingSmoother) and term.is_categorical_:
         # a curve per level of the categorical, over that level's range
         colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
         values_all = np.asarray(term.xi_, float)
@@ -180,7 +180,7 @@ def plot_term(gam,
             ax.plot(np.unique(values_all), np.zeros(len(np.unique(values_all))), '|', color='k',
                     alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
         xlabel = term._inner_columns[0]
-    elif isinstance(term, VaryingTerm):
+    elif isinstance(term, VaryingSmoother):
         # a numeric `by`: the varying coefficient f(x), the term at z = 1
         values = np.asarray(term.xi_, float)
         grid = np.linspace(values.min(), values.max(), n_grid)
@@ -201,9 +201,9 @@ def plot_term(gam,
         ax.set_xlabel(str(xlabel))
         ax.set_ylabel(f'coefficient of {term.by}: {term.name}')
         return ax
-    elif isinstance(term, (CategoricalTerm, RandomEffectTerm)):
+    elif isinstance(term, (CategoricalSmoother, RandomEffectSmoother)):
         levels = np.asarray(term.levels_)
-        if isinstance(term, RandomEffectTerm) and term.by is not None:
+        if isinstance(term, RandomEffectSmoother) and term.by is not None:
             x = np.column_stack([levels, np.ones(len(levels))])
         else:
             x = levels
@@ -212,7 +212,7 @@ def plot_term(gam,
         else:
             fit, std = gam.partial_effect(j, x), None
         labels = levels
-        if isinstance(term, RandomEffectTerm) and term.level_names is not None:
+        if isinstance(term, RandomEffectSmoother) and term.level_names is not None:
             labels = np.asarray(term.level_names)[levels.astype(int)]
         pos = np.arange(len(levels))
         if std is not None:
@@ -229,12 +229,12 @@ def plot_term(gam,
         ax.axhline(0, color='k', lw=0.5, alpha=0.5)
         xlabel = term.column
     else:
-        if isinstance(term, ColumnsTerm):
+        if isinstance(term, ColumnsSmoother):
             values = term.X_[:, 0]
         else:
             values = term.x_
         grid = np.linspace(values.min(), values.max(), n_grid)
-        x = grid[:, None] if isinstance(term, ColumnsTerm) else grid
+        x = grid[:, None] if isinstance(term, ColumnsSmoother) else grid
         if se:
             fit, std = gam.partial_effect(j, x, return_std=True)
         else:

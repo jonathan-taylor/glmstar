@@ -11,7 +11,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GLMM, GAMControl, re, linear, SmoothingMethod
+from glmnet.gam import GAM, GLMM, GAMControl, random_effect as re, linear, SmoothingMethod
 from glmnet.gam.reml import SmoothingSelection
 from glmnet.gam.selection import estimated_terms
 

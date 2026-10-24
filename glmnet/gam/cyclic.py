@@ -20,7 +20,7 @@ from typing import Optional
 
 import numpy as np
 
-from .terms import Term
+from .terms import _deprecated_names, Smoother
 from .tensor import place_knots
 
 
@@ -76,7 +76,7 @@ class CyclicCubicSpline(object):
 
 
 @dataclass
-class CyclicSplineTerm(Term):
+class CyclicSplineSmoother(Smoother):
     """
     A cyclic cubic regression spline of the column: the term
     `cyclic_spline(column)`, mgcv's `s(column, bs="cc")`; see
@@ -128,7 +128,7 @@ class CyclicSplineTerm(Term):
     def set_weights(self, w):
         super().set_weights(w)
         if self.lam is None:
-            raise ValueError(f'{self.name}: give lam (or estimate it, method="REML")')
+            raise ValueError(f'{self.name}: give lam (or estimate it with a GLMM)')
         self.lam_ = float(self.lam)
         B = self._basis
         self._xwx = B.T @ (self.w_[:, None] * B)
@@ -189,15 +189,19 @@ class CyclicSplineTerm(Term):
 
 def cyclic_spline(column, k=10, period=None, knots=None, lam=None, name=None):
     """
-    A cyclic cubic regression spline of the column (see `CyclicSplineTerm`):
+    A cyclic cubic regression spline of the column (see `CyclicSplineSmoother`):
     mgcv's `s(column, bs="cc", k=k)`. With `lam` None its smoothing parameter
     is estimated (`GLMM(method='REML')` or `'ML'`).
 
     >>> cyclic_spline('hour', period=(0, 24))
     """
-    term = CyclicSplineTerm(column, k=k, period=None if period is None else tuple(period),
+    term = CyclicSplineSmoother(column, k=k, period=None if period is None else tuple(period),
                             knots=knots, lam=lam)
     args = ''.join(f', {a}={v}' for a, v in [('k', None if k == 10 else k),
                                                ('period', period), ('lam', lam)] if v is not None)
     term.label = name or f'cyclic_spline({column}{args})'
     return term
+
+
+# the former name (glmstar 0.5.0), deprecated
+__getattr__ = _deprecated_names({'CyclicSplineTerm': 'CyclicSplineSmoother'}, globals(), __name__)

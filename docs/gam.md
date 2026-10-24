@@ -20,19 +20,27 @@ GLM by a sum of smooth functions of the predictors,
 $$g\big(E[y \mid x]\big) = \beta_0 + f_1(x_1) + f_2(x_2) + \dots + f_p(x_p),$$
 
 each $f_j$ a smoothing spline, a loess curve, a linear function, a categorical's
-effects, or a random effect. `glmnet.gam` fits GAMs in two ways that give
-the same fit:
+effects, or a random effect. In a `GAM` the smoothing of each term is
+**fixed**: given by its degrees of freedom `df` or its smoothing parameter
+`lam`, as R's `gam::gam`. To estimate the smoothing parameters (by REML or
+ML, as mgcv), fit a `GLMM` (the page [Generalized linear mixed
+models](glmm.md)): it has the same terms, its penalized terms random
+effects whose variances it estimates.
+
+`glmnet.gam` fits GAMs in two ways that give the same fit:
 
 - **local scoring with backfitting** (Hastie and Tibshirani, 1986, 1990),
   as R's `gam::gam`: IRLS, each working problem solved by smoothing the
   partial residuals of each term in turn;
 - **penalized regression** on the terms' bases (Wood, 2017), as R's
   `mgcv::gam`: each working problem one penalized least squares fit. This
-  gives the Bayesian covariance of the fit, and the smoothing parameters
-  can be estimated by REML or ML (Wood, 2011).
+  gives the Bayesian covariance of the fit.
 
 It is built on glmstar's IRLS, so the families are those of `GLM`
-(statsmodels'), with weights and offsets, and the Cox model.
+(statsmodels'), with weights and offsets, and the Cox model. Each term is
+a *smoother* (`glmnet.gam.Smoother`), and a new kind of term is a small
+class: see [Smoothers](#smoothers) and [Writing a
+smoother](#writing-a-smoother) at the end of the page.
 
 This page follows the GAM part of the ISLR lab on nonlinear modeling
 (chapter 7), on its `Wage` data from the `ISLP` package.
@@ -44,7 +52,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from ISLP import load_data
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, lo, re, linear, categorical, tensor_spline, varying
+from glmnet.gam import GAM, GAMControl, s, lo, random_effect as re, linear, categorical, tensor_spline, varying
 
 Wage = load_data('Wage')
 Wage[['wage', 'year', 'age', 'education']].head()
@@ -189,63 +197,20 @@ prob, std = gam_b.predict(new, return_std=True)
 pd.DataFrame({'age': new['age'], 'P(wage > 250)': prob, 'std err': std})
 ```
 
-## Smoothing parameters by REML
-
-:::{warning}
-REML and ML are **experimental** in glmstar 0.5: the fits, smoothing
-parameters and variance components agree with mgcv, lme4 and nlme in the
-tests, but the interface may change and the optimization is less tested than
-the rest of `glmnet.gam`. `GLMM(method='REML')` warns
-(`glmnet.gam.ExperimentalWarning`); check `smoothing_.converged`, and
-compare with fixed smoothing parameters or with R.
-:::
-
-Rather than choosing each term's degrees of freedom, they can be estimated.
-A spline's penalty is that of a Gaussian prior on its coefficients, and
-`method='REML'` (or `'ML'`) chooses the smoothing parameters, with the
-dispersion, to maximize the restricted (or full) marginal likelihood, with
-the coefficients integrated out by Laplace's method, as mgcv (Wood, 2011).
-`s()` without `df` or `lam` is then estimated. (This uses JAX, the extra
-`pip install glmstar[gam]`.)
-
-```{code-cell} ipython3
-gam_reml = GLMM(terms=[s('year'), s('age'), categorical('education')], method='REML')
-gam_reml.fit(Wage, Wage['wage'])
-gam_reml.summary()
-```
-
-REML gives `year` little more than a line, and `age` about 5 degrees of
-freedom; `edf_` is now mgcv's. The smoothing parameters, and the criterion
-at its minimum:
-
-```{code-cell} ipython3
-gam_reml.smoothing_.lam, gam_reml.reml_score_
-```
-
-```{code-cell} ipython3
-axes = gam_reml.plot()
-axes[0].figure.tight_layout()
-```
-
 ## Smooths of several columns: tensor products
 
 `tensor_spline('age', 'year')` is a smooth function of both columns, the
 tensor product of a cubic regression spline in each (mgcv's
 `te(age, year, bs="cr")`), with a penalty per column. Each column then has
-its own smoothing parameter, and the term does not depend on the columns'
-scales. In place of the two smooths, it models an interaction of age and
-year:
+its own smoothing parameter (`lam`, one per column), and the term does not
+depend on the columns' scales. In place of the two smooths, it models an
+interaction of age and year:
 
 ```{code-cell} ipython3
-gam_te = GLMM(terms=[tensor_spline('age', 'year', k=(6, 4)), categorical('education')], method='REML')
+gam_te = GAM(terms=[tensor_spline('age', 'year', k=(6, 4), lam=[1., 1.]),
+                    categorical('education')])
 gam_te.fit(Wage, Wage['wage'])
 gam_te.summary()
-```
-
-The smoothing parameters, one per margin:
-
-```{code-cell} ipython3
-dict(zip(gam_te.smoothing_.terms, gam_te.smoothing_.lam))
 ```
 
 A two-column term is drawn as filled contours:
@@ -257,7 +222,8 @@ ax.figure.tight_layout()
 
 Its penalties' null space is spanned by $1$, age, year and their product:
 however large its smoothing parameters, the term keeps a linear
-age-by-year interaction.
+age-by-year interaction. (A GLMM estimates the two smoothing parameters:
+[Generalized linear mixed models](glmm.md).)
 
 ## Varying coefficients
 
@@ -269,22 +235,13 @@ curve is zero off its level; as mgcv's, each is constrained like the term
 alone (it sums to zero over the data's ages), so the model includes
 `categorical('jobclass')` for the levels' means, as mgcv's
 `wage ~ jobclass + s(age, by=jobclass)`. Each level has its own smoothing
-parameter:
+parameter, here given (one for both):
 
 ```{code-cell} ipython3
-by_class = [categorical('jobclass'), varying(s('age'), by='jobclass'), s('year'),
-            categorical('education')]
-gam_by = GLMM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
-gam_by.smoothing_.lam, gam_by.terms_[1].level_edf()
-```
-
-With `pooled_lam=True` the levels share one smoothing parameter, estimated
-by REML as well (mgcv's `id`): the curves are taken to be equally smooth.
-
-```{code-cell} ipython3
-by_class[1] = varying(s('age'), by='jobclass', pooled_lam=True)
-gam_pooled = GLMM(terms=by_class, method='REML').fit(Wage, Wage['wage'])
-gam_pooled.smoothing_.lam, gam_pooled.terms_[1].level_edf()
+by_class = [categorical('jobclass'), varying(s('age'), by='jobclass', lam=2.),
+            s('year', df=4), categorical('education')]
+gam_by = GAM(terms=by_class).fit(Wage, Wage['wage'])
+gam_by.terms_[1].level_edf()
 ```
 
 The term is drawn as a curve per level:
@@ -295,63 +252,36 @@ ax.figure.tight_layout()
 ```
 
 `by` is categorical, whatever its values (one coded 0 and 1 too). With
-`as_categorical=False` it is a number and the term is `z f(x)`: the coefficient
-of `z` is a smooth function of `x` (mgcv's `s(x, by=z)`, not centered). Here the yearly
-change in wage, `year - 2006`'s coefficient, is a function of age, next to
-the main curve of age. (A smooth of the year as well would duplicate its
-linear trend, which the varying coefficient already has.)
-
-```{code-cell} ipython3
-Wage['year_c'] = Wage['year'] - 2006
-gam_vc = GLMM(terms=[s('age'), varying(s('age'), by='year_c', as_categorical=False),
-                    categorical('education')],
-             method='REML').fit(Wage, Wage['wage'])
-ax = gam_vc.plot(terms=[1])[0]
-ax.figure.tight_layout()
-```
-
-Any smooth can vary: `varying(cyclic_spline('hour', period=(0, 24)),
-by='workingday')`, `varying(tensor_spline('lon', 'lat'), by='year')`,
-`varying(re('school'), by='sector')`. Those with a basis (all but `lo()`)
-work with every method; `varying(lo('x'), by='f')` fits a loess per level,
-by backfitting only. mgcv's `s(age, by=jobclass, bs="cr")` is
+`as_categorical=False` it is a number and the term is `z f(x)`: the
+coefficient of `z` is a smooth function of `x` (mgcv's `s(x, by=z)`, not
+centered). Any smooth can vary: `varying(cyclic_spline('hour', period=(0,
+24)), by='workingday')`, `varying(tensor_spline('lon', 'lat'), by='year')`,
+`varying(re('school'), by='sector')`, `varying(lo('x'), by='f')` (a loess
+per level, by backfitting only). mgcv's `s(age, by=jobclass, bs="cr")` is
 `varying(cubic_regression_spline('age'), by='jobclass')`.
 
 ## Random effects
 
-A random effect is a term like the smooths: `re(group)` gives each group
-its own intercept, penalized by its sum of squares, as the Gaussian prior
-of a mixed model; `re(group, by=x)` its own slope in `x`. Its variance is
-the dispersion over its smoothing parameter, and REML estimates it as the
-REML of the mixed model (for the Gaussian, exactly). With a list of
-columns, `re(['batch', 'cask'])` gives each combination its own effect, so
-nested effects, lme4's `(1 | batch/cask)`, are `re('batch') + re(['batch',
-'cask'])`.
+A random effect is a term like the smooths: `random_effect(group)`
+(imported here as `re`, `from glmnet.gam import random_effect as re`) gives each group
+its own intercept, penalized by `lam / 2` times their sum of squares (a
+ridge penalty, the Gaussian prior of a mixed model), and `re(group, by=x)`
+its own slope in `x`. With a list of columns, `re(['batch', 'cask'])` gives
+each combination its own effect, so nested effects, lme4's `(1 |
+batch/cask)`, are `re('batch') + re(['batch', 'cask'])`. In a GAM the
+penalty is given; its variance, estimated, is a GLMM's ([Generalized
+linear mixed models](glmm.md)).
 
-Here marital status is a random effect, its levels' effects shrunk
-towards 0, next to the fixed effect of education:
+Here marital status is a random effect, its levels' effects shrunk towards
+0 the more the smaller the group:
 
 ```{code-cell} ipython3
-gam_re = GLMM(terms=[s('year'), s('age'), categorical('education'), re('maritl')], method='REML')
+gam_re = GAM(terms=[s('year', df=4), s('age', df=5), categorical('education'),
+                    re('maritl', lam=0.01)])
 gam_re.fit(Wage, Wage['wage'])
-gam_re.variance_components_
-```
-
-The fixed effects of a categorical are centered, the random effects are not,
-so compare each level with the married workers:
-
-```{code-cell} ipython3
-gam_fe = GLMM(terms=[s('year'), s('age'), categorical('education'), categorical('maritl')],
-             method='REML').fit(Wage, Wage['wage'])
-random, fixed = gam_re.terms_[3].effects_, gam_fe.terms_[3].effects_
 pd.DataFrame({'workers': Wage['maritl'].value_counts().sort_index(),
-              'random effect': random - random['2. Married'],
-              'fixed effect': fixed - fixed['2. Married']})
+              'effect': gam_re.terms_[3].effects_})
 ```
-
-Each random effect is shrunk towards 0, the more the smaller its group:
-the 19 widowed workers' effect moves the most, from $-14.0$ to $-10.8$
-(relative to the married workers, whose own effect is shrunk little).
 
 ## A Cox model
 
@@ -359,17 +289,16 @@ With glmstar's `CoxFamily`, the GAM is a proportional hazards model with
 smooth terms, fitted by maximizing the penalized partial likelihood (with
 Efron's or Breslow's ties, start times and strata). The response is a data
 frame with the times and the status. On the `BrainCancer` data, the hazard
-of death as a smooth function of the gross tumor volume `gtv`, with the
-Karnofsky index `ki` linear and an effect for the diagnosis, the smoothing
-parameter by REML, as mgcv's `cox.ph` (Wood, Pya and Säfken, 2016):
+of death as a smooth function of the gross tumor volume `gtv`, with 3
+degrees of freedom, the Karnofsky index `ki` linear and an effect for the
+diagnosis:
 
 ```{code-cell} ipython3
 from glmnet.cox import CoxFamily
 
 Brain = load_data('BrainCancer').dropna()
-cox = GLMM(terms=[s('gtv'), linear('ki'), categorical('diagnosis')],
-          family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'),
-          method='REML')
+cox = GAM(terms=[s('gtv', df=3), linear('ki'), categorical('diagnosis')],
+          family=CoxFamily(event_id='time', status_id='status', tie_breaking='efron'))
 cox.fit(Brain, Brain[['time', 'status']])
 cox.summary()
 ```
@@ -379,10 +308,200 @@ axes = cox.plot()
 axes[0].figure.tight_layout()
 ```
 
-REML finds no evidence of a nonlinear effect of the tumor volume: its
-spline is a line, 1 degree of freedom (as mgcv's `cox.ph` gives). The
-curves are on the scale of the log hazard; `predict` gives the linear
-predictor (`'link'`) or the relative risk (`'response'`).
+The curves are on the scale of the log hazard; `predict` gives the linear
+predictor (`'link'`) or the relative risk (`'response'`). (A GLMM, by
+REML as mgcv's `cox.ph`, finds the tumor volume's effect to be a line.)
+
+## Smoothers
+
+Each term of a GAM is a `glmnet.gam.Smoother`: an object that, given the
+weights of a working problem, fits a function of its column(s) to partial
+residuals. Backfitting needs nothing else. Its methods, in the order a fit
+calls them:
+
+| method | what it does |
+|---|---|
+| `setup(x)` | set up on the training data's column(s) `x` (knots, levels, ...) |
+| `set_weights(w)` | the weights of the next working problem (`self.w_`) |
+| `smooth(r)` | the weighted fit to the partial residuals `r`, at the training rows |
+| `edf()` | its degrees of freedom at the current weights, without the constant |
+| `finalize(f, r, coef)` | keep the final fit `f` (and coefficients), to predict |
+| `predict(x)` | the fitted function at new values `x` |
+
+and `name` (from `_label`, `'s'` for `s('age')`), `columns` (the columns
+it uses), `centered` (whether backfitting centers its fits, the intercept
+taking the mean; a term identified by its penalty, a random effect, is not)
+and `penalty(f, coef)`, its part of the objective (0 by default).
+
+Most smoothers are also **penalized smoothers** (`PenalizedSmoother`):
+the fit is $B\hat c$, with $B$ the smoother's *basis* (`basis()`, the
+columns of the functions it fits) and
+
+$$\hat c = \arg\min_c \tfrac12 \sum_i w_i (r_i - (Bc)_i)^2 +
+\sum_m \tfrac{\lambda_m}{2} c^\top S_m c,$$
+
+$S_m$ its *penalties* (`penalty_matrices()`), $\lambda_m$ its smoothing
+parameters (`lam`). The basis and the penalties are all that the joint
+solve (`GAMControl(solver='joint')`), the posterior covariance (standard
+errors, `predict(..., return_std=True)`) and a GLMM need. A smoother
+without them (loess) is fitted by backfitting only, without standard
+errors.
+
+| term | smoother | basis | penalties |
+|---|---|---|---|
+| `s(x)` | `SplineSmoother` | natural cubic spline | $\int f''^2$ |
+| `cyclic_spline(x)` | `CyclicSplineSmoother` | cyclic cubic spline | $\int f''^2$ |
+| `tensor_spline(x, z)` | `TensorSplineSmoother` | tensor product | one per column |
+| `gaussian_process(x, ...)` | `GaussianProcessSmoother` | low rank kriging | the kernel's |
+| `random_effect(g)`, `random_effect(g, by=x)` | `RandomEffectSmoother` | group indicators (times `x`) | the identity |
+| `correlated_random_effect(g, ...)` | `CorrelatedRandomEffectSmoother` | indicators and slopes | a precision |
+| `penalized_columns(cols, S)` | `PenalizedColumnsSmoother` | the columns | given |
+| `varying(term, by=...)` | `VaryingSmoother` | the term's, per level | the term's, per level |
+| `linear(x)`, `categorical(g)` | `LinearSmoother`, `CategoricalSmoother` | $x$, the indicators | none |
+| `lo(x)` | `LoessSmoother` | none | none |
+
+(The former names, `SplineTerm`, `RandomEffectTerm`, ..., still work, with
+a FutureWarning.)
+
+(writing-a-smoother)=
+## Writing a smoother
+
+A new kind of term is a subclass of one of the two. A `Smoother` gives
+the smoothing itself; a `PenalizedSmoother` gives only a basis and
+penalties, and inherits the rest.
+
+### A smoother: means in bins
+
+A step function, the weighted mean of the residuals in each of `n_bins`
+bins of the column (quantiles of the training data). It has neither basis
+nor penalty, so it is fitted by backfitting:
+
+```{code-cell} ipython3
+from dataclasses import dataclass
+from glmnet.gam import Smoother
+
+@dataclass
+class BinSmoother(Smoother):
+    """A step function: the weighted mean of the residuals in each of `n_bins` bins."""
+    n_bins: int = 10
+
+    _label = 'bins'
+
+    def setup(self, x):
+        x = np.asarray(x, float)
+        self.edges_ = np.quantile(x, np.linspace(0, 1, self.n_bins + 1))
+        self.codes_ = self._codes(x)
+        return self
+
+    def _codes(self, x):
+        return np.clip(np.searchsorted(self.edges_, x, side='right') - 1, 0, self.n_bins - 1)
+
+    def _means(self, r, w):
+        sw = np.bincount(self.codes_, w, self.n_bins)
+        swr = np.bincount(self.codes_, w * r, self.n_bins)
+        return np.divide(swr, sw, out=np.zeros(self.n_bins), where=sw > 0)
+
+    def smooth(self, r):
+        return self._means(r, self.w_)[self.codes_]
+
+    def edf(self):
+        # one mean per occupied bin, less the constant
+        return float(np.sum(np.bincount(self.codes_, self.w_, self.n_bins) > 0) - 1)
+
+    def finalize(self, f, r, coef=None):
+        self.means_ = self._means(f, np.ones_like(f))
+        return self
+
+    def predict(self, x):
+        return self.means_[self._codes(np.asarray(x, float))]
+
+gam_bins = GAM(terms=[s('year', df=4), BinSmoother('age', n_bins=12), categorical('education')])
+gam_bins.fit(Wage, Wage['wage'])
+gam_bins.summary()
+```
+
+It is a term like the others: it is backfitted with the splines, and
+plotted and predicted from (without bands: it has no basis):
+
+```{code-cell} ipython3
+ax = gam_bins.plot(terms=[1])[0]
+ages = np.linspace(18, 80, 200)
+ax.plot(ages, gam.partial_effect('s(age, df=5)', ages), label='s(age, df=5)')
+ax.legend();
+```
+
+### A penalized smoother: a Fourier basis
+
+A periodic smooth (of the hour of the day, the day of the year): $K$
+sines and cosines, $f(x) = \sum_{k=1}^K a_k \sin(2\pi k x / P) + b_k
+\cos(2\pi k x / P)$, penalized by the integral over a period of $f''^2$,
+which is diagonal in the coefficients, $\frac P2 \sum_k (2\pi k/P)^4
+(a_k^2 + b_k^2)$. The class gives the basis and the penalty; the fit, its
+degrees of freedom, prediction, the joint solve, standard errors and REML
+come with `PenalizedSmoother`. (The basis has no constant, which the
+intercept takes.)
+
+```{code-cell} ipython3
+from glmnet.gam import PenalizedSmoother
+
+@dataclass
+class FourierSmoother(PenalizedSmoother):
+    """A periodic smooth: K sines and cosines, penalized by the integral of f''^2 over a period."""
+    K: int = 5
+    period: float = 1.
+
+    _label = 'fourier'
+
+    def basis(self, x=None):
+        # at the training rows (`self.x_`, kept by `setup`) or at `x`
+        x = np.asarray(self.x_ if x is None else x, float)
+        t = 2 * np.pi * np.outer(x, np.arange(1, self.K + 1)) / self.period
+        return np.hstack([np.sin(t), np.cos(t)])
+
+    def penalty_matrices(self):
+        d = (2 * np.pi * np.arange(1, self.K + 1) / self.period) ** 4 * self.period / 2
+        return [np.diag(np.r_[d, d])]
+```
+
+On the `Bikeshare` data, the bikers per hour, a Poisson GAM in the hour of
+the day (a period of 24; `hr` is categorical, so as a number) and the
+weather:
+
+```{code-cell} ipython3
+Bike = load_data('Bikeshare')
+Bike['hour'] = Bike['hr'].astype(int)
+gam_bike = GAM(terms=[FourierSmoother('hour', K=12, period=24, lam=1e-3),
+                      categorical('weathersit')],
+               family=sm.families.Poisson())
+gam_bike.fit(Bike, Bike['bikers'])
+gam_bike.summary()
+```
+
+```{code-cell} ipython3
+hours = np.linspace(0, 24, 97)
+curve, std = gam_bike.partial_effect(0, hours, return_std=True)
+fig, ax = plt.subplots()
+ax.plot(hours, curve)
+ax.fill_between(hours, curve - 2 * std, curve + 2 * std, alpha=0.3)
+ax.set_xlabel('hour'); ax.set_ylabel('log bikers (centered)');
+```
+
+The curve is periodic (its value at 24 is its value at 0), with its two
+rush hours, and has standard errors, from the basis and the penalty. With
+`lam` left out, a GLMM estimates it by REML, as for the built-in smooths;
+with almost 9,000 hours of counts, REML keeps most of the 24 degrees of
+freedom:
+
+```{code-cell} ipython3
+import warnings
+from glmnet.gam import GLMM, ExperimentalWarning
+
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', ExperimentalWarning)
+    glmm_bike = GLMM(terms=[FourierSmoother('hour', K=12, period=24), categorical('weathersit')],
+                     family=sm.families.Poisson()).fit(Bike, Bike['bikers'])
+glmm_bike.smoothing_.lam, glmm_bike.edf_
+```
 
 ## References
 
@@ -391,6 +510,8 @@ predictor (`'link'`) or the relative risk (`'response'`).
 - Cleveland, W. S., Grosse, E. and Shyu, W. M. (1992). Local regression
   models. In J. M. Chambers and T. J. Hastie (eds.), *Statistical Models in
   S*, chapter 8. Wadsworth & Brooks/Cole.
+- Eilers, P. H. C. and Marx, B. D. (1996). Flexible smoothing with
+  B-splines and penalties. *Statistical Science* 11(2), 89–121.
 - Hastie, T. and Tibshirani, R. (1986). Generalized additive models.
   *Statistical Science* 1(3), 297–318.
 - Hastie, T. and Tibshirani, R. (1990). *Generalized Additive Models*.
@@ -416,3 +537,6 @@ predictor (`'link'`) or the relative risk (`'response'`).
 - Wood, S. N., Pya, N. and Säfken, B. (2016). Smoothing parameter and model
   selection for general smooth models. *Journal of the American Statistical
   Association* 111(516), 1548–1563.
+- Ye, J. (1998). On measuring and correcting the effects of data mining and
+  model selection. *Journal of the American Statistical Association*
+  93(441), 120–131.

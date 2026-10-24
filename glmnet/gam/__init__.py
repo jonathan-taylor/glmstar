@@ -2,16 +2,26 @@
 Generalized additive models: local scoring with pluggable smoothers, on
 glmstar's IRLS.
 
-A list of terms, each naming a column of `X`:
+A `GAM` is a list of terms, each a smoother of columns of `X`; its
+smoothing is fixed (each term's `lam` or `df`, as R's `gam`):
 
 >>> from glmnet.gam import GAM, s, lo, categorical, linear
 >>> GAM(terms=[s('age', df=4), s('year', lam=1e-3), categorical('education')]).fit(X, y)
 
-Random effects (`re(group)`, `re(group, by=x)`) are terms like the smooths,
-penalized by their sum of squares, so mixed models are GAMs:
+A `GLMM` has the same terms, its penalized terms random effects whose
+variances (the smoothing parameters) it estimates: by REML or ML as
+mgcv's and lme4's (experimental: see `glmnet.gam.reml`; with JAX, `pip
+install glmstar[gam]`, not needed for the Cox family), or by a
+`SmoothingMethod` of one's own. Some parameters can be held fixed: a term
+given `lam`, or a list of them with None for those to estimate.
 
->>> from glmnet.gam import GAM, s, re
->>> GAM(terms=[s('Days', df=3), re('Subject', lam=0.1), re('Subject', by='Days', lam=1)])
+>>> from glmnet.gam import GLMM, s, random_effect as re
+>>> GLMM(terms=[s('Days'), random_effect('Subject'), random_effect('Subject', by='Days')])
+
+The terms are `Smoother`s (backfitting needs only their `smooth`), most
+of them `PenalizedSmoother`s: a basis and quadratic penalties, what the
+joint solve, the covariance and a GLMM need. A new term is a subclass of
+one of them (the documentation's page on GAMs, "Writing a smoother").
 
 (ISLP's `ISLP.gam` builds the terms from a ModelSpec, smooth features next
 to ordinary columns.)
@@ -26,11 +36,6 @@ Gaussian process smooths (`gaussian_process(x)`, `gaussian_process(lon, lat)`:
 mgcv's `s(..., bs="gp")`,
 the low rank kriging of Kammann & Wand, 2003) are terms in one or more
 columns.
-
-Smoothing parameters (and random effects' variances) can also be estimated
-(experimental: see `glmnet.gam.reml`), by REML or ML as mgcv's
-(`GLMM(method='REML')`, with JAX: `pip install
-glmstar[gam]`; not needed for the Cox family, glmstar's `CoxFamily`).
 
 The smoothing spline and loess terms use the `scatter_smooth` package.
 
@@ -66,29 +71,31 @@ References
   intervals for generalized additive model components. *Scandinavian
   Journal of Statistics* 39(1), 53–74.
 """
-from .terms import (Term,
-                    SplineTerm,
-                    LoessTerm,
-                    SlopeTerm,
-                    CategoricalTerm,
-                    FactorTerm,
-                    ColumnsTerm,
-                    RandomEffectTerm,
-                    CorrelatedRandomEffectTerm,
-                    PenalizedColumnsTerm,
+from .terms import (Smoother,
+                    PenalizedSmoother,
+                    SplineSmoother,
+                    LoessSmoother,
+                    LinearSmoother,
+                    CategoricalSmoother,
+                    _FactorTerm,
+                    ColumnsSmoother,
+                    RandomEffectSmoother,
+                    CorrelatedRandomEffectSmoother,
+                    PenalizedColumnsSmoother,
                     s,
                     lo,
+                    random_effect,
                     re,
                     correlated_random_effect,
                     penalized_columns,
                     linear,
                     categorical,
                     factor)
-from .gp import GPTerm, gaussian_process
-from .tensor import TensorTerm, tensor_spline
-from .cyclic import CyclicSplineTerm, cyclic_spline
+from .gp import GaussianProcessSmoother, gaussian_process
+from .tensor import TensorSplineSmoother, tensor_spline
+from .cyclic import CyclicSplineSmoother, cyclic_spline
 from .families import QuasiPoisson, QuasiBinomial, NegativeBinomial
-from .varying import (VaryingTerm, CubicRegressionSplineTerm, varying,
+from .varying import (VaryingSmoother, CubicRegressionSplineSmoother, varying,
                       cubic_regression_spline)
 from .backfit import GAMState, GAMRegularizer
 from .joint import JointDesign, JointRegularizer
@@ -97,3 +104,11 @@ from .estimator import GAM, GLMM, GAMControl
 from .selection import SmoothingMethod, Fixed, Laplace
 from .moments import moment_equations
 from .plot import plot_term, plot_terms
+
+from .terms import _deprecated_names, _RENAMED
+# the former names of the smoothers (glmstar 0.5.0), deprecated
+__getattr__ = _deprecated_names(dict(_RENAMED, GPTerm='GaussianProcessSmoother',
+                                     TensorTerm='TensorSplineSmoother',
+                                     CyclicSplineTerm='CyclicSplineSmoother'),
+                                globals(), __name__)
+del _deprecated_names, _RENAMED

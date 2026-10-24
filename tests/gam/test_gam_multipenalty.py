@@ -13,7 +13,7 @@ import statsmodels.api as sm
 
 pytest.importorskip('scatter_smooth')
 
-from glmnet.gam import GAM, GLMM, GAMControl, s, re, penalized_columns
+from glmnet.gam import GAM, GLMM, GAMControl, s, random_effect as re, penalized_columns
 
 TIGHT = dict(epsnr=1e-12, mxitnr=100)
 
