@@ -274,6 +274,10 @@ prob, std = gam_b.predict(new, return_std=True)
 pd.DataFrame({'age': new['age'], 'P(wage > 250)': prob, 'std err': std})
 ```
 
+Another link, or a family of one's own, is a `glmnet.gam.JaxFamily`: its
+inverse link and unit deviance in JAX, for fixed smoothing as for REML
+([GLMMs](glmm.md)).
+
 ## Smooths of several columns: tensor products
 
 `tensor_spline('age', 'year')` is a smooth function of both columns, the

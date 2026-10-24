@@ -284,6 +284,53 @@ For a model with random effects the folds decide what is scored: with
 `GroupKFold` by the grouping, the prediction of new groups (their effects
 0); with `KFold`, of the groups seen.
 
+## A family of one's own (JAX)
+
+REML and ML need of a family only its inverse link and unit deviance $d(y,
+\mu)$, differentiated in $\eta$; the fit needs its variance function,
+which is the deviance's too, $V(\mu) = 2 / \partial^2_\mu d(\mu, \mu)$.
+`glmnet.gam.JaxFamily` takes the two, written in JAX, and finds the rest
+by `jax.grad`. The probit by hand, against statsmodels' probit:
+
+```{code-cell} ipython3
+import jax.numpy as jnp
+from jax.scipy.special import xlogy
+from jax.scipy.stats import norm
+import statsmodels.api as sm
+from glmnet.gam import JaxFamily
+
+def bernoulli_deviance(y, mu):
+    return 2 * (xlogy(y, y) - xlogy(y, mu) + xlogy(1 - y, 1 - y) - xlogy(1 - y, 1 - mu))
+
+probit = JaxFamily(linkinv=norm.cdf, unit_deviance=bernoulli_deviance, name='probit')
+
+high = Wage[Wage['education'] != '1. < HS Grad'].copy()
+high['high'] = (high['wage'] > 250).astype(float)
+terms = [s('age'), re('education')]
+by_hand = GLMM(terms, family=probit).fit(high, high['high'])
+builtin = GLMM(terms, family=sm.families.Binomial(link=sm.families.links.Probit())).fit(high, high['high'])
+
+def rel(a, b):
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    return np.max(np.abs(a - b) / np.abs(b))
+
+(mu, se), (mu0, se0) = by_hand.predict(high, return_std=True), builtin.predict(high, return_std=True)
+pd.Series({'lam': rel(by_hand.smoothing_.lam, builtin.smoothing_.lam),
+           'REML score': rel(by_hand.smoothing_.score, builtin.smoothing_.score),
+           'edf': rel(by_hand.edf_, builtin.edf_),
+           'fitted': rel(mu, mu0), 'std err': rel(se, se0)}, name='max relative difference')
+```
+
+They agree to the optimizer's precision, the REML scores to rounding.
+The point is a family statsmodels or REML lacks. A cauchit, say, is one
+line, `JaxFamily(lambda eta: 0.5 + jnp.arctan(eta) / np.pi,
+bernoulli_deviance)`. A family with a free dispersion also gives its
+saturated log-likelihood, `saturated_loglike(y, a, phi)` (summed over the
+observations, `a` the prior weights), with `fixed_dispersion=False`. Any
+family with a method `jax_pieces()` returning these four (as
+`glmnet.gam.reml._jax_family` documents) has REML and ML, a statsmodels
+family among them.
+
 ## Other methods, and large problems
 
 `method` can be a `glmnet.gam.SmoothingMethod`: an object whose

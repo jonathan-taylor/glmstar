@@ -172,17 +172,51 @@ def _penalty_groups(Ss):
 
 def _jax_family(family):
     """
-    The pieces of a (statsmodels) family the criterion needs, in JAX: the
-    inverse link, the unit deviance, the saturated log-likelihood (as a
-    function of the dispersion) and whether the dispersion is fixed at 1.
+    The pieces of a family the criterion needs, in JAX: the inverse link,
+    the unit deviance, the saturated log-likelihood (as a function of the
+    dispersion) and whether the dispersion is fixed at 1.
+
+    A family of one's own provides them: a family object (a statsmodels
+    family, for the fit, e.g. `glmnet.gam.JaxFamily`) with a method
+    `jax_pieces()` returning `(linkinv, dev, ls, fixed)`, used before the
+    statsmodels families below:
+
+    - `linkinv(eta)`: the mean of the linear predictor, elementwise;
+    - `dev(y, mu, t)`: the unit deviance of an observation, elementwise
+      (`sum_i a_i dev(y_i, mu_i, t)` the deviance, `a` the prior weights);
+    - `ls(y, a, phi, t)`: the saturated log-likelihood, summed over the
+      observations (a scalar), at the dispersion `phi`: the log-likelihood
+      is `ls - sum_i a_i dev_i / (2 phi)`. With a fixed dispersion it is a
+      constant of the criterion (0 will do but for the score's value);
+    - `fixed`: True if the dispersion is fixed at 1 (binomial, Poisson),
+      False if it is estimated.
+
+    `t` is the log of the negative binomial's theta (`glmnet.gam.families.
+    NegativeBinomial`), a parameter of the criterion when estimated; the
+    other families ignore it. The functions must be traceable by JAX
+    (`jax.numpy`, no NumPy or Python branching on values): the criterion
+    differentiates `dev(y, linkinv(eta), t)` in `eta` three times (and in
+    `t`) and `ls` in `phi` and `t`.
     """
     jax, jnp = _jax()
     from jax.scipy.special import xlogy, gammaln
     from jax.scipy.stats import norm
 
+    if hasattr(family, 'jax_pieces'):
+        pieces = family.jax_pieces()
+        if not (isinstance(pieces, tuple) and len(pieces) == 4 and
+                all(callable(f) for f in pieces[:3])):
+            raise ValueError(f'{type(family).__name__}.jax_pieces() should return '
+                             '(linkinv, unit_deviance, saturated_loglike, fixed_dispersion), '
+                             'the first three functions')
+        return pieces[:3] + (bool(pieces[3]),)
+    if not hasattr(family, 'link'):
+        raise NotImplementedError(f'REML and ML: the family {type(family).__name__} has no '
+                                  'link (a statsmodels family) and no jax_pieces()')
+
+    # (`is_link`, not isinstance: statsmodels derives Probit, CLogLog,
+    # LogLog and Cauchy from Logit)
     link = family.link
-    # (is_link, not isinstance: statsmodels derives Probit, CLogLog, LogLog and
-    # Cauchy from Logit)
     if is_link(link, sm_links.Identity):
         linkinv = lambda eta: eta
     elif is_link(link, sm_links.Log):
@@ -198,7 +232,8 @@ def _jax_family(family):
     elif is_link(link, sm_links.InversePower) and getattr(link, 'power', -1.) == -1.:
         linkinv = lambda eta: 1 / eta
     else:
-        raise NotImplementedError(f'REML and ML: the link {type(link).__name__} is not supported')
+        raise NotImplementedError(f'REML and ML: the link {type(link).__name__} is not supported '
+                                  '(a family of one\'s own: glmnet.gam.JaxFamily, or jax_pieces())')
 
     # (each function takes `t`, the log of the negative binomial's theta,
     # which the others ignore)
@@ -242,7 +277,8 @@ def _jax_family(family):
         ls = lambda y, a, phi, t: jnp.sum(-0.5 * jnp.log(2 * np.pi * phi * y**3 / a))
         fixed = False
     else:
-        raise NotImplementedError(f'REML and ML: the family {type(family).__name__} is not supported')
+        raise NotImplementedError(f'REML and ML: the family {type(family).__name__} is not supported '
+                                  '(a family of one\'s own: glmnet.gam.JaxFamily, or jax_pieces())')
     if getattr(family, 'quasi', False):
         # a quasi-likelihood (`glmnet.gam.families`): a free dispersion, and
         # mgcv's "saturated log-likelihood", a Gaussian's in the dispersion

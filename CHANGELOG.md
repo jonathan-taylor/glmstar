@@ -4,6 +4,13 @@
 
 ### New features
 
+- **A family of one's own, in JAX** (`glmnet.gam.JaxFamily(linkinv,
+  unit_deviance, saturated_loglike=None, fixed_dispersion=True)`): the
+  link's derivatives and the variance function (`2 / d''(mu, mu)`) follow
+  by `jax.grad`, for a `GAM` and for `GLMM` REML and ML. Any family with
+  `jax_pieces()` has REML and ML. A probit by hand matches statsmodels'
+  probit (fitted values, smoothing parameters, REML score, edf, standard
+  errors to 1e-8 or better) (#199).
 - **Sandwich (robust) covariances for `GAM` and `GLMM`.**
   `sandwich_covariance(meat=None, groups=None)` is `A^{-1} M A^{-1}`, the
   bread `A = X' W X + S_lambda` the one `posterior_covariance_` inverts,

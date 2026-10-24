@@ -94,7 +94,7 @@ from .terms import (Smoother,
 from .gp import GaussianProcessSmoother, gaussian_process
 from .tensor import TensorSplineSmoother, tensor_spline
 from .cyclic import CyclicSplineSmoother, cyclic_spline
-from .families import QuasiPoisson, QuasiBinomial, NegativeBinomial
+from .families import QuasiPoisson, QuasiBinomial, NegativeBinomial, JaxFamily
 from .varying import (VaryingSmoother, CubicRegressionSplineSmoother, varying,
                       cubic_regression_spline)
 from .adapters import TransformerSmoother, RegressorSmoother, difference_penalty, sum_to_zero
