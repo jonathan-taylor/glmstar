@@ -460,6 +460,76 @@ class GAM(BaseEstimator):
             self._set_covariance(w)
         return self
 
+    # scikit-learn's parameters: a GAM's own, its terms (`terms__<j>`, a
+    # term replaced whole, as a Pipeline's steps) and their arguments
+    # (`terms__<j>__<param>`), so that the smoother of a column, its degrees
+    # of freedom, smoothing parameter or basis can be chosen by
+    # cross-validation (GridSearchCV); `score` is the held-out fit
+
+    def _term_params(self, term):
+        """The parameters of a term to show (a GLMM leaves out those it estimates)."""
+        return term.get_params(deep=True)
+
+    def get_params(self, deep=True):
+        params = super().get_params(deep=deep)
+        if deep:
+            for j, term in enumerate(self.terms or []):
+                params[f'terms__{j}'] = term
+                if hasattr(term, 'get_params'):
+                    for key, value in self._term_params(term).items():
+                        params[f'terms__{j}__{key}'] = value
+        return params
+
+    def set_params(self, **params):
+        whole, nested = {}, {}
+        for key in [k for k in params if k.startswith('terms__')]:
+            parts = key.split('__', 2)
+            j = int(parts[1])
+            if len(parts) == 2:
+                whole[j] = params.pop(key)
+            else:
+                nested.setdefault(j, {})[parts[2]] = params.pop(key)
+        super().set_params(**params)
+        if whole or nested:
+            # (copies: the terms given may be used in other models)
+            terms = list(self.terms)
+            for j, term in whole.items():
+                terms[j] = term
+            for j, term_params in nested.items():
+                terms[j] = deepcopy(terms[j]).set_params(**term_params)
+            self.terms = terms
+        return self
+
+    def score(self, X, y, sample_weight=None):
+        """
+        Minus half the deviance of the fit on `(X, y)` (with its offset and
+        weights, `offset_id` and `weight_id`, unless `sample_weight` is
+        given): a sum over the observations, as `GLM.score`, the larger the
+        better, for scikit-learn's cross-validation. For the Cox family, the
+        partial log-likelihood of the rows of `y`, the risk sets among them.
+
+        The folds should suit the model: a random effect predicts 0 for
+        groups not in the training folds (with `GroupKFold` the score is of
+        prediction for new groups, with `KFold` for groups seen), and
+        serially correlated rows need blocked folds.
+        """
+        nobs = X.shape[0]
+        if self._cox:
+            family, _, offset, weight = self._cox_data(y, nobs)
+            eta = self._linear_predictor(X, offset)
+            w = weight if sample_weight is None else np.asarray(sample_weight, float)
+            return -float(family.deviance(None, eta, w)) / 2
+        _, _, response, offset, weight = _get_data(self, np.zeros((nobs, 1)), y,
+                                                   offset_id=self.offset_id,
+                                                   response_id=self.response_id,
+                                                   weight_id=self.weight_id,
+                                                   check=False)
+        response = np.asarray(response, float).reshape(-1)
+        w = (np.asarray(weight, float).reshape(-1) if sample_weight is None
+             else np.asarray(sample_weight, float))
+        mu = self.predict(X, offset=offset)
+        return -float(self._family.deviance(response, mu, w)) / 2
+
     def _smoothing_method(self):
         """
         The `SmoothingMethod`: `Fixed()` for a GAM. `GAM(method=...)` is
@@ -946,6 +1016,14 @@ class GLMM(GAM):
         `NegativeBinomial(theta=None)`, as mgcv's `nb()`.
     """
     method: Union[str, SmoothingMethod] = 'REML'
+
+    # the parameters the method estimates (None: to estimate) are not
+    # scikit-learn's parameters to tune; those given are
+    _estimated_params = ('lam', 'df', 'precision')
+
+    def _term_params(self, term):
+        return {key: value for key, value in term.get_params(deep=True).items()
+                if not (key.rsplit('__', 1)[-1] in self._estimated_params and value is None)}
 
     def _smoothing_method(self):
         method = resolve_method('REML' if self.method is None else self.method)

@@ -57,6 +57,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator
 from scipy.linalg import solve_banded
 from scipy.optimize import brentq
 
@@ -72,7 +73,7 @@ def _scatter_smooth():
 
 
 @dataclass
-class Smoother(object):
+class Smoother(BaseEstimator):
     """
     A term of a GAM: a weighted smoother of the column `column` of `X` (a
     name of a DataFrame's column, an integer index, or a list of them),
@@ -82,6 +83,10 @@ class Smoother(object):
     A smoother with a basis and quadratic penalties, which the joint solve,
     the covariance and a `GLMM` also need, is a `PenalizedSmoother`.
 
+    A smoother is a scikit-learn estimator for its parameters: its
+    arguments are `get_params()` and `set_params()`, so that a `GAM`'s
+    (`terms__<j>__<param>`) can be tuned by cross-validation, and `clone`
+    copies it (with what its constructor function set, as its name).
     """
     column: Union[str, int]
 
@@ -92,6 +97,35 @@ class Smoother(object):
     def columns(self):
         """The columns of `X` the term uses (one, but for `random_effect(..., by=...)`)."""
         return self.column
+
+    def __sklearn_clone__(self):
+        # (a copy: the constructor functions set attributes, as the label,
+        # that are not arguments)
+        return deepcopy(self)
+
+    def set_params(self, **params):
+        """Set its parameters (scikit-learn's), keeping a name that shows them up to date."""
+        old = {k: getattr(self, k) for k in params if '__' not in k and hasattr(self, k)}
+        super().set_params(**params)
+        # (the checks and what is derived from the arguments, as at construction)
+        post_init = getattr(self, '__post_init__', None)
+        if post_init is not None:
+            post_init()
+        for key, value in old.items():
+            self._relabel(key, value, getattr(self, key))
+        return self
+
+    def _relabel(self, key, old, new):
+        """The name `prefix(column, key=old, ...)` with `key=new`."""
+        label = getattr(self, 'label', None)
+        prefix = getattr(self, '_label', None) or type(self).__name__
+        if not label or not label.endswith(')') or old is new:
+            return
+        given = f', {key}={old}'
+        if given in label:
+            self.label = label.replace(given, '' if new is None else f', {key}={new}', 1)
+        elif label.startswith(f'{prefix}(') and new is not None:
+            self.label = f'{label[:-1]}, {key}={new})'
 
     @property
     def name(self):

@@ -312,6 +312,76 @@ The curves are on the scale of the log hazard; `predict` gives the linear
 predictor (`'link'`) or the relative risk (`'response'`). (A GLMM, by
 REML as mgcv's `cox.ph`, finds the tumor volume's effect to be a line.)
 
+## Choosing a smoother by cross-validation
+
+A `GAM` is a scikit-learn estimator, and so are its terms: a term is
+`terms__<j>` among its parameters, and the term's arguments are
+`terms__<j>__<arg>`, as a `Pipeline`'s steps. `GridSearchCV` can choose the
+smoother of a column, or its degrees of freedom, by the held-out fit,
+`score` (minus half the deviance on the held-out rows; for Cox, their
+partial log-likelihood). Here, the degrees of freedom of the spline in age:
+
+```{code-cell} ipython3
+from sklearn.model_selection import GridSearchCV, KFold
+
+folds = KFold(5, shuffle=True, random_state=0)
+search = GridSearchCV(gam, {'terms__1__df': [2, 3, 5, 8, 12]}, cv=folds)
+search.fit(Wage, Wage['wage'])
+pd.Series(search.cv_results_['mean_test_score'],
+          index=search.cv_results_['param_terms__1__df'], name='CV score')
+```
+
+and the smoother of age itself (the two of [Writing a
+smoother](#writing-a-smoother), below, are candidates too):
+
+```{code-cell} ipython3
+from sklearn.preprocessing import SplineTransformer
+from sklearn.tree import DecisionTreeRegressor
+from glmnet.gam import TransformerSmoother, RegressorSmoother
+
+candidates = [s('age', df=5), lo('age', span=0.5),
+              TransformerSmoother('age', SplineTransformer(n_knots=20), lam=0.1),
+              RegressorSmoother('age', DecisionTreeRegressor(max_depth=3))]
+search = GridSearchCV(gam, {'terms__1': candidates}, cv=folds).fit(Wage, Wage['wage'])
+pd.Series(search.cv_results_['mean_test_score'],
+          index=[t.name for t in candidates], name='CV score')
+```
+
+The three smooths score within a few dozen units of each other (a sum
+over 3,000 workers), and the tree, a step function, is clearly worse.
+
+Several terms are tuned together by a grid over each: here the smoother of
+`year` (linear, or a spline of 2 or 4 degrees of freedom) and that of `age`
+(splines, loess and a P-spline), 18 models:
+
+```{code-cell} ipython3
+grid = {'terms__0': [linear('year'), s('year', df=2), s('year', df=4)],
+        'terms__1': [s('age', df=3), s('age', df=5), s('age', df=8),
+                     lo('age', span=0.3), lo('age', span=0.6),
+                     TransformerSmoother('age', SplineTransformer(n_knots=20), lam=0.1)]}
+search = GridSearchCV(gam, grid, cv=folds).fit(Wage, Wage['wage'])
+results = pd.DataFrame({'year': [t.name for t in search.cv_results_['param_terms__0']],
+                        'age': [t.name for t in search.cv_results_['param_terms__1']],
+                        'CV score': search.cv_results_['mean_test_score'],
+                        'rank': search.cv_results_['rank_test_score']})
+results.sort_values('rank').head(8)
+```
+
+`search.best_estimator_` is the GAM refitted on all the rows with the
+chosen smoothers; `year` enters linearly:
+
+```{code-cell} ipython3
+[term.name for term in search.best_estimator_.terms]
+```
+
+The folds should suit the model. A random effect predicts 0 for a group
+not in the training folds, so `GroupKFold` (by the group) scores the
+prediction of new groups, and `KFold` that of groups seen; rows
+correlated in time need blocked folds (`TimeSeriesSplit`); and with
+`weight_id` or `offset_id` the response's DataFrame carries them through
+the folds.
+
+(smoothers)=
 ## Smoothers
 
 Each term of a GAM is a `glmnet.gam.Smoother`: an object that, given the
@@ -359,6 +429,8 @@ errors.
 | `varying(term, by=...)` | `VaryingSmoother` | the term's, per level | the term's, per level |
 | `linear(x)`, `categorical(g)` | `LinearSmoother`, `CategoricalSmoother` | $x$, the indicators | none |
 | `lo(x)` | `LoessSmoother` | none | none |
+| a scikit-learn transformer | `TransformerSmoother` | its features | given, difference, ridge |
+| a scikit-learn regressor | `RegressorSmoother` | none | none |
 
 (The former names, `SplineTerm`, `RandomEffectTerm`, ..., still work, with
 a FutureWarning.)
@@ -502,6 +574,88 @@ with warnings.catch_warnings():
                      family=sm.families.Poisson()).fit(Bike, Bike['bikers'])
 glmm_bike.smoothing_.lam, glmm_bike.edf_
 ```
+
+### From scikit-learn: a P-spline
+
+A scikit-learn transformer's features are a basis: `TransformerSmoother`
+fits the transformer on the training rows, as `setup`, and transforms any
+values, as `basis`. With `SplineTransformer`'s B-splines and a penalty on the
+second differences of their coefficients it is a P-spline (Eilers and
+Marx, 1996), mgcv's `bs="ps"`. B-splines sum to 1, so their span has the
+constant, which the intercept takes; as mgcv does, the smoother absorbs
+the constraint that its fit sum to 0 over the training rows
+(`sum_to_zero=True`, its basis `B Z`, `glmnet.gam.sum_to_zero`), and so
+has one coefficient fewer than features.
+
+```{code-cell} ipython3
+from sklearn.preprocessing import SplineTransformer
+from glmnet.gam import TransformerSmoother
+
+pspline = TransformerSmoother('age', SplineTransformer(n_knots=20, degree=3),
+                              penalties='difference', lam=0.1, label='pspline(age)')
+gam_ps = GAM(terms=[s('year', df=4), pspline, categorical('education')])
+gam_ps.fit(Wage, Wage['wage'])
+gam_ps.summary()
+```
+
+Its curve is close to the smoothing spline's, with its standard errors:
+
+```{code-cell} ipython3
+ax = gam_ps.plot(terms=[1])[0]
+ax.plot(ages, gam.partial_effect('s(age, df=5)', ages), label='s(age, df=5)')
+ax.legend();
+```
+
+As a `PenalizedSmoother`, a GLMM estimates its smoothing parameter:
+
+```{code-cell} ipython3
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', ExperimentalWarning)
+    glmm_ps = GLMM(terms=[s('year'), TransformerSmoother('age', SplineTransformer(n_knots=20)),
+                          categorical('education')]).fit(Wage, Wage['wage'])
+glmm_ps.smoothing_.lam, glmm_ps.edf_
+```
+
+`penalties` is `'difference'` (of `order`, 2 by default), `'ridge'`, or a
+list of matrices on the features' coefficients (several: a list `lam`);
+any transformer of one or more columns will do (`PolynomialFeatures`, a
+`Pipeline`).
+
+### A regressor as a smoother
+
+Backfitting needs only a weighted fit to the partial residuals, so any
+scikit-learn regressor that takes `sample_weight` is a smoother
+(`RegressorSmoother`; Hastie and Tibshirani, 1990, chapter 9): a tree, a
+nearest-neighbours fit. It has no basis, so it is a GAM's term only,
+without standard errors, and its degrees of freedom are Ye's (1998)
+generalized degrees of freedom, `tr(dF/dr)` estimated by fits to noise,
+unless given (`df=`). For a smoother that is not linear, backfitting need
+not converge (check `converged_`).
+
+```{code-cell} ipython3
+from sklearn.tree import DecisionTreeRegressor
+from glmnet.gam import RegressorSmoother
+
+gam_tree = GAM(terms=[s('year', df=4), RegressorSmoother('age', DecisionTreeRegressor(max_depth=3)),
+                      categorical('education')]).fit(Wage, Wage['wage'])
+gam_tree.converged_, gam_tree.edf_
+```
+
+The tree's 8 leaves cost far more than 7 degrees of freedom: its splits
+are chosen from the data (Ye's point).
+
+```{code-cell} ipython3
+ax = gam_tree.plot(terms=[1])[0]
+ax.plot(ages, gam.partial_effect('s(age, df=5)', ages), label='s(age, df=5)')
+ax.legend();
+```
+
+A `PenalizedSmoother` with several penalties (one per column, say) gives
+them all in `penalty_matrices()` and takes a list `lam`. The source of
+`glmnet.gam.terms`, `tensor` and `cyclic` has the built-in smoothers, which
+also give the cheaper or more stable versions of these methods (a banded
+solve for a spline, a diagonal one for a random effect), and the hooks of
+modified backfitting (`linear_columns()`).
 
 ## References
 
