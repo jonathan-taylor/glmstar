@@ -1292,10 +1292,20 @@ def _interval_frame(X, estimate, half):
                         index=index)
 
 
+def _anova_use_t(fit):
+    # a GLM's _use_t; for a GAM, the Gaussian with identity link and its
+    # dispersion estimated
+    if hasattr(fit, '_use_t'):
+        return fit._use_t()
+    return fit._family.is_gaussian and getattr(fit, '_estimated_dispersion', False)
+
+
 def anova(*fits):
     """
     Analysis of deviance for nested fits to the same data, from the smallest model
-    to the largest.
+    to the largest: `GLM`s, or `GAM`s (`glmnet.gam`), whose residual degrees of
+    freedom are the number of observations less the intercept and the terms'
+    `edf`, as R's `anova.Gam`.
 
     For the Gaussian with identity link, an estimated dispersion and the
     model-based covariance (least squares, where the coefficients' statistics
@@ -1315,7 +1325,7 @@ def anova(*fits):
     """
     if len({len(fit._weight) for fit in fits}) > 1:
         raise ValueError('the fits are to different numbers of observations')
-    if any(fit.sandwich for fit in fits):
+    if any(getattr(fit, 'sandwich', False) for fit in fits):
         warnings.warn('a fit uses the sandwich covariance: the drop in deviance is not '
                       'chi-squared when the model is wrong, so the p-values of anova are '
                       'not robust')
@@ -1329,7 +1339,7 @@ def anova(*fits):
                           'deviance': dev,
                           'df_diff': df_diff,
                           'dev_diff': dev_diff})
-    if all(fit._use_t() for fit in fits):
+    if all(_anova_use_t(fit) for fit in fits):
         # least squares: F, as R's anova.lm
         F = (np.abs(dev_diff) / np.abs(df_diff)) / scale
         table['F'] = F
