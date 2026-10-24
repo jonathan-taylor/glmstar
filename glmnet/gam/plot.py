@@ -95,7 +95,8 @@ def plot_term(gam,
               color='C0',
               se_color='C3',
               too_far=0.1,
-              cmap='viridis'):
+              cmap='viridis',
+              covariance='posterior'):
     """
     Plot the fit of a term of a fitted GAM against its column, as R's
     `plot.Gam(fit, se=TRUE)`.
@@ -120,6 +121,10 @@ def plot_term(gam,
         Draw the pointwise bands `fit +/- multiplier * std` (dashed, as R's)
         from the posterior covariance, when it is available (every term has a
         basis: not with loess terms).
+    covariance: str or np.ndarray
+        The covariance of the bands, as for `GAM.partial_effect`:
+        `'posterior'` (the default), `'frequentist'`, `'sandwich'` or a
+        `P x P` array (`gam.sandwich_covariance(groups=...)`).
     rug: bool
         Mark the training values of the column along the x axis.
     n_grid: int
@@ -169,7 +174,7 @@ def plot_term(gam,
             x[:, 0], x[:, 1] = grid, level
             c = colors[l % len(colors)]
             if se:
-                fit, std = gam.partial_effect(j, x, return_std=True)
+                fit, std = gam.partial_effect(j, x, return_std=True, covariance=covariance)
                 ax.fill_between(grid, fit - multiplier * std, fit + multiplier * std,
                                 color=c, alpha=0.2, lw=0)
             else:
@@ -186,7 +191,7 @@ def plot_term(gam,
         grid = np.linspace(values.min(), values.max(), n_grid)
         x = np.column_stack([grid, np.ones(n_grid)])
         if se:
-            fit, std = gam.partial_effect(j, x, return_std=True)
+            fit, std = gam.partial_effect(j, x, return_std=True, covariance=covariance)
         else:
             fit, std = gam.partial_effect(j, x), None
         ax.plot(grid, fit, color=color, lw=2)
@@ -208,7 +213,7 @@ def plot_term(gam,
         else:
             x = levels
         if se:
-            fit, std = gam.partial_effect(j, x, return_std=True)
+            fit, std = gam.partial_effect(j, x, return_std=True, covariance=covariance)
         else:
             fit, std = gam.partial_effect(j, x), None
         labels = levels
@@ -236,7 +241,7 @@ def plot_term(gam,
         grid = np.linspace(values.min(), values.max(), n_grid)
         x = grid[:, None] if isinstance(term, ColumnsSmoother) else grid
         if se:
-            fit, std = gam.partial_effect(j, x, return_std=True)
+            fit, std = gam.partial_effect(j, x, return_std=True, covariance=covariance)
         else:
             fit, std = gam.partial_effect(j, x), None
         ax.plot(grid, fit, color=color, lw=2)
