@@ -37,7 +37,7 @@ each term's `lam` or `df`, is fixed: `GAM(method='REML')` and
 `GLMM(method='fixed')` still work, with a FutureWarning.
 
 :::{warning}
-REML and ML are **experimental** in glmstar 0.5: the fits, smoothing
+REML and ML are **experimental** in glmstar 0.6: the fits, smoothing
 parameters and variance components agree with mgcv, lme4 and nlme in the
 tests, but the interface may change and the optimization is less tested than
 the rest of `glmnet.gam`. `GLMM(method='REML')` warns
