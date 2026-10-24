@@ -21,7 +21,7 @@ dependencies = [
     "joblib",
     "statsmodels>=0.13",
     # 0.3.1: its Windows wheels import (0.3.0's needed MinGW DLLs)
-    "coxdev>=0.3.1",
+    "coxdev>=0.4.0",
     # glmnet.gam: the smoothing spline and loess terms
     "scatter-smooth>=0.3.0",
     "tqdm",
@@ -70,7 +70,7 @@ test = ["pytest",
 	]
 
 [build-system]
-requires = ["meson-python>=0.13.1", "pybind11", "ninja", "patchelf; platform_system == 'Linux'", "setuptools_scm"]
+requires = ["meson-python>=0.13.1", "pybind11", "coxdev>=0.4.0", "ninja", "patchelf; platform_system == 'Linux'", "setuptools_scm"]
 build-backend = "mesonpy"
 
 # Development dependency groups (PEP 735), used by `uv sync`.

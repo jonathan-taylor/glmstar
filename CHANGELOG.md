@@ -138,6 +138,13 @@
   near a smoothing parameter going to infinity the Hessian is nearly
   singular, and its full step could take the dispersion to 0 (a
   `ZeroDivisionError`) (#193).
+- **REML and ML with the binomial's probit and cloglog links used the
+  logit's criterion** (since REML was added): statsmodels derives `Probit`,
+  `CLogLog`, `LogLog` and `Cauchy` from `Logit`, and the criterion's choice
+  of the inverse link took them for it. The fit itself used the right link,
+  but the smoothing parameters were chosen by the wrong criterion. Probit
+  and cloglog now match mgcv's REML and ML scores; `LogLog` and `Cauchy`
+  raise that they are not supported, as other links do (#197).
 - **`varying(lo(x), by=...)` under REML/ML** raises that REML and ML need a
   basis, as before #189: a varying term has a basis when its inner term does
   (`has_basis`) (#191).
@@ -158,6 +165,10 @@
 
 ### Packaging
 
+- **coxdev 0.4.0, header-only.** The Cox extension compiles coxdev's headers
+  from the installed coxdev (`coxdev.get_include()`, now a build
+  requirement), not glmnetpp's nested coxdev submodule; `coxdev>=0.4.0`
+  (#198).
 - **Faster CI.** The tests run in parallel (pytest-xdist, `-n auto`, one BLAS
   thread per worker; `--dist loadfile`, a test file to a worker, so each
   module's random draws are those of a serial run), at `--test-size=small`; a
