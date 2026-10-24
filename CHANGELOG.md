@@ -133,7 +133,7 @@
 - An audit of the GAM and GLMM docstrings and pages: missing docstrings
   filled, REML and ML named as a `GLMM`'s, the Bikeshare and mixed models
   pages import `GLMM` (they did not run), and `glmnet.gam` is in the API
-  reference (#PR).
+  reference (#201).
 
 ### Fixes
 
