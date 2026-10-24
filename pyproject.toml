@@ -33,7 +33,7 @@ classifiers = ["Development Status :: 3 - Alpha",
                "Operating System :: OS Independent",
                "Programming Language :: Python",
                "Topic :: Scientific/Engineering"]
-license = "BSD-3-Clause"
+license = "GPL-2.0-only"
 
 [project.optional-dependencies]
 # glmnet.gam: smoothing parameters by REML or ML (but for the Cox family)

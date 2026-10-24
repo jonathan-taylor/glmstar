@@ -116,6 +116,10 @@
 
 ### Changed
 
+- **License: GPL-2** (`GPL-2.0-only`), as the R package `glmnet` and
+  `glmnetpp`. `LICENSE.txt` was the GPL-3 text while `pyproject.toml` and
+  the README said BSD-3-Clause; all three now say GPL-2 (#PR).
+
 - **`categorical()` (`CategoricalSmoother`) is the categorical term's name**,
   as pandas': `factor()` and `FactorTerm` (R's name) still work, with a
   `FutureWarning`, and their terms keep the names `factor(...)`; they will

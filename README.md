@@ -216,7 +216,7 @@ Journal of Statistical Software, 33(1), 1-22.
 
 ## License
 
-This project is licensed under the BSD-3-Clause License - see the [LICENSE.txt](LICENSE.txt) file for details.
+GPL-2, as the R package `glmnet` and its C++ core `glmnetpp` (`src/glmnetpp`): see [LICENSE.txt](LICENSE.txt).
 
 ## Authors
 
