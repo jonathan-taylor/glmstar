@@ -31,6 +31,8 @@ from .glm import (GLM,
                   GLMFamilySpec,
                   _state_on_design)
 from ._utils import (_get_data,
+                     _y_ids,
+                     _forget_encoding,
                      _check_offset,
                      _check_predict_X,
                      UnboundedObjectiveError)
@@ -322,9 +324,7 @@ class GLMNet(BaseEstimator,
         return _get_data(self,
                          X,
                          y,
-                         offset_id=self.offset_id,
-                         response_id=self.response_id,
-                         weight_id=self.weight_id,
+                         **_y_ids(self),
                          check=check)
 
     def _finalize_family(self,
@@ -389,6 +389,7 @@ class GLMNet(BaseEstimator,
         X_fit, y_fit = X, y # as passed, for the relaxed refits
 
         self._set_penalty_factor(X, y)
+        _forget_encoding(self) # the classes are those of these data
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if isinstance(X, pd.DataFrame):
@@ -415,9 +416,7 @@ class GLMNet(BaseEstimator,
                                fit_intercept=self.fit_intercept,
                                standardize=self.standardize,
                                control=self.control,
-                               offset_id=self.offset_id,
-                               weight_id=self.weight_id,            
-                               response_id=self.response_id,
+                               **_y_ids(self),
                                exclude=self.excluded_,
                                linear_term=self.linear_term
                                )
@@ -1240,7 +1239,7 @@ class GLMNet(BaseEstimator,
         check_is_fitted(self, ["coefs_"])
 
         predictions = self.predict(X, interpolation_grid=self.lambda_values_)
-        response, offset, weight = clone(self).get_data_arrays(X, y, check=False)[2:]
+        response, offset, weight = self.get_data_arrays(X, y, check=False)[2:]
 
         # as in cross_validation_path: predictions are just X\beta
         if offset is not None:
@@ -1357,9 +1356,7 @@ class GLMNet(BaseEstimator,
                                              fit_intercept=self.fit_intercept,
                                              standardize=self.standardize,
                                              control=self.control,
-                                             offset_id=self.offset_id,
-                                             weight_id=self.weight_id,
-                                             response_id=self.response_id,
+                                             **_y_ids(self),
                                              exclude=sorted(np.nonzero(~keep)[0].tolist()),
                                              linear_term=self.linear_term)
             est.fit(X, y)
@@ -1375,9 +1372,7 @@ class GLMNet(BaseEstimator,
                                  big=self.control.big)
             glm = GLM(fit_intercept=self.fit_intercept,
                       family=self.family,
-                      offset_id=self.offset_id,
-                      weight_id=self.weight_id,
-                      response_id=self.response_id,
+                      **_y_ids(self),
                       control=control)
             glm.fit(X_keep, y)
             coef_[keep] = glm.coef_
@@ -1414,9 +1409,7 @@ class GLMNet(BaseEstimator,
                    fit_intercept=self.fit_intercept,
                    standardize=self.standardize,
                    ridge_coef=ridge_coef,
-                   offset_id=self.offset_id,
-                   weight_id=self.weight_id,
-                   response_id=self.response_id)
+                   **_y_ids(self))
 
     def get_fixed_lambda(self,
                          lambda_val):
@@ -1446,9 +1439,7 @@ class GLMNet(BaseEstimator,
                                fit_intercept=self.fit_intercept,
                                standardize=self.standardize,
                                control=self.control,
-                               offset_id=self.offset_id,
-                               weight_id=self.weight_id,            
-                               response_id=self.response_id,
+                               **_y_ids(self),
                                exclude=self.excluded_,
                                linear_term=self.linear_term
                                )

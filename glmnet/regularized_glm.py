@@ -8,7 +8,6 @@ import numpy as np
 from sklearn.base import (BaseEstimator,
                           ClassifierMixin,
                           RegressorMixin)
-from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.validation import check_is_fitted
 
 from .base import _get_design, Penalty
@@ -19,6 +18,7 @@ from .elnet import (ElNet,
                     LinearTerm,
                     _check_linear_term)
 from .glm import GLM
+from ._utils import _y_ids, _binomial_response
 from .family import (GLMFamilySpec,
                      BinomFamilySpec)
 
@@ -317,9 +317,7 @@ class RegGLM(GLM,
         """
         return GLM(family=self.family,
                    fit_intercept=self.fit_intercept,
-                   offset_id=self.offset_id,
-                   weight_id=self.weight_id,
-                   response_id=self.response_id)
+                   **_y_ids(self))
 
     def _get_regularizer(self,
                          nvars=None):
@@ -535,27 +533,9 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         """
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         
-        if response.ndim == 2 and response.shape[1] == 2:
-            trials = response[:, 0]
-            successes = response[:, 1]
-            if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
-                raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
-            
-            weight = weight * trials
-            labels = successes / trials
-            self.classes_ = np.array([0, 1])
-            if hasattr(self, '_family'):
-                self._family.classes_ = self.classes_
-        else:
-            if response.ndim == 2 and response.shape[1] == 1:
-                response = response.ravel()
-            encoder = LabelEncoder()
-            labels = np.asfortranarray(encoder.fit_transform(response))
-            self.classes_ = encoder.classes_
-            if hasattr(self, '_family'):
-                self._family.classes_ = self.classes_
-            if len(encoder.classes_) > 2:
-                raise ValueError("BinomialRegGLM expecting a binary classification problem.")
+        labels, weight, self.classes_ = _binomial_response(self, response, weight)
+        if hasattr(self, '_family'):
+            self._family.classes_ = self.classes_
         return X, y, labels, offset, weight
 
     def fit(self,

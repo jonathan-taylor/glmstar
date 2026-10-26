@@ -25,7 +25,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from statsmodels.genmod.families import family as sm_family
 
-from glmnet._utils import _get_data, _parent_dataclass_from_child
+from glmnet._utils import _extract_y, _y_ids, _parent_dataclass_from_child
 from glmnet.family import GLMFamilySpec
 from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
@@ -297,13 +297,7 @@ class GAM(BaseEstimator):
             estimate_theta = getattr(self.family, 'estimate_theta', False)
             family = self._family = GLMFamilySpec.from_family(
                 deepcopy(self.family) if estimate_theta else self.family, y)
-            _, _, response, offset, weight = _get_data(self,
-                                                       np.zeros((nobs, 1)),
-                                                       y,
-                                                       offset_id=self.offset_id,
-                                                       response_id=self.response_id,
-                                                       weight_id=self.weight_id,
-                                                       check=False)
+            response, offset, weight = _extract_y(y, **_y_ids(self))
             response = np.asarray(response, float).reshape(-1)
             weight = np.asarray(weight, float).reshape(-1)
         self._response, self._weight = response, weight
@@ -540,11 +534,7 @@ class GAM(BaseEstimator):
             eta = self._linear_predictor(X, offset)
             w = weight if sample_weight is None else np.asarray(sample_weight, float)
             return -float(family.deviance(None, eta, w)) / 2
-        _, _, response, offset, weight = _get_data(self, np.zeros((nobs, 1)), y,
-                                                   offset_id=self.offset_id,
-                                                   response_id=self.response_id,
-                                                   weight_id=self.weight_id,
-                                                   check=False)
+        response, offset, weight = _extract_y(y, **_y_ids(self))
         response = np.asarray(response, float).reshape(-1)
         w = (np.asarray(weight, float).reshape(-1) if sample_weight is None
              else np.asarray(sample_weight, float))
@@ -949,10 +939,10 @@ class GAM(BaseEstimator):
                                status_id=fam.status_id,
                                start_id=fam.start_id,
                                strata_id=fam.strata_id)
-        offset = (None if self.offset_id is None
-                  else np.asarray(y[self.offset_id], float).reshape(-1))
-        weight = (np.ones(nobs) if self.weight_id is None
-                  else np.asarray(y[self.weight_id], float).reshape(-1))
+        _, offset, weight = _extract_y(y, **_y_ids(self))
+        if offset is not None:
+            offset = np.asarray(offset, float).reshape(-1)
+        weight = np.asarray(weight, float).reshape(-1)
         return family, None, offset, weight
 
     def plot(self, terms=None, axes=None, **kwargs):

@@ -22,7 +22,7 @@ from .glm import (GLMFamilySpec,
 from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
-from ._utils import _get_data, _check_offset, _check_predict_X
+from ._utils import _get_data, _y_ids, _check_offset, _check_predict_X
 from ._frames import as_pandas
 
 def c_index(pred,
@@ -728,9 +728,7 @@ class CoxLM(GLM):
         return _get_data(self,
                          X,
                          y,
-                         offset_id=self.offset_id,
-                         response_id=self.response_id,
-                         weight_id=self.weight_id,
+                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
@@ -803,9 +801,7 @@ class RegCoxLM(RegGLM):
         return _get_data(self,
                          X,
                          y,
-                         offset_id=self.offset_id,
-                         response_id=self.response_id,
-                         weight_id=self.weight_id,
+                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
@@ -858,9 +854,7 @@ class CoxNetIRLS(GLMNet):
         return _get_data(self,
                          X,
                          y,
-                         offset_id=self.offset_id,
-                         response_id=self.response_id,
-                         weight_id=self.weight_id,
+                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
@@ -875,9 +869,7 @@ class CoxNetIRLS(GLMNet):
     
     def get_LM(self):
         return CoxLM(family=self.family,
-                     offset_id=self.offset_id,
-                     weight_id=self.weight_id,
-                     response_id=self.response_id)
+                     **_y_ids(self))
 
     def _get_initial_state(self,
                            X,
