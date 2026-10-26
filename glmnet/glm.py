@@ -39,6 +39,7 @@ from .irls import IRLS
 from .family import (GLMFamilySpec,
                      BinomFamilySpec,
                      GLMState)
+from ._frames import as_pandas
 
 
 @dataclass
@@ -496,9 +497,10 @@ class GLMBase(BaseEstimator,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         y: Union[np.ndarray, pd.DataFrame]
-            Target variables. It is highly recommended to pass a `pandas.DataFrame` 
-            when utilizing `offset_id`, `weight_id`, or `response_id` so that
-            these vectors can be extracted by column name robustly.
+            Target variables. It is highly recommended to pass a DataFrame
+            (pandas, polars, a pyarrow Table...) when utilizing `offset_id`,
+            `weight_id`, or `response_id` so that these vectors can be
+            extracted by column name robustly.
         check: bool
             Run the `sklearn.utils.check_X_y` method to validate `(X, response)`.
             
@@ -558,6 +560,7 @@ class GLMBase(BaseEstimator,
         self: object
             GLM class instance.
         """
+        X, y = as_pandas(X), as_pandas(y)
         if not getattr(self, '_path_refit', False):
             # a fit starts afresh: the design, the family (Cox's holds the
             # event data) and the information are of these data, not of an
@@ -754,6 +757,7 @@ class GLMBase(BaseEstimator,
             An array even if `X` is a DataFrame, as for sklearn's estimators: for
             a Series on the index of `X`, use `pd.Series(fit.predict(X), index=X.index)`.
         """
+        X = as_pandas(X)
         return self._family.predict(self._linear_predictor(X, offset),
                                     prediction_type=prediction_type)
 
@@ -899,6 +903,7 @@ class GLMBase(BaseEstimator,
         score: float
             Minus half the deviance of family for `(X, y, sample_weight)`.
         """
+        X, y = as_pandas(X), as_pandas(y)
         mu = self.predict(X, prediction_type='response')
         if sample_weight is None:
             sample_weight = np.ones_like(y)
@@ -1055,6 +1060,7 @@ class GLM(GLMBase):
         self: object
             GLM class instance.
         """
+        X, y = as_pandas(X), as_pandas(y)
         if self._unpenalized:
             X = self._drop_intercept_column(X, fitting=True)
         super().fit(X,
@@ -1270,6 +1276,7 @@ class GLM(GLMBase):
         np.ndarray or pd.Series
             A Series on the index of `X` if it is a DataFrame, else an array.
         """
+        X = as_pandas(X)
         return _on_rows(X, np.sqrt(self._quadratic_rows(X, self._get_covariance())), 'std err')
 
 
@@ -1355,6 +1362,7 @@ def confidence_interval(fit, X_new, alpha=0.05):
         Columns `estimate`, `lower` and `upper`, on the index of `X_new` if it
         is a DataFrame, else on a `RangeIndex`.
     """
+    X_new = as_pandas(X_new)
     estimate = fit._linear_predictor(X_new)
     half = fit._quantile(alpha) * np.asarray(fit.predict_se(X_new))
     return _interval_frame(X_new, estimate, half)
@@ -1376,6 +1384,7 @@ def prediction_interval(fit, X_new, alpha=0.05, weights=None):
         Columns `estimate`, `lower` and `upper`, on the index of `X_new` if it is a
         DataFrame, else on a `RangeIndex`.
     """
+    X_new = as_pandas(X_new)
     if not (getattr(fit, '_unpenalized', False) and fit._use_t()):
         raise ValueError('prediction intervals are for an unpenalized Gaussian GLM with '
                          'identity link, an estimated dispersion and sandwich=False')
@@ -1416,6 +1425,7 @@ def leverage(fit, X):
         A Series on the index of the fit's `X` if it was a DataFrame, else an
         array.
     """
+    X = as_pandas(X)
     C = np.linalg.inv(fit._precision())
     W = fit._get_information()
     if isinstance(W, DiagonalOperator):
@@ -1674,6 +1684,7 @@ class BinomialGLM(ClassifierMixin, GLM):
         self: object
             BinomialGLM class instance.
         """
+        X, y = as_pandas(X), as_pandas(y)
         self._family = self._finalize_family(response=y)
 
         return super().fit(X,
@@ -1706,6 +1717,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             `prediction_type` is "class", else on the scale of `prediction_type`.
             An array even if `X` is a DataFrame, as for sklearn's estimators.
         """
+        X = as_pandas(X)
         eta = self._linear_predictor(X, offset)
         if prediction_type == 'class':
             # the family may be a plain GLMFamilySpec, without classes
@@ -1730,6 +1742,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             where classes are ordered as they are in ``self.classes_``.
  
         """
+        X = as_pandas(X)
         prob_1 = self.predict(X, prediction_type='response')
         result = np.empty((prob_1.shape[0], 2))
         result[:,1] = prob_1

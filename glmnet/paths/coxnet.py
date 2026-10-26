@@ -22,6 +22,7 @@ from .._utils import (_get_data,
 
 from .._coxnet import coxnet as _dense
 from .._coxnet import spcoxnet as _sparse
+from .._frames import as_pandas
 
 """
 Implements the CoxNet path algorithm for Cox proportional hazards models.
@@ -99,6 +100,7 @@ class CoxNet(FastNetMixin):
         self : object
             Fitted estimator.
         """
+        X, y = as_pandas(X), as_pandas(y)
         if not isinstance(y, pd.DataFrame):
             raise ValueError('CoxNet requires y to be a DataFrame of survival data')
         if self.fit_intercept:

@@ -4,6 +4,7 @@ import pandas as pd
 from sklearn.utils import check_X_y
 
 from dataclasses import fields
+from ._frames import as_pandas
 
 def _get_data(estimator,
               X,
@@ -52,6 +53,7 @@ def _get_data(estimator,
     weight : np.ndarray
         The extracted weights, or an array of ones if not provided.
     """
+    X, y = as_pandas(X), as_pandas(y)
     is_df = isinstance(y, pd.DataFrame)
 
     def _as_list(val):

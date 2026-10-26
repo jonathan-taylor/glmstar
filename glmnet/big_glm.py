@@ -6,6 +6,7 @@ import numpy as np
 from sklearn.base import clone
 
 from .glmnet import GLMNet, CoefPath
+from ._frames import as_pandas
 
 
 def big_glm(estimator, X, y, path=False):
@@ -41,6 +42,7 @@ def big_glm(estimator, X, y, path=False):
         predictions from the unpenalized fit. Its `lambda_values` are set
         to `[0]`, so refitting it (or a clone) fits lambda = 0 alone.
     """
+    X, y = as_pandas(X), as_pandas(y)
     if isinstance(estimator, type):
         estimator = estimator()
     estimator = clone(estimator)

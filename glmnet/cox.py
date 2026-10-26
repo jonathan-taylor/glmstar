@@ -23,6 +23,7 @@ from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
 from ._utils import _get_data, _check_offset, _check_predict_X
+from ._frames import as_pandas
 
 def c_index(pred,
             time,
@@ -614,6 +615,7 @@ def _cox_score(estimator, X, y, sample_weight=None):
     `estimator` on `(X, y)`: its family holds the event data of the fit, so
     the family of `y` is built for scoring new data (as `GridSearchCV` does).
     """
+    X, y = as_pandas(X), as_pandas(y)
     family = estimator._finalize_family(response=y)
     _, _, _, offset, weight = estimator.get_data_arrays(X, y, check=False)
     if sample_weight is None:
@@ -934,6 +936,7 @@ class CoxNetIRLS(GLMNet):
             where n_lambdas is the number of lambda values in the fitted path
             or the length of interpolation_grid if provided.
         """
+        X = as_pandas(X)
         if prediction_type not in ['link', 'response']:
             raise ValueError("prediction_type should be one of 'link' or 'response' for Cox models")
         X = _check_predict_X(X)

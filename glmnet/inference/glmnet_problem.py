@@ -52,6 +52,7 @@ from ..family import is_link
 from ..paths.fastnet import FastNetMixin
 
 from ..elnet import _check_linear_term
+from .._frames import as_pandas
 
 FAMILIES = ('gaussian', 'binomial', 'poisson')
 
@@ -494,6 +495,7 @@ def glmstar_problem(glmnet_obj, X, y, lambda_val=None, hessian='dense', informat
         weight and offset columns, as for glmstar).
     lambda_val : a value in ``glmnet_obj.lambda_values_``; default the last one.
     """
+    X, y = as_pandas(X), as_pandas(y)
     G = glmnet_obj
     lambdas = np.asarray(G.lambda_values_)
     if lambda_val is None:
