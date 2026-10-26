@@ -9,7 +9,7 @@
   or `LazyFrame`, a pyarrow `Table`, or any frame narwhals supports. Each
   is converted to pandas at the boundary, through numpy (no pyarrow needed
   for polars), keeping an `Enum`'s level order. The outputs stay pandas.
-  narwhals is a new dependency (#PR).
+  narwhals is a new dependency (#206).
 
 ### Packaging
 
