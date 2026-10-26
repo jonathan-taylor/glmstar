@@ -35,6 +35,29 @@ A DataFrame naturally groups these multiple columns into a single object passed 
 *(Note: Planned for future releases)*
 When dealing with aggregated binomial or multinomial data, each observation isn't a single trial but a collection of trials. The model must ingest both the **number of successes** and the **total trial count** (or totals per category). Column-focused structures allow the estimator to retrieve both vectors explicitly by name.
 
+## Polars and Other Data Frames
+
+`X` and `y` may also be a polars `DataFrame` (or `LazyFrame`, which is
+collected), a pyarrow `Table`, or any data frame
+[narwhals](https://narwhals-dev.github.io/narwhals/) supports. Each is
+converted to pandas once, when it is passed in. A frame of numeric
+columns becomes a single array: one copy, as a pandas `X` already gets.
+A polars `Enum` keeps its levels in their order (the levels of a GAM's
+`categorical()` term), and a `Categorical`'s levels are sorted.
+
+```python
+import polars as pl
+from glmnet import GLM
+
+df = pl.read_csv('data.csv')
+fit = GLM(response_id='y', weight_id='w').fit(df.select('x1', 'x2'),
+                                               df.select('y', 'w'))
+fit.summary_     # a pandas DataFrame
+```
+
+The outputs (coefficients, summaries, `anova` tables) are pandas, and
+predictions are numpy arrays.
+
 ## Conclusion
 
 Keeping `X` as a numeric array optimizes the core math, while promoting `y` (or a related dataset object) to a `pandas.DataFrame` provides the robust, flexible data routing necessary to construct advanced GLM loss functions cleanly.

@@ -39,6 +39,7 @@ from .scorer import (PathScorer,
                      ScorePath,
                      RelaxedScorePath,
                      _tune_relaxed)
+from ._frames import as_pandas
 
 
 
@@ -306,9 +307,10 @@ class GLMNet(BaseEstimator,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         y: Union[np.ndarray, pd.DataFrame]
-            Target variables. It is highly recommended to pass a `pandas.DataFrame` 
-            when utilizing `offset_id`, `weight_id`, or `response_id` so that
-            these vectors can be extracted by column name robustly.
+            Target variables. It is highly recommended to pass a DataFrame
+            (pandas, polars, a pyarrow Table...) when utilizing `offset_id`,
+            `weight_id`, or `response_id` so that these vectors can be
+            extracted by column name robustly.
         check: bool
             Run the `sklearn.utils.check_X_y` method to validate `(X, response)`.
             
@@ -380,6 +382,7 @@ class GLMNet(BaseEstimator,
         """
         # a fit starts afresh: the family (Cox's holds the event data) is of
         # these data, not of an earlier fit
+        X, y = as_pandas(X), as_pandas(y)
         self.__dict__.pop('_family', None)
         self._family = self._finalize_family(response=y)
 
@@ -577,6 +580,7 @@ class GLMNet(BaseEstimator,
         np.ndarray
             Predictions for each lambda value.
         """
+        X = as_pandas(X)
         X = _check_predict_X(X)
 
         if interpolation_grid is not None:
@@ -1069,6 +1073,7 @@ class GLMNet(BaseEstimator,
             pairs. It is also stored as `relaxed_score_path_`; `score_path_`
             holds the results for the lasso (`gamma=1`), as without `relax`.
         """
+        X, y = as_pandas(X), as_pandas(y)
         check_is_fitted(self, ["coefs_"])
 
         if alignment not in ['lambda', 'fraction']:
@@ -1231,6 +1236,7 @@ class GLMNet(BaseEstimator,
         >>> val_path = model.score_path(X, y)
         >>> val_path.scores['Mean Squared Error']
         """
+        X, y = as_pandas(X), as_pandas(y)
         check_is_fitted(self, ["coefs_"])
 
         predictions = self.predict(X, interpolation_grid=self.lambda_values_)

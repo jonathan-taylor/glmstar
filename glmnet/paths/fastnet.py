@@ -26,6 +26,7 @@ from .._utils import (_jerr_elnetfit,
                       _validate_cpp_args,
                       _check_offset,
                       _check_predict_X)
+from .._frames import as_pandas
 
 class _NoProgress(object):
     """Stand-in for a tqdm progress bar that shows nothing."""
@@ -221,6 +222,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         """
     
         # a fit starts afresh: the design is of these data, not of an earlier fit
+        X, y = as_pandas(X), as_pandas(y)
         self.__dict__.pop('design_', None)
 
         if self.linear_term is not None:
@@ -687,6 +689,7 @@ class MultiFastNetMixin(FastNetMixin): # paths with multiple responses
         np.ndarray
             Predicted values.
         """
+        X = as_pandas(X)
         X = _check_predict_X(X)
 
         if interpolation_grid is not None:
@@ -956,6 +959,7 @@ class FixedLambdaMultiNet(BaseEstimator):
             Predictions, of shape `(n_samples, n_responses)` (or
             `(n_samples,)` for `prediction_type='class'`).
         """
+        X = as_pandas(X)
         check_is_fitted(self, ["coef_"])
         kwargs = {} if prediction_type is None else {'prediction_type': prediction_type}
         return self.path_.predict(X, **kwargs)[:, len(self.path_.lambda_values_) - 1]

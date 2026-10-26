@@ -25,7 +25,9 @@ dependencies = [
     # glmnet.gam: the smoothing spline and loess terms
     "scatter-smooth>=0.3.0",
     "tqdm",
-    "matplotlib"
+    "matplotlib",
+    # data frames other than pandas (polars, pyarrow...) as inputs
+    "narwhals>=1.30"
 ]
 classifiers = ["Development Status :: 3 - Alpha",
                "Environment :: Console",
@@ -67,7 +69,9 @@ doc = [
 test = ["pytest",
         "rpy2",
         "pandas",
-	"matplotlib"
+	"matplotlib",
+	"polars",
+	"pyarrow"
 	]
 
 [build-system]
@@ -89,6 +93,9 @@ build = [
 test = [
     "pytest",
     "matplotlib",
+    # tests/test_frames.py
+    "polars",
+    "pyarrow",
 ]
 dev = [
     {include-group = "build"},

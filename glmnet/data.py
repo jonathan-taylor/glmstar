@@ -19,6 +19,7 @@ from numpy.random import default_rng
 import pandas as pd
 from statsmodels.genmod.families import Family as StatsmodelsFamily
 from glmnet.glmnet import GLMNet  # Import at the top as requested
+from ._frames import as_pandas
 
 
 def make_dataset(estimator, n_samples=100, n_features=20, n_informative=10, n_targets=None, coef=None, snr=5, bias=0.0, random_state=None, **kwargs):
@@ -368,6 +369,7 @@ def make_x(train, test=None, na_impute=False, sparse=False):
     for strings that differ only in case; use a categorical column to fix
     the order.
     """
+    train, test = as_pandas(train), as_pandas(test)
     if not isinstance(train, pd.DataFrame):
         raise TypeError('train must be a pandas DataFrame')
     if test is not None:

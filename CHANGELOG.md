@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### New features
+
+- **Polars and other data frames as inputs**: `X` and `y` (and the GAM's
+  data, the Cox event data, `make_x`'s frames) may be a polars `DataFrame`
+  or `LazyFrame`, a pyarrow `Table`, or any frame narwhals supports. Each
+  is converted to pandas at the boundary, through numpy (no pyarrow needed
+  for polars), keeping an `Enum`'s level order. The outputs stay pandas.
+  narwhals is a new dependency (#PR).
+
 ### Packaging
 
 - **The wheels carry the license files** (`license-files`, PEP 639):
