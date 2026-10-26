@@ -37,6 +37,7 @@ from .plot import plot_terms
 from .reml import ExperimentalWarning, _blocked_term
 from .selection import resolve_method, SmoothingMethod, Fixed
 from .terms import SplineSmoother, Smoother, LinearSmoother, ColumnsSmoother, CategoricalSmoother
+from .._frames import as_pandas
 
 
 @dataclass
@@ -274,6 +275,7 @@ class GAM(BaseEstimator):
         -------
         self
         """
+        X, y = as_pandas(X), as_pandas(y)
         terms, X = self._model_terms(X)
         if not terms:
             raise ValueError('a GAM needs at least one term')
@@ -531,6 +533,7 @@ class GAM(BaseEstimator):
         prediction for new groups, with `KFold` for groups seen), and
         serially correlated rows need blocked folds.
         """
+        X, y = as_pandas(X), as_pandas(y)
         nobs = X.shape[0]
         if self._cox:
             family, _, offset, weight = self._cox_data(y, nobs)
@@ -867,6 +870,7 @@ class GAM(BaseEstimator):
         `sandwich_covariance()`) or a `P x P` array, such as
         `sandwich_covariance(groups=...)`.
         """
+        x = as_pandas(x)
         if not isinstance(term, (int, np.integer)):
             term = [t.name for t in self.terms_].index(term)
         j, term = term, self.terms_[term]
@@ -906,6 +910,7 @@ class GAM(BaseEstimator):
         `'sandwich'` or a `P x P` array (`sandwich_covariance(groups=...)`).
         For the Cox family `'response'` is the relative risk.
         """
+        X = as_pandas(X)
         if prediction_type not in ('link', 'response'):
             raise ValueError("prediction_type should be one of 'response' or 'link'")
         eta = self._linear_predictor(X, offset)
