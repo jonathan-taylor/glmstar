@@ -553,3 +553,39 @@ def test_islp_stepwise_no_warning():
         warnings.simplefilter('error', UserWarning)
         selected = sklearn_selected(GLM(), strategy).fit(Hitters, Hitters['Salary'])
     assert len(selected.selected_state_) > 0
+
+
+@pytest.mark.parametrize('case', ['plain', 'weights', 'offset', 'sparse'])
+@pytest.mark.parametrize('name', list(FAMILIES))
+def test_score(name, case):
+    # score reads the response, weights and offset from y's columns, as fit
+    g, s, X_fit, D, offset = _fits(name, case)
+    Y = pd.DataFrame({'y': s.model.endog, 'w': s.model.var_weights,
+                      'offset': offset if offset is not None else 0.})
+    # exactly the deviance at the fit's means, and statsmodels' up to the two
+    # fits' convergence
+    mu = g.predict(X_fit, offset=offset)
+    family, y, w = s.model.family, s.model.endog, s.model.var_weights
+    np.testing.assert_allclose(g.score(X_fit, Y), -family.deviance(y, mu, var_weights=w) / 2,
+                               rtol=1e-12)
+    np.testing.assert_allclose(g.score(X_fit, Y), -s.deviance / 2, rtol=1e-6)
+    # sample_weight replaces the weights of weight_id
+    np.testing.assert_allclose(g.score(X_fit, Y, sample_weight=np.ones(n)),
+                               -family.deviance(y, mu) / 2, rtol=1e-12)
+
+
+def test_score_cross_validation():
+    # cross_val_score on a DataFrame y: each fold's held-out deviance
+    from sklearn.model_selection import KFold, cross_val_score
+    rng = np.random.default_rng(1)
+    eta = 0.3 + X[:, 0] - 0.5 * X[:, 1] + OFFSET
+    Y = pd.DataFrame({'y': rng.poisson(np.exp(eta)).astype(float), 'w': W, 'offset': OFFSET})
+    est = GLM(family=sm.families.Poisson(), response_id='y', weight_id='w', offset_id='offset')
+    scores = cross_val_score(est, X, Y, cv=KFold(5))
+    expected = []
+    for train, test in KFold(5).split(X):
+        fit = GLM(**est.get_params()).fit(X[train], Y.iloc[train])
+        mu = np.exp(fit.intercept_ + X[test] @ fit.coef_ + OFFSET[test])
+        expected.append(-sm.families.Poisson().deviance(Y['y'].values[test], mu,
+                                                        var_weights=W[test]) / 2)
+    np.testing.assert_allclose(scores, expected, rtol=1e-8)

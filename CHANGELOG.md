@@ -13,6 +13,13 @@
 
 ### Bug fixes
 
+- **`GLM.score` reads `y` as `fit` does**: the response, offset and
+  weights from the columns `response_id`, `offset_id` and `weight_id`
+  (`sample_weight`, if given, in place of the weights). It took a
+  DataFrame `y` as the response, so `cross_val_score` and `GridSearchCV`
+  on a GLM with these columns scored NaN. `y` must now have the columns
+  of `fit`: for a fit with `weight_id` or `offset_id`, `score(X,
+  y['response'])` no longer works (it scored without the offset) (#208).
 - **Builds with coxdev 0.4.1**, which put its C++ library in namespace
   `coxdev`: glmnetpp's Cox adapter finds `CoxDeviance` there or, with
   0.4.0, in the global namespace (glmnetpp#21, #207).

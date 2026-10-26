@@ -212,7 +212,7 @@ def test_glm_entry_points():
     a, b = GLM(**kw).fit(X, Y), GLM(**kw).fit(_pl(X), _pl(Y))
     _check(a.predict_se(X), b.predict_se(_pl(X)))
     _check(prediction_interval(a, X), prediction_interval(b, _pl(X)))
-    _check(a.score(X, Y['y']), b.score(_pl(X), pl.Series('y', Y['y'].to_numpy())))
+    _check(a.score(X, Y), b.score(_pl(X), _pl(Y)))
     c = BinomialGLM(response_id='yb').fit(X, Y)
     d = BinomialGLM(response_id='yb').fit(_pl(X), _pl(Y))
     _check(c.predict_proba(X), d.predict_proba(_pl(X)))
@@ -303,15 +303,15 @@ def test_lazy_fit():
 # sklearn slices the polars frames itself
 
 def test_sklearn():
-    # (GLM.score takes y as the response alone: no response_id columns)
-    y, ypl = Y['y'], pl.Series('y', Y['y'].to_numpy())
-    a = cross_val_score(GLM(), X, y, cv=KFold(5))
-    b = cross_val_score(GLM(), _pl(X), ypl, cv=KFold(5))
+    # the response, weights and offset as columns of y, in each fold
+    kw = dict(response_id='y', weight_id='w', offset_id='offset')
+    a = cross_val_score(GLM(**kw), X, Y, cv=KFold(5))
+    b = cross_val_score(GLM(**kw), _pl(X), _pl(Y), cv=KFold(5))
     assert np.all(np.isfinite(a))
     _check(a, b)
     grid = {'lambda_val': [0.01, 0.1]}
-    a = GridSearchCV(RegGLM(), grid, cv=KFold(5)).fit(X, y)
-    b = GridSearchCV(RegGLM(), grid, cv=KFold(5)).fit(_pl(X), ypl)
+    a = GridSearchCV(RegGLM(**kw), grid, cv=KFold(5)).fit(X, Y)
+    b = GridSearchCV(RegGLM(**kw), grid, cv=KFold(5)).fit(_pl(X), _pl(Y))
     assert np.all(np.isfinite(a.cv_results_['mean_test_score']))
     _check(a.cv_results_['mean_test_score'], b.cv_results_['mean_test_score'])
     _check(a.best_estimator_.coef_, b.best_estimator_.coef_)
