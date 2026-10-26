@@ -878,9 +878,12 @@ class GLMBase(BaseEstimator,
 
     def score(self, X, y, sample_weight=None):
         """
-        Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model. Weights
-        default to `np.ones_like(y)`, so this is a sum over the observations, not an
-        average: it grows with the number of observations, as `CoxLM.score`.
+        Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model.
+        `y` is as for `fit`: the response, offset and weights are its columns
+        `response_id`, `offset_id` and `weight_id`. The weights (all 1 without
+        `weight_id`) are not normalized, so this is a sum over the
+        observations, not an average: it grows with the number of
+        observations, as `CoxLM.score`.
 
         Parameters
         ----------
@@ -889,20 +892,27 @@ class GLMBase(BaseEstimator,
             vector. If it is a sparse matrix, it is assumed to be
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
-        y: np.ndarray
-            Response variable.
+        y: Union[np.ndarray, pd.DataFrame]
+            Response variable, or a DataFrame with the columns `response_id`,
+            `offset_id` and `weight_id`, as for `fit`.
         sample_weight: Optional[np.ndarray]
-            Sample weights.    
+            Sample weights, in place of the weights of `weight_id`.
 
         Returns
         -------
         score: float
             Minus half the deviance of family for `(X, y, sample_weight)`.
         """
-        mu = self.predict(X, prediction_type='response')
+        _, _, response, offset, weight = _get_data(self, X, y,
+                                                   offset_id=self.offset_id,
+                                                   response_id=self.response_id,
+                                                   weight_id=self.weight_id,
+                                                   check=False)
+        mu = self.predict(X, prediction_type='response', offset=offset)
         if sample_weight is None:
-            sample_weight = np.ones_like(y)
-        return -self._family.deviance(y, mu, sample_weight) / 2 # GLM specific
+            sample_weight = weight
+        return -self._family.deviance(np.asarray(response, float), mu,
+                                      np.asarray(sample_weight, float)) / 2 # GLM specific
 
     def _set_coef_intercept(self, state):
         """
