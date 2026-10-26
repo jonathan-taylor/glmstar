@@ -562,11 +562,16 @@ def test_score(name, case):
     g, s, X_fit, D, offset = _fits(name, case)
     Y = pd.DataFrame({'y': s.model.endog, 'w': s.model.var_weights,
                       'offset': offset if offset is not None else 0.})
-    np.testing.assert_allclose(g.score(X_fit, Y), -s.deviance / 2, rtol=1e-8)
+    # exactly the deviance at the fit's means, and statsmodels' up to the two
+    # fits' convergence
+    mu = g.predict(X_fit, offset=offset)
+    family, y, w = s.model.family, s.model.endog, s.model.var_weights
+    np.testing.assert_allclose(g.score(X_fit, Y), -family.deviance(y, mu, var_weights=w) / 2,
+                               rtol=1e-12)
+    np.testing.assert_allclose(g.score(X_fit, Y), -s.deviance / 2, rtol=1e-6)
     # sample_weight replaces the weights of weight_id
     np.testing.assert_allclose(g.score(X_fit, Y, sample_weight=np.ones(n)),
-                               -s.model.family.deviance(s.model.endog, s.fittedvalues) / 2,
-                               rtol=1e-8)
+                               -family.deviance(y, mu) / 2, rtol=1e-12)
 
 
 def test_score_cross_validation():
