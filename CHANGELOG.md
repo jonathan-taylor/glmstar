@@ -8,7 +8,7 @@
   weights from the columns `response_id`, `offset_id` and `weight_id`
   (`sample_weight`, if given, in place of the weights). It took a
   DataFrame `y` as the response, so `cross_val_score` and `GridSearchCV`
-  on a GLM with these columns scored NaN (#PR).
+  on a GLM with these columns scored NaN (#208).
 
 ### Packaging
 
