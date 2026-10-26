@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Bug fixes
+
+- **Builds with coxdev 0.4.1**, which put its C++ library in namespace
+  `coxdev`: glmnetpp's Cox adapter finds `CoxDeviance` there or, with
+  0.4.0, in the global namespace (glmnetpp#21, #PR).
+- **The Cox fit at lambda = 0 converges when a limit binds** (glmnetpp#13):
+  a coefficient held at its `upper_limits` or `lower_limits` has a nonzero
+  score at the constrained optimum, which the convergence check no longer
+  counts. `big_glm(CoxNet(upper_limits=...))` returned an empty model, as
+  R's `bigGlm` does; it now gives the constrained fit, checked against
+  `survival::coxph` with the bound coefficient as an offset (#PR).
+
 ### Packaging
 
 - **The wheels carry the license files** (`license-files`, PEP 639):

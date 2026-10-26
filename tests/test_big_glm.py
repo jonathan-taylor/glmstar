@@ -109,14 +109,7 @@ def test_big_glm_matches_R(Rinfo, family, use_wts, use_off):
     assert est.lambda_values is None
 
 
-COX_BINDING_LIMIT = pytest.param('cox', marks=pytest.mark.xfail(
-    strict=True, raises=UserWarning,
-    reason="glmnet's Cox fit at lambda = 0 does not converge when a limit binds "
-           "(here x1's unconstrained coefficient is 0.58 > 0.1): it returns an empty "
-           "model, as R's bigGlm does (jerr = -1)"))
-
-
-@pytest.mark.parametrize('family', ['gaussian', 'binomial', 'poisson', COX_BINDING_LIMIT])
+@pytest.mark.parametrize('family', ['gaussian', 'binomial', 'poisson'])
 def test_big_glm_exclude_limits_matches_R(Rinfo, family):
     X, df, args = _data(family, True, False)
     upper = np.array([0.1, np.inf, np.inf, np.inf])
@@ -135,6 +128,28 @@ def test_big_glm_exclude_limits_matches_R(Rinfo, family):
     np.testing.assert_allclose(fit.coefs_[0], beta_R, rtol=1e-5, atol=1e-6)
     assert fit.coefs_[0, 3] == 0
     assert fit.coefs_[0, 0] <= 0.1 + 1e-10
+
+
+def test_big_glm_cox_binding_limit(Rinfo):
+    # x1's unconstrained coefficient is 0.58 > 0.1, so its limit binds. R's
+    # bigGlm does not converge here (jerr = -1) and returns an empty model;
+    # glmnetpp converges (glmnetpp#13) to the constrained optimum: x1 at 0.1
+    # and the others the Cox fit with 0.1 * x1 as an offset (survival::coxph)
+    X, df, args = _data('cox', True, False)
+    upper = np.array([0.1, np.inf, np.inf, np.inf])
+    est = CoxNet(control=_control('cox'), exclude=[3], upper_limits=upper, **args)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)
+        fit = big_glm(est, X, df)
+    rpy = Rinfo['rpy']
+    with Rinfo['np_cv_rules'].context():
+        rpy.r.assign('x', X)
+        rpy.r.assign('df', df)
+        beta_R = np.asarray(rpy.r(
+            'coef(survival::coxph(survival::Surv(df$event, df$status) ~ x[, 2] + x[, 3] + '
+            'offset(0.1 * x[, 1]), weights = df$w, control = survival::coxph.control('
+            'eps = 1e-12, iter.max = 100)))'))
+    np.testing.assert_allclose(fit.coefs_[0], [0.1, *beta_R, 0.], rtol=1e-5, atol=1e-6)
 
 
 @pytest.mark.parametrize('family', list(FAMILIES))
