@@ -102,6 +102,43 @@ The fitted terms are `fits_`, one column per term, and the intercept is
 np.allclose(gam.intercept_ + gam.fits_.sum(axis=1), gam.predict(Wage))
 ```
 
+## Parametric terms: columns, contrasts, interactions
+
+The items of `terms` other than smoothers are the model's parametric
+part, as in a formula: a column, an interaction (a tuple of columns), or
+any term of modelmatrix's `ModelSpec`, such as `contrast()` and
+`poly()`. They make one `ModelSpec`, whose terms enter unpenalized as
+blocks of columns. This is mgcv's `wage ~ s(age) + year + education +
+poly(year, 2):education`, with no ModelSpec written:
+
+```{code-cell} ipython3
+from modelmatrix import contrast, poly, wildcard
+
+gam_p = GAM(terms=[s('age', df=5), 'year', 'education', (poly('year', 2), 'education')])
+gam_p.fit(Wage, Wage['wage'])
+gam_p.summary()
+```
+
+Each term is a row of the summary, in the order given. Its
+coefficients, with their standard errors, are named by the ModelSpec's
+columns:
+
+```{code-cell} ipython3
+gam_p.fixed_effects_.head(8)
+```
+
+The contrasts, the interactions and the bases (`poly`, `ns`, `bs`, `pca`)
+are modelmatrix's, as for a GLM. A level not seen at `fit` is an error at
+`predict`. `wildcard(exclude=[...])` gives the other columns, as R's
+`y ~ s(age) + .`. A column that is both a smooth's and a parametric
+term's, e.g. `s('age')` and `'age'`, is an error: their linear parts are
+not identified. A `ModelSpec` item works too, e.g. for its
+`categorical_encoders`.
+
+`linear('x')` and `categorical('f')` remain. `categorical()` backfits a
+factor of many levels (more than 50) by its group means, with no design
+matrix.
+
 ## The smoothing of a term
 
 A spline's smoothing is given either by its degrees of freedom `df`,

@@ -9,7 +9,10 @@ specification, not a fit.
 """
 import numpy as np
 
+from modelmatrix import ModelSpec, Feature, Column, Wildcard
+
 from glmnet.cox import CoxFamily
+from .terms import Smoother
 
 
 def _tex(name):
@@ -89,8 +92,24 @@ def _varying(term, j, method):
     return contribution, description
 
 
+def _fixed_name(item):
+    """The name of a fixed effect of `terms` (see `glmnet.gam.fixed`)."""
+    if isinstance(item, ModelSpec):
+        return ', '.join(_fixed_name(t) for t in item.terms)
+    if isinstance(item, Wildcard):
+        return 'the other columns'
+    if isinstance(item, (Feature, Column)):
+        return item.name
+    if isinstance(item, tuple):   # an interaction
+        return ':'.join(_fixed_name(t) for t in item)
+    return str(item)
+
+
 def _term(term, j, method):
     """The term's contribution to the linear predictor, and its description."""
+    if not isinstance(term, Smoother):   # a fixed effect: columns of a ModelSpec
+        return rf'z^{{({j})T}}_i \gamma_{{{j}}}', \
+            rf'z^{{({j})}}: ' + _tex(_fixed_name(term))
     if hasattr(term, 'inner') and term.inner is not None:
         return _varying(term, j, method)
     kind = type(term).__name__
@@ -103,6 +122,7 @@ def _term(term, j, method):
         return rf'\alpha^{{({j})}}_{{{_tex(cols[0])}[i]}}', \
             rf'\alpha^{{({j})}}: \text{{an effect per level of }} {_tex(cols[0])}'
     if kind == 'ColumnsSmoother':
+        cols = getattr(term, 'coef_names', None) or cols
         return rf'z^{{({j})T}}_i \gamma_{{{j}}}', \
             rf'z^{{({j})}}: \text{{the columns }} ' + ', '.join(_tex(c) for c in cols)
     if kind == 'SplineSmoother':

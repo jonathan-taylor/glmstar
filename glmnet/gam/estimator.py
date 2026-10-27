@@ -35,6 +35,7 @@ from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .display import model_latex
+from .fixed import expand_terms, augment
 from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning, _blocked_term
@@ -231,17 +232,18 @@ class GAM(BaseEstimator):
     # from a model specification (ISLP's GAM, from a ModelSpec)
 
     def _model_terms(self, X):
-        """The terms of the model and the data whose columns they name."""
-        terms = list(self.terms)
-        for term in terms:
-            if not isinstance(term, Smoother):
-                raise ValueError(f'{term!r} is not a GAM term (s(), lo(), random_effect(), '
-                                 'gaussian_process(), linear(), categorical())')
+        """
+        The terms of the model and the data whose columns they name: the
+        fixed effects (items of `terms` other than smoothers, see
+        `glmnet.gam.fixed`) expanded, a block of columns for each, their
+        ModelSpecs fit (`model_specs_`).
+        """
+        terms, self.model_specs_, X = expand_terms(self.terms, X)
         return terms, X
 
     def _design(self, X):
-        """The data whose columns the fitted terms name (`X`)."""
-        return X
+        """The data whose columns the fitted terms name (`X`, with the fixed effects')."""
+        return augment(X, getattr(self, 'model_specs_', []))
 
     @staticmethod
     def _columns(X, terms):
@@ -1039,8 +1041,11 @@ class GAM(BaseEstimator):
             elif isinstance(term, ColumnsSmoother):
                 X = term.linear_columns()
                 columns.extend(X.T)
-                labels = term.column if isinstance(term.column, list) else [term.column]
-                names.extend(f'{term.name}[{c}]' for c in labels)
+                if getattr(term, 'coef_names', None) is not None:   # a fixed effect's
+                    names.extend(term.coef_names)
+                else:
+                    labels = term.column if isinstance(term.column, list) else [term.column]
+                    names.extend(f'{term.name}[{c}]' for c in labels)
             elif not term.penalized:
                 raise NotImplementedError(f'fixed_effects_: {term.name} (unpenalized, not a '
                                           'linear term) is not supported; give its columns '

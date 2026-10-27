@@ -38,6 +38,20 @@
   `modelmatrix>=0.3.1` is a new dependency.
   The ids are unchanged; giving both raises. `CoxLM` and `RegCoxLM`
   default to a `CoxFamily`, as `CoxNetIRLS` does.
+- **Parametric terms of a GAM from modelmatrix**: the items of a GAM's
+  or GLMM's `terms` other than smoothers are its parametric part, as in a
+  formula: `GAM([s('x'), 'z', contrast('c', 'sum'), poly('w', 2), ('z',
+  'c')])` is mgcv's `y ~ s(x) + z + c + poly(w, 2) + z:c`, and a
+  `wildcard(exclude=[...])` is R's `y ~ s(x) + .`. They make one
+  modelmatrix `ModelSpec` (a `ModelSpec` item is its own), each of its
+  terms a block of unpenalized columns at its place in `terms`: a row of
+  `summary()`, a `partial_effect`, and coefficients in `fixed_effects_`
+  named by the ModelSpec's columns (`c[b]`, `poly(w, degree=2)[0]`), with
+  their standard errors, which `categorical()` does not give. Checked
+  against mgcv's parametric coefficients, statsmodels, and the same
+  blocks of columns built by hand. A column that is a smooth's and a
+  parametric term's (`s('x')` and `'x'`) raises, their linear parts not
+  identified. `linear()` and `categorical()` remain.
 - **`outcome=` for `GAM` and `GLMM`**, as for the GLMs: e.g.
   `GAM(terms, family=Poisson(), outcome=Outcome('claims',
   offset=log_exposure))`, mgcv's `offset(log(exposure))`, or

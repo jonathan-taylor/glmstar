@@ -161,7 +161,8 @@ def plot_term(gam,
     if _surface(term):
         return _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap)
     se = se and _has_covariance(gam)
-    column = term.columns if not isinstance(term, ColumnsSmoother) else term.column[0]
+    column = (term.columns if not isinstance(term, ColumnsSmoother)
+              else (getattr(term, 'coef_names', None) or term.column)[0])
 
     if isinstance(term, VaryingSmoother) and term.is_categorical_:
         # a curve per level of the categorical, over that level's range
