@@ -1,13 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 (2026-10-27)
 
 ### Documentation
 
 - **The docs build without R**: the docs workflow no longer installs R,
   and `rpy2` is no longer in the `doc` extra (no page runs R; the tests,
   which compare with R, keep it). The book executes two pages at a time
-  (`--execute-parallel 2`): all at once, the runner was killed part way.
+  (`--execute-parallel 2`): all at once, the runner was killed part way (#223).
 
 ### Bug fixes
 
@@ -21,14 +21,14 @@
   `GLMM` formed it, and the docs' `gam_crossed.md` ran the runner out of
   memory. A new `GAMControl(max_dense_design=2e8)`, the most entries of that
   design: above it the covariances are not formed (None; standard errors
-  raise, saying so), as above `max_dense_coef`.
+  raise, saying so), as above `max_dense_coef` (#224).
 - **Displaying a GAM evaluates none of its computed properties**: `dir()`
   and scikit-learn's HTML display (which reads every attribute `dir()`
   lists) evaluated `design_`, the covariances, `penalty_matrix_` and
   `fixed_effects_`: dense matrices below the limits above, and an error
   that broke the display above them, or with a `categorical()` term
   (`fixed_effects_` raises). `GAM.__dir__` now leaves these out; they are
-  computed only when asked for.
+  computed only when asked for (#225).
 
 ## 0.7.0 (2026-10-27)
 
