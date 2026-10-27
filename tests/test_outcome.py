@@ -255,3 +255,33 @@ def test_errors():
         CoxNet(outcome=Outcome('time')).fit(X, D)
     with pytest.raises(TypeError, match='Outcome'):
         GaussNet(outcome='y').fit(X, D)
+
+
+@pytest.mark.parametrize('name', ['gaussnet', 'lognet', 'coxnet', 'multigauss'])
+def test_big_glm(name):
+    from glmnet import big_glm
+    est, outcome, ids = CASES[name]
+    X, D = _data()
+    a = big_glm(est(outcome=outcome), X, D)
+    b = big_glm(est(**ids), X, D)
+    np.testing.assert_allclose(a.coefs_, b.coefs_, rtol=1e-10)
+
+
+@pytest.mark.parametrize('name', ['gaussnet', 'lognet', 'fishnet'])
+def test_inference(name):
+    from glmnet.inference import glmstar_problem, glmstar_inference_problem
+    est, outcome, ids = CASES[name]
+    X, D = _data()
+    a = est(outcome=outcome).fit(X, D)
+    b = est(**ids).fit(X, D)
+    lam = a.lambda_values_[10]
+    pa, pb = glmstar_problem(a, X, D, lambda_val=lam), glmstar_problem(b, X, D, lambda_val=lam)
+    np.testing.assert_allclose(pa.beta_hat, pb.beta_hat, rtol=1e-10)
+    np.testing.assert_allclose(pa.G_hat, pb.G_hat, rtol=1e-10, atol=1e-12)
+    rows = np.arange(X.shape[0]) % 3 != 0
+    a = est(outcome=outcome).fit(X[rows], D[rows])
+    b = est(**ids).fit(X[rows], D[rows])
+    lam = a.lambda_values_[10]
+    ia = glmstar_inference_problem(a, X, D, lambda_val=lam, selection_rows=rows)
+    ib = glmstar_inference_problem(b, X, D, lambda_val=lam, selection_rows=rows)
+    np.testing.assert_allclose(ia.Z_full, ib.Z_full, rtol=1e-10, atol=1e-12)

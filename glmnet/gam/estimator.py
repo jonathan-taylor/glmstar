@@ -25,7 +25,10 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from statsmodels.genmod.families import family as sm_family
 
+from modelmatrix import Outcome
+
 from glmnet._utils import _extract_y, _y_ids, _parent_dataclass_from_child
+from glmnet._outcome import _fit_outcome, _outcome_y, _cox_ids
 from glmnet.family import GLMFamilySpec
 from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
@@ -145,6 +148,15 @@ class GAM(BaseEstimator):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for the Cox family the survival data and strata), e.g.
+        `Outcome('y', offset=log_exposure, weight='w')` or
+        `Outcome(Surv('time', 'status'), strata='inst')`, in place of
+        `response_id`, `offset_id`, `weight_id` and the `CoxFamily`'s ids.
+        A `Binomial` gives 0/1 (its levels, the success second), or a
+        proportion weighted by its trials. It is fit on the `y` of `fit` (a
+        copy, as `outcome_`), unless already fitted. (Optional)
     method: str, optional
         Deprecated. `'fixed'`, the only smoothing of a GAM, is the default;
         `'REML'`, `'ML'` or a `SmoothingMethod` are a `GLMM`'s
@@ -210,6 +222,7 @@ class GAM(BaseEstimator):
     offset_id: Union[str, int] = None
     weight_id: Union[str, int] = None
     response_id: Union[str, int] = None
+    outcome: Optional[Outcome] = None
     method: Optional[str] = None
 
     fit_intercept = True
@@ -276,6 +289,7 @@ class GAM(BaseEstimator):
         self
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         terms, X = self._model_terms(X)
         if not terms:
             raise ValueError('a GAM needs at least one term')
@@ -298,6 +312,9 @@ class GAM(BaseEstimator):
             family = self._family = GLMFamilySpec.from_family(
                 deepcopy(self.family) if estimate_theta else self.family, y)
             response, offset, weight = _extract_y(y, **_y_ids(self))
+            if self.outcome is not None and np.ndim(response) == 2 and response.shape[1] > 1:
+                raise ValueError(f'a GAM has a response of one column: {self.outcome!r} '
+                                 f'gives {response.shape[1]}')
             response = np.asarray(response, float).reshape(-1)
             weight = np.asarray(weight, float).reshape(-1)
         self._response, self._weight = response, weight
@@ -528,6 +545,7 @@ class GAM(BaseEstimator):
         serially correlated rows need blocked folds.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _outcome_y(self, y)
         nobs = X.shape[0]
         if self._cox:
             family, _, offset, weight = self._cox_data(y, nobs)
@@ -932,13 +950,9 @@ class GAM(BaseEstimator):
                              'offset and weights, if any)')
         if y.shape[0] != nobs:
             raise ValueError('X and y should have the same number of rows')
-        fam = self.family
         family = CoxFamilySpec(event_data=y,
-                               tie_breaking=fam.tie_breaking,
-                               event_id=fam.event_id,
-                               status_id=fam.status_id,
-                               start_id=fam.start_id,
-                               strata_id=fam.strata_id)
+                               tie_breaking=self.family.tie_breaking,
+                               **_cox_ids(self))
         _, offset, weight = _extract_y(y, **_y_ids(self))
         if offset is not None:
             offset = np.asarray(offset, float).reshape(-1)

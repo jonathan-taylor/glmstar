@@ -21,6 +21,25 @@ def _tex(name):
     return r'\text{' + s + '}'
 
 
+def _offset_weight(gam):
+    """
+    The offset and the weights of a GAM in LaTeX (None if none): its
+    `offset_id` and `weight_id`, or those of its outcome (a feature by its
+    name), a binomial's trials (times any weights) its weights.
+    """
+    outcome = getattr(gam, 'outcome', None)
+    if outcome is None:
+        offset, weight = getattr(gam, 'offset_id', None), getattr(gam, 'weight_id', None)
+        trials = None
+    else:
+        names = {key: getattr(value, 'name', value) for key, value in outcome.extra.items()}
+        offset, weight = names.get('offset'), names.get('weight')
+        trials = getattr(outcome.response, 'trials', None)
+    tex = lambda name: None if name is None else rf'{_tex(name)}_i'
+    weights = [w for w in [tex(trials), tex(weight)] if w is not None]
+    return tex(offset), r' \cdot '.join(weights) if weights else None
+
+
 def _columns(term):
     column = term.column
     return list(column) if isinstance(column, (list, tuple)) else [column]
@@ -185,15 +204,16 @@ def model_latex(gam):
         contributions.append(contribution)
         if description is not None:
             descriptions.append(description)
-    if getattr(gam, 'offset_id', None) is not None:
-        contributions.append(rf'{_tex(gam.offset_id)}_i')
+    offset, weight = _offset_weight(gam)
+    if offset is not None:
+        contributions.append(offset)
     # (a few terms a line)
     per_line = 3
     rows = [contributions[i:i + per_line] for i in range(0, len(contributions), per_line)]
     lines.append(r'\eta_i &= ' + ' + '.join(rows[0]))
     lines.extend(r'&\quad + ' + ' + '.join(row) for row in rows[1:])
-    if getattr(gam, 'weight_id', None) is not None and not cox:
-        lines.append(rf'w_i &= {_tex(gam.weight_id)}_i \text{{ (prior weights)}}')
+    if weight is not None and not cox:
+        lines.append(rf'w_i &= {weight} \text{{ (prior weights)}}')
     body = r' \\ '.join(lines)
     if descriptions:
         body += r' \\[4pt] ' + r' \\ '.join('&' + d for d in descriptions)
