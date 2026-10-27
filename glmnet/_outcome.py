@@ -14,38 +14,12 @@ from copy import deepcopy
 import numpy as np
 import pandas as pd
 
-from modelmatrix import Outcome, Response, Surv, Binomial, Multinomial
+from modelmatrix import Outcome, Surv, Binomial, Multinomial
 
 # the attribute of a frame built by an outcome: the fitted outcome, so that
 # the frame is not built again, and an estimator fit to it (e.g. a clone, on
 # a fold) takes that outcome
 _BUILT = '_glmstar_outcome'
-
-
-class Columns(Response):
-
-    """
-    Several columns of `y` as they are: a response of several columns,
-    e.g. of `MultiGaussNet`, as `Outcome(Columns(['y1', 'y2']), weight='w')`.
-
-    Parameters
-    ----------
-    names : list of column identifiers
-        The columns of the response.
-    """
-
-    def __init__(self, names):
-        self.names = list(names)
-
-    @property
-    def columns(self):
-        return tuple(self.names)
-
-    def _transform(self, X):
-        return X.loc[:, self.names].copy()
-
-    def __repr__(self):
-        return f'Columns({self.names!r})'
 
 
 def _fit_outcome(estimator, y):
@@ -140,14 +114,37 @@ def _response_columns(outcome):
 
 
 def _outcome_ids(outcome):
-    """The ids of the columns of `y` built by a fitted outcome."""
+    """
+    The ids of the columns of `y` built by a fitted outcome. A
+    multi-response model's offset is the column `offset`, the same for
+    every response, or the columns `offset[...]`, one for each response
+    in their order (an Outcome's `offset={...}`).
+    """
     response = _response_columns(outcome)
-    others = set(outcome.extra)
+    others = list(outcome.entries_)
     if isinstance(outcome.response_, Binomial) and outcome.response_.trials is not None:
-        others.add('weight')   # the trials
-    return dict(offset_id='offset' if 'offset' in others else None,
+        others.append('weight')   # the trials
+    offsets = [name for name in others if name.startswith('offset[')]
+    if offsets and 'offset' in others:
+        raise ValueError(f'an offset for every response and one for each, {offsets}: '
+                         'give one or the other')
+    if any(name.startswith('weight[') for name in others):
+        raise ValueError('weights of each response are not supported: the weights '
+                         'are of the observations, weight=...')
+    return dict(offset_id=offsets or ('offset' if 'offset' in others else None),
                 weight_id='weight' if 'weight' in others else None,
                 response_id=response[0] if len(response) == 1 else response)
+
+
+def _broadcast_offset(offset, nresponse):
+    """
+    An Outcome's offset of a multi-response model: the column `offset`
+    is the same for every response, the columns `offset[...]` are one
+    for each.
+    """
+    if offset is not None and np.ndim(offset) == 1:
+        return np.repeat(np.asarray(offset, float)[:, None], nresponse, axis=1)
+    return offset
 
 
 def _outcome_cox_ids(outcome):

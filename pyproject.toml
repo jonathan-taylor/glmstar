@@ -29,7 +29,7 @@ dependencies = [
     # data frames other than pandas (polars, pyarrow...) as inputs
     "narwhals>=1.30",
     # outcome=Outcome(...): the columns of y named by their role
-    "modelmatrix>=0.3.0"
+    "modelmatrix>=0.3.1"
 ]
 classifiers = ["Development Status :: 3 - Alpha",
                "Environment :: Console",
