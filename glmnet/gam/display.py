@@ -12,7 +12,7 @@ import numpy as np
 from modelmatrix import ModelSpec, Feature, Column, Wildcard
 
 from glmnet.cox import CoxFamily
-from .terms import Smoother
+from .terms import Smoother, _column_label
 
 
 def _tex(name):
@@ -44,7 +44,8 @@ def _offset_weight(gam):
 
 
 def _columns(term):
-    column = term.column
+    # (a feature by its name)
+    column = _column_label(term.column)
     return list(column) if isinstance(column, (list, tuple)) else [column]
 
 
@@ -70,7 +71,7 @@ def _varying(term, j, method):
     """A varying-coefficient term (`varying(inner, by=...)`): the inner term's line, varied."""
     inner = term.inner
     contribution, description = _term(inner, j, method)
-    by = _tex(term.by)
+    by = _tex(_column_label(term.by))
     f = rf'f_{{{j}}}'
     # the inner term's choice of smoothing replaced by the varying term's
     chosen_inner, chosen = _chosen(inner, method), _chosen(term, method)

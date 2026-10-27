@@ -38,6 +38,16 @@
   `modelmatrix>=0.3.1` is a new dependency.
   The ids are unchanged; giving both raises. `CoxLM` and `RegCoxLM`
   default to a `CoxFamily`, as `CoxNetIRLS` does.
+- **A modelmatrix feature as a smoother's column**: `s(log_x)`, with
+  `log_x = derived_feature(['x'], encoder=FunctionTransformer(np.log),
+  name='log(x)')`, is R's `s(log(x))`, the feature fit on the data and
+  computed for new data from its column; for the numeric columns of
+  `s`, `lo`, `linear`, `cyclic_spline`, `tensor_spline`,
+  `gaussian_process`, a numeric `varying(..., by=)` and a random slope's
+  `by=`. The term is named by the feature (`s(log(x), df=4)`), in
+  `summary`, the plots and the LaTeX. A feature as a grouping, two
+  different features of one name, a feature of several columns, and the
+  smooth of a feature with the feature as a fixed effect, raise.
 - **Parametric terms of a GAM from modelmatrix**: the items of a GAM's
   or GLMM's `terms` other than smoothers are its parametric part, as in a
   formula: `GAM([s('x'), 'z', contrast('c', 'sum'), poly('w', 2), ('z',

@@ -20,7 +20,7 @@ from typing import Optional
 
 import numpy as np
 
-from .terms import _deprecated_names, Smoother
+from .terms import _deprecated_names, Smoother, _column_label
 from .tensor import place_knots
 
 
@@ -199,7 +199,7 @@ def cyclic_spline(column, k=10, period=None, knots=None, lam=None, name=None):
                             knots=knots, lam=lam)
     args = ''.join(f', {a}={v}' for a, v in [('k', None if k == 10 else k),
                                                ('period', period), ('lam', lam)] if v is not None)
-    term.label = name or f'cyclic_spline({column}{args})'
+    term.label = name or f'cyclic_spline({_column_label(column)}{args})'
     return term
 
 

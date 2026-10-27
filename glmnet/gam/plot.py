@@ -9,7 +9,7 @@ contours over the data's bounding box, as mgcv's `plot.gam` (`too.far`).
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .terms import CategoricalSmoother, ColumnsSmoother, RandomEffectSmoother, PenalizedColumnsSmoother
+from .terms import CategoricalSmoother, ColumnsSmoother, RandomEffectSmoother, PenalizedColumnsSmoother, _column_label
 from .tensor import TensorSplineSmoother
 from .gp import GaussianProcessSmoother
 from .varying import VaryingSmoother
@@ -79,7 +79,7 @@ def _plot_surface(gam, j, ax, n_grid, too_far, rug, cmap):
     if rug:
         ax.plot(X[:, 0], X[:, 1], '.', color='k', markersize=2, alpha=0.4)
     names = term.columns
-    ax.set_xlabel(str(names[0]) if isinstance(names, list) else 'x0')
+    ax.set_xlabel(str(_column_label(names[0])) if isinstance(names, list) else 'x0')
     ax.set_ylabel(str(names[1]) if isinstance(names, list) else 'x1')
     ax.set_title(term.name)
     return ax
@@ -204,7 +204,7 @@ def plot_term(gam,
                     alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
         ax.axhline(0, color='k', lw=0.5, alpha=0.5)
         xlabel = term._inner_columns[0]
-        ax.set_xlabel(str(xlabel))
+        ax.set_xlabel(str(_column_label(xlabel)))
         ax.set_ylabel(f'coefficient of {term.by}: {term.name}')
         return ax
     elif isinstance(term, (CategoricalSmoother, RandomEffectSmoother)):
@@ -253,7 +253,7 @@ def plot_term(gam,
             ax.plot(np.unique(values), np.zeros(len(np.unique(values))), '|', color='k',
                     alpha=0.4, markersize=8, transform=ax.get_xaxis_transform())
         xlabel = column
-    ax.set_xlabel(str(xlabel))
+    ax.set_xlabel(str(_column_label(xlabel)))
     ax.set_ylabel(term.name)
     return ax
 

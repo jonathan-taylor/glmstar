@@ -25,7 +25,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from statsmodels.genmod.families import family as sm_family
 
-from modelmatrix import Outcome
+from modelmatrix import Outcome, Feature
 
 from glmnet._utils import _extract_y, _y_ids, _parent_dataclass_from_child
 from glmnet._outcome import _fit_outcome, _outcome_y, _cox_ids
@@ -35,7 +35,7 @@ from glmnet.glm import GLM, GLMControl
 from glmnet.irls import IRLS
 from .backfit import GAMRegularizer, GAMState
 from .display import model_latex
-from .fixed import expand_terms, augment
+from .fixed import expand_terms, augment, feature_column
 from .joint import JointDesign, JointRegularizer
 from .plot import plot_terms
 from .reml import ExperimentalWarning, _blocked_term
@@ -251,8 +251,13 @@ class GAM(BaseEstimator):
         cols = []
         for term in terms:
             if isinstance(X, pd.DataFrame):
-                # a name or a list of names (a ColumnsSmoother), else positions
+                # a name or a list of names (a ColumnsSmoother), else positions;
+                # a feature is the column `_model_terms` built for it
                 column = term.columns
+                if isinstance(column, list):
+                    column = [feature_column(c) if isinstance(c, Feature) else c for c in column]
+                elif isinstance(column, Feature):
+                    column = feature_column(column)
                 labels = column if isinstance(column, list) else [column]
                 if all(isinstance(c, str) for c in labels):
                     cols.append(X[column].to_numpy())

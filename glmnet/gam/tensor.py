@@ -27,7 +27,7 @@ from typing import Optional
 import numpy as np
 from scipy.linalg import solve_banded
 
-from .terms import _deprecated_names, Smoother
+from .terms import _deprecated_names, Smoother, _column_label
 
 
 def place_knots(x, k):
@@ -265,7 +265,7 @@ def tensor_spline(*columns, k=None, knots=None, lam=None, name=None):
     term = TensorSplineSmoother(list(columns), k=k, knots=knots,
                       lam=None if lam is None else list(np.atleast_1d(lam)))
     args = ''.join(f', {a}={v}' for a, v in [('k', k), ('lam', lam)] if v is not None)
-    term.label = name or f'tensor_spline({", ".join(str(c) for c in columns)}{args})'
+    term.label = name or f'tensor_spline({", ".join(str(_column_label(c)) for c in columns)}{args})'
     return term
 
 

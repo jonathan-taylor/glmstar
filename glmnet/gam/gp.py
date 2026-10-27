@@ -36,7 +36,7 @@ from scipy.linalg import eigh, solve_triangular
 from scipy.optimize import brentq
 from scipy.spatial.distance import cdist
 
-from .terms import _deprecated_names, Smoother, _name
+from .terms import _deprecated_names, Smoother, _name, _column_label
 
 # mgcv's codes (abs(m[1])) of the correlation functions
 _KERNELS = {1: 'spherical', 2: 'power exponential', 3: 'Matern(1.5)', 4: 'Matern(2.5)',
@@ -389,7 +389,7 @@ def gaussian_process(*columns, kernel='matern', nu=1.5, range=None, power=1., tr
     column = columns[0] if len(columns) == 1 else list(columns)
     term = GaussianProcessSmoother(column, kernel=kernel, nu=nu, power=power, range=range, trend=trend, k=k,
                   knots=knots, m=m, df=df, lam=lam, max_knots=max_knots, seed=seed)
-    label = ', '.join(str(c) for c in columns)
+    label = ', '.join(str(_column_label(c)) for c in columns)
     term.label = name or _name('gaussian_process', label,
                                kernel=None if kernel == 'matern' else repr(kernel),
                                nu=None if nu == 1.5 or kernel != 'matern' else nu,

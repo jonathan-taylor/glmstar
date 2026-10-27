@@ -135,6 +135,23 @@ term's, e.g. `s('age')` and `'age'`, is an error: their linear parts are
 not identified. A `ModelSpec` item works too, e.g. for its
 `categorical_encoders`.
 
+A smoother's column can also be a modelmatrix feature of a single column,
+fit on the data as a term: R's `s(log(age))`, without a column of the
+logs in the data. New data get it from their own column:
+
+```{code-cell} ipython3
+from sklearn.preprocessing import FunctionTransformer
+from modelmatrix import derived_feature
+
+log_age = derived_feature(['age'], encoder=FunctionTransformer(np.log), name='log(age)')
+gam_log = GAM(terms=[s('year', df=4), s(log_age, df=5), 'education'])
+gam_log.fit(Wage, Wage['wage']).summary()
+```
+
+It works for the numeric columns of a smoother (`s`, `lo`, `linear`,
+`cyclic_spline`, `tensor_spline`, `gaussian_process`, a numeric
+`varying(..., by=)`, a random slope's `by=`), not for a grouping.
+
 `linear('x')` and `categorical('f')` remain. `categorical()` backfits a
 factor of many levels (more than 50) by its group means, with no design
 matrix.

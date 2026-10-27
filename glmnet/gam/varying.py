@@ -50,7 +50,7 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
-from .terms import Smoother
+from .terms import Smoother, _column_label
 from .tensor import place_knots, CubicRegressionSpline
 
 
@@ -522,5 +522,5 @@ def varying(term, by, lam=None, pooled_lam=False, as_categorical=True, name=None
     options = [('lam', lam), ('pooled_lam', pooled_lam or None),
                ('as_categorical', None if as_categorical else False)]
     args = ''.join(f', {a}={v}' for a, v in options if v is not None)
-    vterm.label = name or f'varying({term.name}, by={by}{args})'
+    vterm.label = name or f'varying({term.name}, by={_column_label(by)}{args})'
     return vterm

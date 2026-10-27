@@ -21,7 +21,8 @@ from sklearn.base import clone
 from modelmatrix import ModelSpec, Feature, Column, Wildcard
 
 from .terms import (Smoother, ColumnsSmoother, LinearSmoother, SplineSmoother,
-                    LoessSmoother)
+                    LoessSmoother, CategoricalSmoother, RandomEffectSmoother,
+                    CorrelatedRandomEffectSmoother, _column_label)
 from .tensor import TensorSplineSmoother
 from .varying import VaryingSmoother, CubicRegressionSplineSmoother
 
@@ -59,11 +60,13 @@ def expand_terms(items, X):
                                  'ModelSpec(..., intercept=False)')
             specs.append(clone(item))
             places.append([j])
-    if not specs:
+    features = _fit_features([item for item in items if isinstance(item, Smoother)], X)
+    if not specs and not features:
         return items, [], X
     data = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
     for spec in specs:
         spec.fit(data)
+    specs = specs + list(features.values())
 
     # the terms of each item, at its place
     expanded = {j: [item] for j, item in enumerate(items) if isinstance(item, Smoother)}
@@ -71,22 +74,83 @@ def expand_terms(items, X):
         for j, spec_terms in _place(spec, [items[i] for i in place], place).items():
             expanded[j] = [_columns_smoother(spec, k, t) for t in spec_terms]
     terms = [term for j in sorted(expanded) for term in expanded[j]]
-    _check_identified(terms, specs)
+    _check_identified(terms, specs[:len(specs) - len(features)])
     return terms, specs, augment(data, specs)
 
 
 def augment(X, specs):
-    """The data `X` with the columns of the fitted ModelSpecs `specs`."""
+    """
+    The data `X` with the columns of the fitted ModelSpecs `specs`: those of
+    the fixed effects, and the column of each feature a smoother uses.
+    """
     if not specs:
         return X
     data = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
     blocks = [data]
     for k, spec in enumerate(specs):
         D = spec.transform(data)
-        D = pd.DataFrame(np.asarray(D, float), index=data.index,
-                         columns=[_private(k, c) for c in spec.get_feature_names_out()])
-        blocks.append(D)
+        feature = getattr(spec, '_smoother_feature', None)
+        names = ([feature_column(feature)] if feature is not None else
+                 [_private(k, c) for c in spec.get_feature_names_out()])
+        blocks.append(pd.DataFrame(np.asarray(D, float), index=data.index, columns=names))
     return pd.concat(blocks, axis=1)
+
+
+def feature_column(feature):
+    """The name, in the GAM's data, of the column of a feature a smoother uses."""
+    return f'{_PREFIX}feature:{feature.name}'
+
+
+def _smoother_columns(term):
+    """
+    The columns of a smoother, as a list, and those of them that are
+    groupings (whose levels the term has), which cannot be features.
+    """
+    columns = term.columns
+    columns = (list(columns) if isinstance(columns, (list, tuple))
+               and not isinstance(columns, Feature) else [columns])
+    if isinstance(term, CategoricalSmoother):
+        groups = [term.column]
+    elif isinstance(term, (RandomEffectSmoother, CorrelatedRandomEffectSmoother)):
+        column = term.column
+        groups = (list(column) if isinstance(column, (list, tuple))
+                  and not isinstance(column, Feature) else [column])
+    elif isinstance(term, VaryingSmoother) and term.as_categorical:
+        groups = [term.by]
+    else:
+        groups = []
+    return columns, groups
+
+
+def _fit_features(smoothers, X):
+    """
+    A fitted ModelSpec of each feature (a modelmatrix Feature, e.g. a log)
+    a smoother uses as a column, by the feature's name: a single column.
+    """
+    features = {}
+    data = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
+    for term in smoothers:
+        columns, groups = _smoother_columns(term)
+        for column in columns:
+            if not isinstance(column, Feature):
+                continue
+            if any(column is g or column == g for g in groups):
+                raise ValueError(f'{term.name}: the feature {column.name!r} is a grouping '
+                                 '(levels); a feature can only be a numeric column of a '
+                                 'smoother')
+            if column.name in features:
+                if features[column.name]._smoother_feature != column:
+                    raise ValueError(f'two different features have the name {column.name!r}: '
+                                     'give them names of their own (name=...)')
+                continue
+            spec = ModelSpec([column]).fit(data)
+            if len(spec.get_feature_names_out()) != 1:
+                raise ValueError(f'{term.name}: the feature {column.name!r} has '
+                                 f'{len(spec.get_feature_names_out())} columns; a smoother\'s '
+                                 'feature should have one')
+            spec._smoother_feature = column
+            features[column.name] = spec
+    return features
 
 
 def _private(k, name):
@@ -153,12 +217,18 @@ def _smoothed_columns(term):
     """The columns whose linear function a smoother's fit spans (unpenalized)."""
     if isinstance(term, VaryingSmoother):
         if not term.as_categorical:
-            return set()
+            return []
         term = term.inner
     if isinstance(term, _LINEAR_SPAN):
         column = term.column
-        return set(column) if isinstance(column, (list, tuple)) else {column}
-    return set()
+        return (list(column) if isinstance(column, (list, tuple))
+                and not isinstance(column, Feature) else [column])
+    return []
+
+
+def _key(column):
+    # a column, or a feature by its name
+    return ('feature', column.name) if isinstance(column, Feature) else column
 
 
 def _check_identified(terms, specs):
@@ -167,10 +237,15 @@ def _check_identified(terms, specs):
         for term, feature in zip(spec.expanded_terms_, spec.terms_):
             for column in _variables(term):
                 fixed.setdefault(column, feature.name)
+            if isinstance(term, Feature):
+                fixed.setdefault(_key(term), feature.name)
     for term in terms:
-        both = sorted((c for c in _smoothed_columns(term) if c in fixed), key=str)
+        both = sorted((_column_label(c) for c in _smoothed_columns(term) if _key(c) in fixed),
+                      key=str)
         if both:
-            raise ValueError(f'{term.name} and the fixed effect {fixed[both[0]]!r} both fit '
-                             f'a linear function of {both[0]!r}: the model is not identified. '
-                             f'Leave {both[0]!r} out of the fixed effects (e.g. '
-                             f'wildcard(exclude=[..., {both[0]!r}]))')
+            c = both[0]
+            name = fixed.get(c, fixed.get(('feature', c)))
+            raise ValueError(f'{term.name} and the fixed effect {name!r} both fit '
+                             f'a linear function of {c!r}: the model is not identified. '
+                             f'Leave {c!r} out of the fixed effects (e.g. '
+                             f'wildcard(exclude=[..., {c!r}]))')
