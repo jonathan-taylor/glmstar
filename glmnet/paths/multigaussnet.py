@@ -17,6 +17,7 @@ from .fastnet import MultiFastNetMixin
 
 from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
+from .._outcome import _broadcast_offset
 
 from ..scoring import Scorer
 
@@ -123,7 +124,10 @@ class MultiGaussNet(MultiFastNetMixin):
         X, y, response, offset, weight = super().get_data_arrays(X,
                                                                  y,
                                                                  check=check)
-        return X, y, np.asfortranarray(response), offset, weight
+        response = np.asfortranarray(response)
+        if self.outcome is not None:
+            offset = _broadcast_offset(offset, response.shape[1])
+        return X, y, response, offset, weight
 
     def _wrapper_args(self,
                       design,

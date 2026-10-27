@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional
 from dataclasses import (dataclass,
                          asdict,
                          field)
@@ -7,6 +7,7 @@ import logging
 import warnings
    
 import numpy as np
+from modelmatrix import Outcome
 from numpy.linalg import LinAlgError
 import pandas as pd
 
@@ -42,6 +43,7 @@ from .family import (GLMFamilySpec,
                      BinomFamilySpec,
                      GLMState)
 from ._frames import as_pandas
+from ._outcome import _fit_outcome, _outcome_y
 
 
 @dataclass
@@ -99,6 +101,12 @@ class GLMBaseSpec(object):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -110,6 +118,7 @@ class GLMBaseSpec(object):
     offset_id: Union[str,int] = None
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
+    outcome: Optional[Outcome] = None
     exclude: list = field(default_factory=list)
 
 
@@ -439,6 +448,12 @@ class GLMBase(BaseEstimator,
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -561,6 +576,7 @@ class GLMBase(BaseEstimator,
             GLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         if not getattr(self, '_path_refit', False):
             # a fit starts afresh: the design, the family (Cox's holds the
             # event data) and the information are of these data, not of an
@@ -909,6 +925,7 @@ class GLMBase(BaseEstimator,
             Minus half the deviance of family for `(X, y, sample_weight)`.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _outcome_y(self, y)
         _, _, response, offset, weight = _get_data(self, X, y,
                                                    **_y_ids(self),
                                                    check=False)
@@ -954,6 +971,12 @@ class GLM(GLMBase):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -1070,6 +1093,7 @@ class GLM(GLMBase):
             GLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         if self._unpenalized:
             X = self._drop_intercept_column(X, fitting=True)
         super().fit(X,
@@ -1539,6 +1563,12 @@ class GaussianGLM(RegressorMixin, GLM):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -1571,6 +1601,12 @@ class BinomialGLM(ClassifierMixin, GLM):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -1676,6 +1712,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             BinomialGLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         self._family = self._finalize_family(response=y)
 
         return super().fit(X,

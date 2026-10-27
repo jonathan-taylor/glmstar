@@ -14,6 +14,7 @@ from sklearn.metrics import (accuracy_score,
 
 from .fastnet import MultiFastNetMixin
 from .._utils import _jerr_lognet, _multinomial_response
+from .._outcome import _broadcast_offset
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -185,6 +186,8 @@ class MultiClassNet(MultiFastNetMixin):
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         
         y_onehot, weight, self.categories_ = _multinomial_response(self, response, weight)
+        if self.outcome is not None:
+            offset = _broadcast_offset(offset, y_onehot.shape[1])
         return X, y, y_onehot, offset, weight
 
     def predict_proba(self,

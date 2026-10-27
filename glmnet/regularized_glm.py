@@ -18,7 +18,7 @@ from .elnet import (ElNet,
                     LinearTerm,
                     _check_linear_term)
 from .glm import GLM
-from ._utils import _y_ids, _binomial_response
+from ._utils import _sub_ids, _binomial_response
 from .family import (GLMFamilySpec,
                      BinomFamilySpec)
 
@@ -317,7 +317,7 @@ class RegGLM(GLM,
         """
         return GLM(family=self.family,
                    fit_intercept=self.fit_intercept,
-                   **_y_ids(self))
+                   **_sub_ids(self))
 
     def _get_regularizer(self,
                          nvars=None):

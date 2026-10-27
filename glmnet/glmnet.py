@@ -7,6 +7,7 @@ from dataclasses import dataclass, asdict, field, InitVar
 from typing import Union, Optional
    
 import numpy as np
+from modelmatrix import Outcome
 import pandas as pd
 from scipy.interpolate import interp1d
 
@@ -32,6 +33,7 @@ from .glm import (GLM,
                   _state_on_design)
 from ._utils import (_get_data,
                      _y_ids,
+                     _sub_ids,
                      _forget_encoding,
                      _check_offset,
                      _check_predict_X,
@@ -42,6 +44,7 @@ from .scorer import (PathScorer,
                      RelaxedScorePath,
                      _tune_relaxed)
 from ._frames import as_pandas
+from ._outcome import _fit_outcome, _outcome_y
 
 
 
@@ -158,6 +161,12 @@ class GLMNetSpec(object):
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -201,6 +210,7 @@ class GLMNetSpec(object):
     offset_id: Union[str,int] = None
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
+    outcome: Optional[Outcome] = None
     exclude: list = field(default_factory=list)
     relax: bool = False
     relax_maxp: Optional[int] = None
@@ -265,6 +275,12 @@ class GLMNet(BaseEstimator,
         Weight identifier in `y`. (Optional)
     response_id: Union[str,int]
         Response identifier in `y`. (Optional)
+    outcome: modelmatrix.Outcome
+        The columns of `y`, named by their role: the response, offset and
+        weights (and for a Cox model the survival data and strata), e.g.
+        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
+        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
+        as `outcome_`), unless already fitted. (Optional)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -383,6 +399,7 @@ class GLMNet(BaseEstimator,
         # a fit starts afresh: the family (Cox's holds the event data) is of
         # these data, not of an earlier fit
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         self.__dict__.pop('_family', None)
         self._family = self._finalize_family(response=y)
 
@@ -416,7 +433,7 @@ class GLMNet(BaseEstimator,
                                fit_intercept=self.fit_intercept,
                                standardize=self.standardize,
                                control=self.control,
-                               **_y_ids(self),
+                               **_sub_ids(self),
                                exclude=self.excluded_,
                                linear_term=self.linear_term
                                )
@@ -1073,6 +1090,7 @@ class GLMNet(BaseEstimator,
             holds the results for the lasso (`gamma=1`), as without `relax`.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _outcome_y(self, y)
         check_is_fitted(self, ["coefs_"])
 
         if alignment not in ['lambda', 'fraction']:
@@ -1236,6 +1254,7 @@ class GLMNet(BaseEstimator,
         >>> val_path.scores['Mean Squared Error']
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _outcome_y(self, y)
         check_is_fitted(self, ["coefs_"])
 
         predictions = self.predict(X, interpolation_grid=self.lambda_values_)
@@ -1356,7 +1375,7 @@ class GLMNet(BaseEstimator,
                                              fit_intercept=self.fit_intercept,
                                              standardize=self.standardize,
                                              control=self.control,
-                                             **_y_ids(self),
+                                             **_sub_ids(self),
                                              exclude=sorted(np.nonzero(~keep)[0].tolist()),
                                              linear_term=self.linear_term)
             est.fit(X, y)
@@ -1372,7 +1391,7 @@ class GLMNet(BaseEstimator,
                                  big=self.control.big)
             glm = GLM(fit_intercept=self.fit_intercept,
                       family=self.family,
-                      **_y_ids(self),
+                      **_sub_ids(self),
                       control=control)
             glm.fit(X_keep, y)
             coef_[keep] = glm.coef_
@@ -1409,7 +1428,7 @@ class GLMNet(BaseEstimator,
                    fit_intercept=self.fit_intercept,
                    standardize=self.standardize,
                    ridge_coef=ridge_coef,
-                   **_y_ids(self))
+                   **_sub_ids(self))
 
     def get_fixed_lambda(self,
                          lambda_val):
@@ -1439,7 +1458,7 @@ class GLMNet(BaseEstimator,
                                fit_intercept=self.fit_intercept,
                                standardize=self.standardize,
                                control=self.control,
-                               **_y_ids(self),
+                               **_sub_ids(self),
                                exclude=self.excluded_,
                                linear_term=self.linear_term
                                )
