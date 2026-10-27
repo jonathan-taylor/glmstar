@@ -91,6 +91,15 @@
 
 ### Bug fixes
 
+- **One coding of a grouping's levels in GAMs**: a random effect's (and a
+  correlated random effect's) levels are now in the order of a pandas
+  categorical's categories (those seen in fitting), as `categorical()`
+  and a categorical `varying` already were and as modelmatrix orders a
+  categorical's levels; otherwise sorted. Their `effects_`, plots and
+  covariances follow it; the fits do not change. The levels of a new
+  grouping are found by value (they need not be sorted), and those not
+  seen in fitting still predict 0.
+
 - **`GLM.score` reads `y` as `fit` does**: the response, offset and
   weights from the columns `response_id`, `offset_id` and `weight_id`
   (`sample_weight`, if given, in place of the weights). It took a

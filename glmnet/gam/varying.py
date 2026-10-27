@@ -50,7 +50,7 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
-from .terms import Smoother, _column_label
+from .terms import Smoother, _column_label, _levels
 from .tensor import place_knots, CubicRegressionSpline
 
 
@@ -267,12 +267,7 @@ class VaryingSmoother(Smoother):
         xi, by = self._split(x)
         self.is_categorical_ = bool(self.as_categorical)
         if self.is_categorical_:
-            if self.categories is None:
-                self.levels_ = np.unique(by)
-            else:
-                seen = set(pd.unique(by))
-                self.levels_ = np.array([c for c in self.categories if c in seen], dtype=object)
-            self.codes_ = self._codes(by)
+            self.levels_, self.codes_ = _levels(by, self.categories)
         else:
             self.z_ = np.asarray(by, float)
         self.xi_ = xi

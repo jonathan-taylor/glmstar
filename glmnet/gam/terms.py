@@ -411,11 +411,23 @@ def _interaction(x):
     return g
 
 
-def _level_codes(levels, x):
-    """The positions of the values `x` in the sorted `levels`; -1 for values not among them."""
+def _levels(x, categories=None):
+    """
+    The levels of a grouping column and the codes of its values: in the
+    order of a pandas categorical's `categories` (those seen), otherwise
+    sorted, as modelmatrix orders a categorical's levels.
+    """
     x = np.asarray(x).reshape(-1)
-    codes = np.minimum(np.searchsorted(levels, x), len(levels) - 1)
-    return np.where(levels[codes] == x, codes, -1)
+    if categories is None:
+        return np.unique(x, return_inverse=True)
+    seen = set(pd.unique(x))
+    levels = np.array([c for c in categories if c in seen], dtype=object)
+    return levels, pd.Index(levels).get_indexer(x)
+
+
+def _level_codes(levels, x):
+    """The positions of the values `x` among the `levels`; -1 for values not among them."""
+    return pd.Index(levels).get_indexer(np.asarray(x).reshape(-1))
 
 
 def _weighted_ls(x, r, w):
@@ -480,13 +492,7 @@ class CategoricalSmoother(Smoother):
     categories = None        # the categories of a pandas categorical column (set by GAM)
 
     def setup(self, x):
-        x = np.asarray(x)
-        if self.categories is None:
-            self.levels_, self.codes_ = np.unique(x, return_inverse=True)
-        else:
-            seen = set(pd.unique(x))
-            self.levels_ = np.array([c for c in self.categories if c in seen], dtype=object)
-            self.codes_ = pd.Index(self.levels_).get_indexer(x)
+        self.levels_, self.codes_ = _levels(x, self.categories)
         return self
 
     def _codes(self, x):
@@ -895,6 +901,12 @@ class RandomEffectSmoother(Smoother):
     centered = False
     _label = 'random_effect'
     level_names = None       # the names of the groups, when they are codes (ModelSpec)
+    categories = None        # the categories of a pandas categorical grouping (set by GAM)
+
+    @property
+    def categorical_column(self):
+        """The grouping column, whose categories `GAM` records (None for an interaction)."""
+        return None if _is_interaction(self.column) else self.column
 
     def __post_init__(self):
         if self.df is not None and self.lam is not None:
@@ -932,7 +944,7 @@ class RandomEffectSmoother(Smoother):
 
     def setup(self, x):
         g, v = self._split(x)
-        self.levels_, self.codes_ = np.unique(g, return_inverse=True)
+        self.levels_, self.codes_ = _levels(g, self.categories)
         self.v_ = np.ones(g.shape[0]) if v is None else v
         self._coef = None
         return self
@@ -1065,6 +1077,12 @@ class CorrelatedRandomEffectSmoother(Smoother):
     centered = False
     penalty_varies = True        # its penalty matrix changes with B (REML, ML)
     _label = 'correlated_random_effect'
+    categories = None        # the categories of a pandas categorical grouping (set by GAM)
+
+    @property
+    def categorical_column(self):
+        """The grouping column, whose categories `GAM` records (None for an interaction)."""
+        return None if _is_interaction(self.column) else self.column
 
     @property
     def has_objective(self):
@@ -1095,7 +1113,7 @@ class CorrelatedRandomEffectSmoother(Smoother):
         self.q_ = self.V_.shape[1]
         if self.q_ == 0:
             raise ValueError(f'{self.name}: give an intercept or slopes')
-        self.levels_, self.codes_ = np.unique(g, return_inverse=True)
+        self.levels_, self.codes_ = _levels(g, self.categories)
         if self.precision is not None:
             self.precision = np.asarray(self.precision, float).reshape((self.q_, self.q_))
         self._coef = None
