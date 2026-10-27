@@ -89,11 +89,11 @@ pip install --no-build-isolation -e .
 
 The documentation is a Jupyter Book 2 site, its pages executed, and a Sphinx API
 reference. It needs [Node.js](https://nodejs.org) 18 or later (Jupyter Book 2 runs on
-it) and R (for `rpy2`, one of the docs' dependencies). In the activated environment of
-the development install above, from the repository's root:
+it), but not R. In the activated environment of the development install above, from the
+repository's root:
 
 ```bash
-uv sync --extra doc --extra gam     # Jupyter Book 2, Sphinx, rpy2, lassoinf, jax
+uv sync --extra doc --extra gam     # Jupyter Book 2, Sphinx, lassoinf, jax
 uv pip install --no-deps ISLP       # the data of some pages, without ISLP's dependencies
 cd docs
 jupyter-book build --html --execute         # the pages, executed: docs/_build/html

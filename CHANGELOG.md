@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- **The docs build without R**: the docs workflow no longer installs R,
+  and `rpy2` is no longer in the `doc` extra (no page runs R; the tests,
+  which compare with R, keep it). The book executes two pages at a time
+  (`--execute-parallel 2`): all at once, the runner was killed part way.
+
 ## 0.7.0 (2026-10-27)
 
 ### New features

@@ -36,11 +36,9 @@ jobs: # This workflow contains a single
         with:
           node-version: '24'
 
-      # Install
+      # Install (no R: no page runs it; the tests compare with R, not the docs)
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libtirpc-dev
-          sudo apt-get install -y r-base
           pip install .[doc]
           pip install .[gam]
           # the data of the GAM page (ISLP's load_data, without its dependencies)
@@ -53,7 +51,11 @@ jobs: # This workflow contains a single
           BASE_URL: /${{ github.event.repository.name }}
         run: |
           cd docs
-          jupyter-book build --html --execute --ci
+          # the memory in use, each minute, in the log
+          (while true; do free -m | awk 'NR==2{print "memory used (MB):", $3, "of", $2}'; sleep 60; done) &
+          # two pages at a time: mystmd runs every page's kernel at once otherwise,
+          # and the runner was killed (exit 143) part way through
+          jupyter-book build --html --execute --execute-parallel 2 --ci
           test -f _build/html/index.html
 
       # The API reference: Sphinx autodoc, into api/ next to the book
@@ -74,6 +76,8 @@ jobs: # This workflow contains a single
   deploy:
     runs-on: ubuntu-latest
     needs: build
+    # (a run on another branch only builds, to try it)
+    if: github.ref == 'refs/heads/main'
 
     # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
     permissions:
