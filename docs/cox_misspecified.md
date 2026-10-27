@@ -39,7 +39,6 @@ from scipy.stats import norm
 
 from glmnet import LinearTerm
 from glmnet.cox import CoxFamily, CoxFamilySpec, CoxLM, CoxNetIRLS, CoxState
-from modelmatrix import Surv
 from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
@@ -133,10 +132,9 @@ def cox_lm(X, time, status, exclude=(), warm=None, sandwich=False):
     warm started at the coefficients warm, if given.
     """
     warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
-    return CoxLM(family=CoxFamily(tie_breaking='efron'), outcome=Surv('event', 'status'),
-                 exclude=list(exclude),
+    return CoxLM(family=CoxFamily(tie_breaking='efron'), exclude=list(exclude),
                  summarize=True, sandwich=sandwich, control=GLMControl(epsnr=1e-12)).fit(
-                     X, pd.DataFrame({'event': time, 'status': status}),
+                     X, pd.DataFrame({'stop': time, 'status': status}),
                      warm_state=warm_state)
 
 def cox_coef(X, time, status, warm=None):
@@ -237,12 +235,12 @@ lam = 0.7 * np.sqrt(2 * np.log(p) / (pi * n))
 q = norm.ppf(0.95)  # for nominal 90% intervals
 
 def cox_lasso(X, time, status, linear_term=None, relax=False, control=None):
-    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'), outcome=Surv('event', 'status'),
+    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
                       lambda_values=np.array([lam]),
                       linear_term=linear_term,
                       relax=relax,
                       control=control or GLMNetControl()).fit(
-                          X, pd.DataFrame({'event': time, 'status': status}))
+                          X, pd.DataFrame({'stop': time, 'status': status}))
 
 def randomized_inference(X, time, status, robust):
     n = X.shape[0]

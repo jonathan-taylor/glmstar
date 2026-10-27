@@ -263,7 +263,8 @@ def make_survival(n_samples=100, n_features=20, n_informative=10, coef=None, ran
     X : ndarray of shape (n_samples, n_features)
         The input samples.
     y : pandas.DataFrame
-        The output DataFrame with columns: 'event', 'status', and optionally 'start'.
+        The output DataFrame, its columns named by their role: 'stop' (the times of the
+        events or censoring), 'status', and optionally 'start'.
     coef : ndarray
         The underlying true coefficients used to generate the data.
 
@@ -271,13 +272,13 @@ def make_survival(n_samples=100, n_features=20, n_informative=10, coef=None, ran
     --------
     >>> X, y, coef = make_survival(n_samples=100, n_features=10, start_id=True)
     >>> y.columns
-    Index(['start', 'event', 'status'], dtype='object')
+    Index(['start', 'stop', 'status'], dtype='object')
     >>> X.shape, y.shape, coef.shape
     ((100, 10), (100, 3), (10,))
     
     >>> # Generate data with ties for testing tie-breaking methods
     >>> X, y, coef = make_survival(n_samples=100, n_features=10, discretize=True)
-    >>> len(np.unique(y['event'])) < len(y['event'])  # Should have ties
+    >>> len(np.unique(y['stop'])) < len(y['stop'])  # Should have ties
     True
     """
     rng = default_rng(random_state)
@@ -310,7 +311,7 @@ def make_survival(n_samples=100, n_features=20, n_informative=10, coef=None, ran
             start_times = np.zeros(n_samples)
             start_times = np.round(start_times, decimals=1)
     
-    data = {'event': observed_time, 'status': status}
+    data = {'stop': observed_time, 'status': status}
     if start_id:
         # Simulate start times that are strictly less than event times
         # Use a fraction of the event times to ensure they're reasonable

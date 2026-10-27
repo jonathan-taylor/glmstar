@@ -19,23 +19,23 @@ The `CoxNetIRLS` class fits a Cox proportional hazards model with elastic net re
 **Data requirements:**
 > The `CoxNetIRLS` class fits Cox proportional hazards models for survival analysis. It expects:
 > - `X`: a 2D NumPy array or pandas DataFrame of shape `(n_samples, n_features)` (predictors).
-> - `y`: a pandas DataFrame with at least two columns:
->   - `'event'`: event or observed time (float)
+> - `y`: a pandas DataFrame whose columns are named by their role:
+>   - `'stop'`: event or observed time (float, > 0)
 >   - `'status'`: event indicator (1=event, 0=censored)
->   Optionally, a `'start'` column for start-stop (interval) data, and a `'strata'` column for stratified models.
->   The estimator's `outcome`, a modelmatrix `Surv` (or an `Outcome` of it with
->   `strata=`, `weight=`, `offset=`), names them.
+>   - optionally `'start'` for start-stop (interval) data, `'strata'` for stratified
+>     models, and `'weight'` and `'offset'`.
+>
+>   modelmatrix's `Outcome` builds it from other names, e.g.
+>   `Outcome(Surv('time', 'status'), strata='inst').fit_transform(D)`.
 
 ## Example Usage
 
 ```{code-cell} ipython3
 from glmnet.data import make_survival
 from glmnet.cox import CoxFamily, CoxNetIRLS
-from modelmatrix import Surv
 
 X, y, coef = make_survival(n_samples=100, n_features=10, start_id=True)
-model = CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
-                   outcome=Surv('start', 'event', 'status'))
+model = CoxNetIRLS(family=CoxFamily(tie_breaking='efron'))   # y: start, stop, status
 model.fit(X, y)
 print(model.coefs_.shape)
 ```

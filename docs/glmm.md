@@ -243,13 +243,12 @@ smoothing parameter by REML, as mgcv's `cox.ph` (Wood, Pya and Säfken, 2016):
 
 ```{code-cell} ipython3
 from glmnet.cox import CoxFamily
-from modelmatrix import Surv
+from modelmatrix import Outcome, Surv
 
 Brain = load_data('BrainCancer').dropna()
 cox = GLMM(terms=[s('gtv'), linear('ki'), categorical('diagnosis')],
-           family=CoxFamily(tie_breaking='efron'),
-           outcome=Surv('time', 'status'))
-cox.fit(Brain, Brain)
+           family=CoxFamily(tie_breaking='efron'))
+cox.fit(Brain, Outcome(Surv('time', 'status')).fit_transform(Brain))
 cox.summary()
 ```
 

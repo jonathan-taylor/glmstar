@@ -49,7 +49,6 @@ import statsmodels.api as sm
 from scipy.stats import norm
 
 from glmnet import GLM, GLMNet, LinearTerm
-from modelmatrix import Outcome
 from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
@@ -71,7 +70,7 @@ X = rng.standard_normal((n, p)) * scale
 beta = np.r_[1, -0.75, 0.5, np.zeros(p - 3)] / scale
 w = rng.uniform(0.5, 2, n)
 y = 1 + X @ beta + rng.standard_normal(n) / np.sqrt(w)
-D = pd.DataFrame({'y': y, 'w': w})
+D = pd.DataFrame({'y': y, 'weight': w})   # its columns named by role
 v = w / w.sum()
 ```
 
@@ -83,7 +82,7 @@ $$y^* = \hat\beta_0 + X\hat\beta + \epsilon^*, \qquad \epsilon^*_i \sim N(0, \ha
 
 ```{code-cell} ipython3
 X1 = np.column_stack([np.ones(n), X])
-wls = GLM(outcome=Outcome('y', weight='w')).fit(X, D)
+wls = GLM().fit(X, D)
 fitted = wls.predict(X)
 resid = y - fitted
 sigma2 = wls.dispersion_
@@ -94,13 +93,12 @@ We bootstrap the lasso at one value of $\lambda$, taken from the path
 fit to the data.
 
 ```{code-cell} ipython3
-path = GLMNet(outcome=Outcome('y', weight='w')).fit(X, D)
+path = GLMNet().fit(X, D)
 lam = path.lambda_values_[20]
 print(lam, (path.coefs_[20] != 0).sum())
 
 def lasso(D, linear_term=None):
-    fit = GLMNet(outcome=Outcome('y', weight='w'),
-                 lambda_values=np.array([lam]),
+    fit = GLMNet(lambda_values=np.array([lam]),
                  linear_term=linear_term).fit(X, D)
     return fit.coefs_[0], fit.intercepts_[0]
 ```
@@ -119,7 +117,7 @@ to the original data with this linear term:
 ```{code-cell} ipython3
 eps = rng.standard_normal(n) * np.sqrt(sigma2 / w)
 
-coef_star, int_star = lasso(pd.DataFrame({'y': fitted + eps, 'w': w}))
+coef_star, int_star = lasso(pd.DataFrame({'y': fitted + eps, 'weight': w}))
 coef_lin, int_lin = lasso(D, linear_term=LinearTerm(coef=-X.T @ (v * eps),
                                                     intercept=-(v * eps).sum()))
 
@@ -162,7 +160,7 @@ def minus(U):
 boot = {'refit y*': [], 'score': [], 'wild score': []}
 for _ in range(B):
     eps = rng.standard_normal(n) * np.sqrt(sigma2 / w)
-    boot['refit y*'].append(lasso(pd.DataFrame({'y': fitted + eps, 'w': w}))[0])
+    boot['refit y*'].append(lasso(pd.DataFrame({'y': fitted + eps, 'weight': w}))[0])
     U = L @ rng.standard_normal(p + 1)
     boot['score'].append(lasso(D, linear_term=minus(U))[0])
     xi = rng.choice([-1., 1.], n)

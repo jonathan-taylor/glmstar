@@ -36,6 +36,14 @@
   response=False)['offset']` is the offset of new data for `predict`.
   `modelmatrix>=0.3.1` is a new dependency. `CoxLM` and `RegCoxLM`
   default to a `CoxFamily`, as `CoxNetIRLS` does.
+- **`make_survival` and `CoxCIndexScorer` name the survival data by
+  role**: `make_survival`'s `y` has the columns `stop`, `status` (and
+  `start`), formerly `event` for `stop`, so it is a Cox model's `y` as
+  it is; `CoxCIndexScorer`'s columns default to `stop` and `status`, and
+  `start` and `strata` if the data have them. The documentation names the
+  columns of `y` by role throughout, with a page on them ("The Columns of
+  `y` by Role", in the input data's), the binomial's R `cbind` reading
+  spelled out.
 - **A modelmatrix feature as a smoother's column**: `s(log_x)`, with
   `log_x = derived_feature(['x'], encoder=FunctionTransformer(np.log),
   name='log(x)')`, is R's `s(log(x))`, the feature fit on the data and

@@ -112,13 +112,12 @@ class LogNet(FastNetMixin):
         - a 1D array of labels (two classes);
         - a 1D array of proportions in [0, 1] (with at least one value strictly
           between 0 and 1), with observation weights such as the number of
-          trials given by `weight_id`. This is equivalent to R's two-column
+          trials as the column `weight`. This is equivalent to R's two-column
           matrix of proportions with `weights` as the total counts;
-        - a 2D array of shape (n_samples, 2) containing pairs of (trials, successes).
-          `sample_weight` will be multiplied by the number of trials, and the
-          response will be transformed into proportions. This assumption is
-          documented because users might mistakenly use trials as weights
-          without accounting for them in the data shape.
+        - two columns, (successes, failures), as R's `cbind(successes,
+          failures)` (modelmatrix's `Binomial(s, trials=n)`): the response is
+          the proportion of successes, and the number of trials multiplies the
+          weights.
 
         Parameters
         ----------

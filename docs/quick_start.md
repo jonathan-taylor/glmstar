@@ -84,11 +84,12 @@ ax.set_title('Coefficient Paths for Linear Regression');
 For several `GLMNet` estimators we may have to pass several columns to specify
 the response (e.g. for `CoxNet`). We also may want to specify offset
 and possibly sample weights. For this reason, weights are specified
-as a column of the `y` argument to fit, typically a `pd.DataFrame`,
-and the estimator's `outcome` says which column is which: a modelmatrix
-`Outcome`, the response with the other columns named by their role
-(`offset=`, `weight=`, and for a Cox model the survival data and
-`strata=`).
+as a column of the `y` argument to fit, a `pd.DataFrame` whose
+columns are named by their role: `weight`, `offset`, for a Cox model
+`stop`, `status`, `start` and `strata`, and the response the other
+columns. A modelmatrix `Outcome` builds such a frame from the data, e.g.
+`Outcome('y', weight='w').fit_transform(D)`. See [the columns of y by
+role](input_data_rationale.md).
 
 ```{warning}
 Since weights are found through the response, the `sample_weights` argument to `fit` is ignored!
@@ -104,11 +105,13 @@ Df = pd.DataFrame({'response':y_gaussian,
                    'weight': weights})
 ```
 
-Now fit with an `Outcome` of the response and its weights:
+The column `weight` of `Df` is the weights, by its name. An `Outcome`
+builds the same frame from data with columns named otherwise:
 
 ```{code-cell} ipython3
 from modelmatrix import Outcome, Binomial
-fit_gaussian = GaussNet(outcome=Outcome('response', weight='weight')).fit(X_gaussian, Df)
+Y = Outcome('response', weight='weight').fit_transform(Df)
+fit_gaussian = GaussNet().fit(X_gaussian, Y)
 ```
 
 # Linear Regression: GaussNet
@@ -256,8 +259,7 @@ Df['weight'] = weights
 Fit with $\alpha=0.2$ and custom weights:
 
 ```{code-cell} ipython3
-fit_ridge_gaussian = GaussNet(alpha=0.2, nlambda=20,
-                              outcome=Outcome('response', weight='weight')).fit(X_gaussian, Df)
+fit_ridge_gaussian = GaussNet(alpha=0.2, nlambda=20).fit(X_gaussian, Df)
 ax = fit_ridge_gaussian.coef_path_.plot();
 ax.set_title('Ridge Regression (α=0.2) with Custom Weights');
 ```
@@ -398,7 +400,7 @@ Two conventions differ from R's `cv.glmnet` by design. 'Binomial Deviance' clamp
 
 ## Grouped data: proportions and counts
 
-The response can also be grouped: the number of successes among a number of trials for each observation. In R this is a two-column matrix of proportions with the numbers of trials as `weights`. In Python, a modelmatrix `Binomial` of the successes and trials gives the proportions, weighted by the trials:
+The response can also be grouped: the number of successes among a number of trials for each observation. In R this is a two-column matrix of proportions with the numbers of trials as `weights`. In Python, a modelmatrix `Binomial` of the successes and trials gives two columns, the successes and the failures, as R's `cbind(successes, failures)`; a binomial response of two columns is read that way, the proportion of successes weighted by the trials:
 
 ```{code-cell} ipython3
 rng = np.random.default_rng(0)
@@ -409,21 +411,24 @@ p_true = 1 / (1 + np.exp(-(X_grouped[:, 0] - 0.5 * X_grouped[:, 1])))
 successes = rng.binomial(trials, p_true)
 
 Df_grouped = pd.DataFrame({'successes': successes, 'trials': trials})
-fit_counts = LogNet(outcome=Binomial('successes', trials='trials')).fit(X_grouped, Df_grouped)
+Y_counts = Outcome(Binomial('successes', trials='trials')).fit_transform(Df_grouped)
+fit_counts = LogNet().fit(X_grouped, Y_counts)
+Y_counts.head(3)
 ```
 
 Equivalently, the response can be the proportions, with the numbers of trials as weights:
 
 ```{code-cell} ipython3
 Df_grouped['proportion'] = successes / trials
-fit_prop = LogNet(outcome=Outcome('proportion', weight='trials')).fit(X_grouped, Df_grouped)
+Y_prop = Outcome('proportion', weight='trials').fit_transform(Df_grouped)
+fit_prop = LogNet().fit(X_grouped, Y_prop)
 np.max(np.abs(fit_prop.coefs_ - fit_counts.coefs_))
 ```
 
 Cross-validation works the same way for grouped data:
 
 ```{code-cell} ipython3
-_, cvpath = fit_prop.cross_validation_path(X_grouped, Df_grouped, cv=5)
+_, cvpath = fit_prop.cross_validation_path(X_grouped, Y_prop, cv=5)
 ax = cvpath.plot(score='Binomial Deviance');
 ```
 
@@ -745,19 +750,19 @@ offset = np.random.randn(X_gaussian.shape[0])
 Df = pd.DataFrame({'response':y_gaussian,
                    'offset': offset})
 
-# Fit with the offset, the column `offset` of the Outcome
-fit_with_offset = GaussNet(outcome=Outcome('response', offset='offset')).fit(X_gaussian, Df)
+# Fit with the offset: the column `offset` of y
+fit_with_offset = GaussNet().fit(X_gaussian, Df)
 
 # Compare with fit without offset
-fit_no_offset = GaussNet(outcome=Outcome('response')).fit(X_gaussian, Df)
+fit_no_offset = GaussNet().fit(X_gaussian, Df[['response']])
 
 print("Intercept with offset:", fit_with_offset.intercepts_[0])
 print("Intercept without offset:", fit_no_offset.intercepts_[0])
 ```
 
-Of course, weights can also be added as above with `weight=` in the
-`Outcome`. An offset can be a feature of the data too, e.g. R's
-`offset(log(exposure))`; `fit.outcome_.transform(new, response=False)`
+Of course, weights can also be added as above, a column `weight`. With
+an `Outcome` an offset can be a feature of the data, e.g. R's
+`offset(log(exposure))`, and `outcome.transform(new, response=False)`
 gives the offset of new data, for `predict(X, offset=...)`.
 
 ## Sparse matrix support

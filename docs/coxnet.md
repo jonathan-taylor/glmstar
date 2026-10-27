@@ -42,7 +42,7 @@ Note there is no intercept in the Cox model as it is built into the baseline haz
 
 ## Basic usage for right-censored data
 
-We use synthetic data for illustration. `X` must be an $n\times p$ matrix of covariate values --- each row corresponds to a patient and each column a covariate. The response `y` is a DataFrame with a column of failure/censoring times and a 0/1 status column, with 1 meaning the time is a failure time, and 0 a censoring time. The estimator's `outcome`, modelmatrix's `Surv` as R's, names these columns; `CoxFamily` chooses how ties are handled.
+We use synthetic data for illustration. `X` must be an $n\times p$ matrix of covariate values --- each row corresponds to a patient and each column a covariate. The response `y` is a DataFrame with a column of failure/censoring times and a 0/1 status column, with 1 meaning the time is a failure time, and 0 a censoring time. Its columns are named by their role: `stop` (the times), `status`, and `start` and `strata` if any, as `make_survival` gives them and modelmatrix's `Surv`, as R's, builds them from other names (`Outcome(Surv('time', 'status')).fit_transform(D)`). `CoxFamily` chooses how ties are handled.
 
 ```{code-cell} ipython3
 import warnings
@@ -67,7 +67,7 @@ y.head()
 We apply `CoxNet` to compute the solution path under default settings:
 
 ```{code-cell} ipython3
-fit = CoxNet(outcome=Surv('event', 'status')).fit(X, y)
+fit = CoxNet().fit(X, y)
 ```
 
 All the standard options such as `alpha`, `weight_id`, `nlambda` and `standardize` apply, and their usage is similar to the Gaussian case (see [Quick Start](quick_start.md)).
@@ -114,12 +114,11 @@ x = rng.standard_normal((nobs, nvars))
 # response with many ties
 ty = np.repeat(rng.exponential(size=nobs // 5), 5)
 tcens = rng.binomial(1, 0.3, size=nobs)
-y = pd.DataFrame({'time': ty, 'status': tcens})
+y = Outcome(Surv('time', 'status')).fit_transform(pd.DataFrame({'time': ty, 'status': tcens}))
 
 fig, axes = plt.subplots(1, 2, figsize=(9, 4))
 for ax, ties in zip(axes, ['efron', 'breslow']):
-    glmnet_fit = CoxNet(family=CoxFamily(tie_breaking=ties), outcome=Surv('time', 'status'),
-                        lambda_values=[0.]).fit(x, y)
+    glmnet_fit = CoxNet(family=CoxFamily(tie_breaking=ties), lambda_values=[0.]).fit(x, y)
     coxph_fit = PHReg(ty, x, status=tcens, ties=ties).fit()
     ax.scatter(glmnet_fit.coefs_[0], coxph_fit.params)
     ax.axline((0, 0), slope=1, color='gray', ls='--')
@@ -155,21 +154,20 @@ tcens = rng.binomial(1, 0.3, size=nobs)
 starty = rng.uniform(size=nobs)
 yss = pd.DataFrame({'start': starty, 'stop': starty + ty, 'status': tcens})
 
-outcome = Surv('start', 'stop', 'status')
-fit = CoxNet(outcome=outcome).fit(x, yss)
+fit = CoxNet().fit(x, yss)   # start, stop, status: (start, stop] data
 ```
 
 The call above would have worked as well with `x_sparse` in place of `x`:
 
 ```{code-cell} ipython3
-fit_sparse = CoxNet(outcome=outcome).fit(x_sparse, yss)
+fit_sparse = CoxNet().fit(x_sparse, yss)
 np.max(np.abs(fit.coefs_ - fit_sparse.coefs_))
 ```
 
 As a sanity check, fitting start-stop responses with `lambda_values=[0]` matches `PHReg`, which takes the start times as `entry`:
 
 ```{code-cell} ipython3
-glmnet_fit = CoxNet(outcome=outcome, lambda_values=[0.]).fit(x, yss)
+glmnet_fit = CoxNet(lambda_values=[0.]).fit(x, yss)
 coxph_fit = PHReg(yss['stop'], x, status=tcens, entry=starty).fit()
 fig, ax = plt.subplots()
 ax.scatter(glmnet_fit.coefs_[0], coxph_fit.params)
@@ -181,7 +179,7 @@ ax.set_xlabel('CoxNet'); ax.set_ylabel('PHReg');
 
 One extension of the Cox regression model is to allow for strata that divide the observations into disjoint groups. Each group has its own baseline hazard function, but the groups share the same coefficient vector for the covariates provided by the design matrix `x`.
 
-`CoxNet` can fit stratified Cox models with the elastic net penalty. In R, `glmnet` attaches strata to the response with `stratifySurv`; here we add a strata column to the response DataFrame and name it in the `Outcome`, `strata=`. The labels can be of any type.
+`CoxNet` can fit stratified Cox models with the elastic net penalty. In R, `glmnet` attaches strata to the response with `stratifySurv`; here we add a column `strata` to the response DataFrame (with an `Outcome`, `strata=`). The labels can be of any type.
 
 ```{code-cell} ipython3
 strata = np.tile(np.arange(1, 6), nobs // 5)
@@ -190,16 +188,15 @@ y2.head(6)
 ```
 
 ```{code-cell} ipython3
-outcome = Outcome(Surv('time', 'status'), strata='strata')
-fit = CoxNet(outcome=outcome).fit(x, y2)
+fit = CoxNet().fit(x, y2)
 ```
 
 With `lambda_values=[0]` the stratified fit matches `PHReg` with `strata`:
 
 ```{code-cell} ipython3
 x = rng.standard_normal((nobs, nvars))
-glmnet_fit = CoxNet(outcome=outcome, lambda_values=[0.]).fit(x, y2)
-coxph_fit = PHReg(y2['time'], x, status=y2['status'], strata=strata).fit()
+glmnet_fit = CoxNet(lambda_values=[0.]).fit(x, y2)
+coxph_fit = PHReg(y2['stop'], x, status=y2['status'], strata=strata).fit()
 np.max(np.abs(glmnet_fit.coefs_[0] - coxph_fit.params))
 ```
 
@@ -208,7 +205,7 @@ np.max(np.abs(glmnet_fit.coefs_[0] - coxph_fit.params))
 R's `glmnet` provides a `survfit` method for Cox fits, which estimates the baseline hazard and plots survival curves. This is not yet available in Python; `predict` returns the linear predictor, from which relative risks $e^{x^T \hat\beta}$ can be computed:
 
 ```{code-cell} ipython3
-fit = CoxNet(outcome=Surv('time', 'status')).fit(x, y)
+fit = CoxNet().fit(x, y)
 fit.predict(x[:3], interpolation_grid=0.05)
 ```
 
