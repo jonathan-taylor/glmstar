@@ -48,6 +48,7 @@ project:
     - title: Inference
       children:
         - file: inference.md
+        - file: linear_hypotheses.md
         - file: score_bootstrap.md
         - file: overdispersed_poisson.md
         - file: probit_regression.md

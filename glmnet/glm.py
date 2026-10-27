@@ -1131,29 +1131,8 @@ class GLM(GLMBase):
         if self.ridge_coef != 0:
             warnings.warn('Detected a non-zero ridge term: variance estimates are taken to be posterior variance estimates')
 
-        bread = np.linalg.inv(self._precision())
-        if self.sandwich:
-            covariance_ = bread @ self._score_meat() @ bread
-        else:
-            covariance_ = self.dispersion_ * bread
-
-        SE = np.sqrt(np.diag(covariance_)) 
-        coef = self.params_.values
-        T = coef / SE
-
-        if self._use_t():
-            stat, pval = 't', 2 * t_dbn.sf(np.fabs(T), df=self.df_resid_)
-        else:
-            stat, pval = 'z', 2 * normal_dbn.sf(np.fabs(T))
-        q = self._quantile(0.05)
-        summary_ = pd.DataFrame({'coef': coef,
-                                 'std err': SE,
-                                 stat: T,
-                                 f'P>|{stat}|': pval,
-                                 '[0.025': coef - q * SE,
-                                 '0.975]': coef + q * SE},
-                                index=self.params_.index)
-        return covariance_, summary_
+        covariance_, model_based = _covariance_of(self, 'sandwich' if self.sandwich else 'model')
+        return covariance_, _coef_table(self, covariance_, _use_t(self, model_based))
 
     def _keep(self):
         """The intercept (if fitted) and the variables in the model."""
@@ -1174,16 +1153,30 @@ class GLM(GLMBase):
         keep = self._keep()
         return precision[keep][:, keep]
 
+    def _score_contributions(self):
+        """
+        The scores of `params_` of the observations, one row each (n x p),
+        without the dispersion: their sum is the score, the sum of their outer
+        products the sandwich's meat (HC0).
+        """
+        # the score of observation i is x_i w_i (y_i - mu_i) (dmu/deta)_i / V(mu_i)
+        r = np.asarray(self.state_.logl_score(self._family, self._response, self._weight),
+                       float).reshape(-1)
+        design = self.design_
+        if scipy.sparse.issparse(design.X):   # (stored as given)
+            X = design.X.toarray()
+        else:   # (stored standardized)
+            X = design.X * design.scaling_[None, :] + design.centers_[None, :]
+        X = np.column_stack([np.ones(X.shape[0]), X])
+        return (X * r[:, None])[:, self._keep()]
+
     def _score_meat(self):
         """
         The middle of the sandwich, the sum over the observations of the outer
         products of their scores of `params_`, without the dispersion.
         """
-        # the score of observation i is x_i w_i (y_i - mu_i) (dmu/deta)_i / V(mu_i)
-        r = self.state_.logl_score(self._family, self._response, self._weight)
-        meat = self.design_.quadratic_form(DiagonalOperator(r**2), transformed=False)
-        keep = self._keep()
-        return meat[keep][:, keep]
+        S = self._score_contributions()
+        return S.T @ S
 
     def _fixed_dispersion(self):
         """Is the dispersion of the family fixed at 1 (binomial, Poisson, negative binomial, Cox)?"""
@@ -1332,6 +1325,61 @@ def _interval_frame(X, estimate, half):
                         index=index)
 
 
+def _covariance_of(fit, covariance=None):
+    """
+    The covariance of `fit.params_` to use, and whether it is model-based:
+    `None` the fit's own (`covariance_`, the sandwich's if `sandwich`),
+    `'model'`, `'sandwich'` (HC0), or a p x p array (e.g. from
+    `glmnet.hypothesis.sandwich_covariance(fit, meat=...)`).
+    """
+    if covariance is None:
+        covariance = 'sandwich' if fit.sandwich else 'model'
+    if isinstance(covariance, str):
+        bread = np.linalg.inv(fit._precision())
+        if covariance == 'model':
+            return fit.dispersion_ * bread, True
+        if covariance == 'sandwich':
+            return bread @ fit._score_meat() @ bread, False
+        raise ValueError(f"covariance should be None, 'model', 'sandwich' or an array, "
+                         f"got {covariance!r}")
+    C = np.asarray(covariance, float)
+    p = len(fit.params_)
+    if C.shape != (p, p):
+        raise ValueError(f'the covariance should be {p} x {p}, as params_, got {C.shape}')
+    return C, False
+
+
+def _use_t(fit, model_based):
+    """
+    t (or F) on `df_resid_`, rather than z (or chi-squared): least squares
+    (the Gaussian with identity link, an estimated dispersion) with a
+    model-based covariance, where the statistics are exactly t (or F).
+    """
+    return (fit._family.is_gaussian and getattr(fit, '_estimated_dispersion', False)
+            and model_based)
+
+
+def _coef_table(fit, covariance, use_t, level=0.95):
+    """The coefficient table (summary_) of a fit, at a covariance."""
+    SE = np.sqrt(np.diag(covariance))
+    coef = fit.params_.values
+    T = coef / SE
+    if use_t:
+        stat, pval = 't', 2 * t_dbn.sf(np.fabs(T), df=fit.df_resid_)
+        q = t_dbn.ppf(1 - (1 - level) / 2, df=fit.df_resid_)
+    else:
+        stat, pval = 'z', 2 * normal_dbn.sf(np.fabs(T))
+        q = normal_dbn.ppf(1 - (1 - level) / 2)
+    alpha = 1 - level
+    return pd.DataFrame({'coef': coef,
+                         'std err': SE,
+                         stat: T,
+                         f'P>|{stat}|': pval,
+                         f'[{alpha / 2:g}': coef - q * SE,
+                         f'{1 - alpha / 2:g}]': coef + q * SE},
+                        index=fit.params_.index)
+
+
 def anova(*fits):
     """
     Analysis of deviance for nested fits to the same data, from the smallest model
@@ -1471,7 +1519,7 @@ def leverage(fit, X):
         value = fit.weight_total_ * ((X @ C) * (W @ X)).sum(1)
     return fit._on_train_index(value, 'leverage')
 
-def summarize(fit, conf_int=False, level=None, full=False):
+def summarize(fit, conf_int=False, level=None, full=False, covariance=None):
     """
     The coefficient table of an unpenalized `GLM` or `CoxLM`: the estimates,
     their standard errors, the t (or z) statistics and the p-values, as ISLP's
@@ -1494,6 +1542,11 @@ def summarize(fit, conf_int=False, level=None, full=False):
         of the residuals, the deviance and null deviance, the dispersion, the
         log-likelihood, AIC, BIC and the covariance (model or sandwich).
         Default False.
+    covariance: str or np.ndarray, optional
+        The covariance of the coefficients: the fit's (default), `'model'`,
+        `'sandwich'`, or a p x p array, e.g. a sandwich with a meat of one's
+        own (`glmnet.hypothesis.sandwich_covariance`). With a covariance other
+        than the model's the statistics are z.
 
     Returns
     -------
@@ -1506,13 +1559,14 @@ def summarize(fit, conf_int=False, level=None, full=False):
         conf_int = True
     else:
         level = 0.95
-    table = fit.summary_ if getattr(fit, 'summary_', None) is not None else fit._summarize()[1]
-    table = table.iloc[:, :4].copy()
-    if conf_int:
-        alpha = 1 - level
-        q = fit._quantile(alpha)
-        table[f'[{alpha / 2:g}'] = table['coef'] - q * table['std err']
-        table[f'{1 - alpha / 2:g}]'] = table['coef'] + q * table['std err']
+    if covariance is None and getattr(fit, 'summary_', None) is not None:
+        covariance = fit.covariance_
+        model_based = not fit.sandwich
+    else:
+        covariance, model_based = _covariance_of(fit, covariance)
+    table = _coef_table(fit, np.asarray(covariance), _use_t(fit, model_based), level=level)
+    if not conf_int:
+        table = table.iloc[:, :4]
     if full:
         print(_describe(fit))
     return table
