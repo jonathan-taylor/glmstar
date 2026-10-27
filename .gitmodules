@@ -3,4 +3,4 @@
 	url = https://github.com/eigen-mirror/eigen.git
 [submodule "src/glmnetpp"]
 	path = src/glmnetpp
-	url = https://github.com/intro-stat-learning/glmnetpp.git
+	url = git@github.com:intro-stat-learning/glmnetpp.git
