@@ -127,6 +127,19 @@
   R's `bigGlm` does; it now gives the constrained fit, checked against
   `survival::coxph` with the bound coefficient as an offset (#207).
 
+### Deprecated
+
+- **The ids of `y`, for `outcome=`**: `response_id`, `offset_id` and
+  `weight_id`, the `CoxFamily`'s `event_id`, `status_id`, `start_id` and
+  `strata_id` (also their defaults: a Cox fit without `outcome=` warns),
+  and the response taken as every column of `y` but the offset and
+  weights, warn (FutureWarning), once, from the fit called (not from the
+  fits within it). Give the columns of `y` by `outcome=`, a modelmatrix
+  `Outcome`, or a response alone: `CoxNet(outcome=Surv('time',
+  'status'))`, `LogNet(outcome=Binomial('cases', trials='size'))`,
+  `MultiClassNet(outcome=Multinomial('kind'))` are `Outcome`s of their
+  response. The documentation uses `outcome=` throughout.
+
 ### Packaging
 
 - **The wheels carry the license files** (`license-files`, PEP 639):

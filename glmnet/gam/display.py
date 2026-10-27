@@ -35,9 +35,10 @@ def _offset_weight(gam):
         offset, weight = getattr(gam, 'offset_id', None), getattr(gam, 'weight_id', None)
         trials = None
     else:
-        names = {key: getattr(value, 'name', value) for key, value in outcome.extra.items()}
+        extra = getattr(outcome, 'extra', {})   # (a response alone has none)
+        names = {key: getattr(value, 'name', value) for key, value in extra.items()}
         offset, weight = names.get('offset'), names.get('weight')
-        trials = getattr(outcome.response, 'trials', None)
+        trials = getattr(getattr(outcome, 'response', outcome), 'trials', None)
     tex = lambda name: None if name is None else rf'{_tex(name)}_i'
     weights = [w for w in [tex(trials), tex(weight)] if w is not None]
     return tex(offset), r' \cdot '.join(weights) if weights else None

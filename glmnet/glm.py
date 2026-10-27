@@ -96,11 +96,11 @@ class GLMBaseSpec(object):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.
@@ -443,11 +443,11 @@ class GLMBase(BaseEstimator,
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.
@@ -966,11 +966,11 @@ class GLM(GLMBase):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.
@@ -1612,11 +1612,11 @@ class GaussianGLM(RegressorMixin, GLM):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.
@@ -1650,11 +1650,11 @@ class BinomialGLM(ClassifierMixin, GLM):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.

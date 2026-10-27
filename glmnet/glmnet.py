@@ -156,11 +156,11 @@ class GLMNetSpec(object):
     regularized_estimator: BaseEstimator
         Estimator class used for fitting each point on path.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.
@@ -270,11 +270,11 @@ class GLMNet(BaseEstimator,
     regularized_estimator: BaseEstimator
         Estimator class used for fitting each point on path.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for a Cox model the survival data and strata), e.g.

@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from modelmatrix import Outcome
 import pytest
 import scipy.sparse
 import statsmodels.api as sm
@@ -32,8 +33,9 @@ FAMILIES = {'gaussian': sm.families.Gaussian(),
             'poisson': sm.families.Poisson()}
 
 
-def _glmnet(family='gaussian', **kwargs):
-    return GLMNet(family=FAMILIES[family], response_id='y', weight_id='w', **kwargs)
+def _glmnet(family='gaussian', offset=None, **kwargs):
+    columns = dict(weight='w') if offset is None else dict(weight='w', offset=offset)
+    return GLMNet(family=FAMILIES[family], outcome=Outcome('y', **columns), **kwargs)
 
 
 def _kkt(fit, X, Y, G, alpha=1.0, pf=None, family='gaussian'):
@@ -117,7 +119,7 @@ def test_offset_is_linear_term(standardize, weighted, sparse):
     Y['o'] = o
     X_ = scipy.sparse.csc_array(X) if sparse else X
 
-    offset = _glmnet(offset_id='o', standardize=standardize).fit(X_, Y)
+    offset = _glmnet(offset='o', standardize=standardize).fit(X_, Y)
     lin = _glmnet(linear_term=G, standardize=standardize).fit(X_, Y)
     np.testing.assert_allclose(lin.lambda_max_, offset.lambda_max_, rtol=1e-10)
 
@@ -128,7 +130,7 @@ def test_offset_is_linear_term(standardize, weighted, sparse):
     # only up to the solver's convergence: tighten it
     kw = dict(standardize=standardize, lambda_values=lambdas,
               control=GLMNetControl(thresh=1e-14))
-    offset = _glmnet(offset_id='o', **kw).fit(X_, Y)
+    offset = _glmnet(offset='o', **kw).fit(X_, Y)
     lin = _glmnet(linear_term=G, **kw).fit(X_, Y)
     assert offset.coefs_.shape == lin.coefs_.shape == (30, P)
     np.testing.assert_allclose(lin.coefs_, offset.coefs_, atol=1e-6)

@@ -7,6 +7,7 @@ import statsmodels.api as sm
 import pytest
 
 from glmnet.cox import CoxLM, CoxFamily, CoxFamilySpec
+from modelmatrix import Surv
 from glmnet.glm import GLM, GLMControl
 
 TIGHT_LIFELINES = {'precision': 1e-12}
@@ -40,11 +41,13 @@ def _score(fit, X, Y):
 @pytest.mark.parametrize('ties', ['breslow', 'efron'])
 def test_coxlm_converges(ties):
     X, Y = _data()
-    family = CoxFamily(event_id='time', status_id='status', tie_breaking=ties)
+    family = CoxFamily(tie_breaking=ties)
+    outcome = Surv('time', 'status')
     with warnings.catch_warnings():
         warnings.simplefilter('error')
-        fit = CoxLM(family=family, summarize=True).fit(X, Y)
-    tight = CoxLM(family=family, control=GLMControl(epsnr=1e-14, mxitnr=50)).fit(X, Y)
+        fit = CoxLM(family=family, outcome=outcome, summarize=True).fit(X, Y)
+    tight = CoxLM(family=family, outcome=outcome,
+                  control=GLMControl(epsnr=1e-14, mxitnr=50)).fit(X, Y)
     np.testing.assert_allclose(fit.coef_, tight.coef_, atol=1e-6)
     np.testing.assert_allclose(_score(fit, X, Y), 0, atol=1e-6)
 

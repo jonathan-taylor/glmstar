@@ -65,7 +65,8 @@ R's `gam` (Hastie and Tibshirani's local scoring with backfitting) is a
 | `x` (linear) | `'x'`, or `linear('x')` | |
 | a factor | `'f'` (a categorical column) or `contrast('f')`, or `categorical('f')` (formerly `factor('f')`, deprecated) | |
 | `x:f`, `poly(x, 2)`, `ns(x, df=3)` | `('x', 'f')`, `poly('x', 2)`, `ns('x', df=3)` (modelmatrix's terms, as items of `terms`) | against mgcv's parametric coefficients |
-| `family=binomial`, `weights=`, `offset(o)` | `family=sm.families.Binomial()`, `weight_id=`, `offset_id=` | Gaussian, binomial, Poisson, Gamma |
+| `family=binomial`, `weights=`, `offset(o)` | `family=sm.families.Binomial()`, `outcome=Outcome('y', weight='w', offset='o')` (modelmatrix) | Gaussian, binomial, Poisson, Gamma |
+| `cbind(s, n - s) ~ ...`, `offset(log(e))` | `outcome=Binomial('s', trials='n')`, `Outcome('y', offset=log_e)` with `log_e` a modelmatrix feature | |
 | `predict(m, newdata, type="terms")` | `fit.partial_effect(term, x)` | |
 | `plot(m, se=TRUE)` | `fit.plot()` | |
 
@@ -97,7 +98,7 @@ design](gam_reml.md).
 | `family=quasipoisson()`, `quasibinomial()` | `family=QuasiPoisson()`, `QuasiBinomial()` (`glmnet.gam`) | the dispersion (REML/ML) to 1e-4, ML criterion to 1e-7 |
 | `family=nb()` | `family=NegativeBinomial()` (`glmnet.gam`), `theta` in `fit.negative_binomial_theta_` | theta to 1e-4, ML criterion to 1e-7 |
 | `family=negbin(theta)` | `family=NegativeBinomial(theta=theta)` | ML criterion to 1e-7 |
-| `family=cox.ph(), weights=status` | `family=CoxFamily(event_id=..., status_id=...)` | fixed `sp` and REML |
+| `family=cox.ph(), weights=status` | `family=CoxFamily(), outcome=Surv('time', 'status')` (modelmatrix) | fixed `sp` and REML |
 | `m$sp` | `fit.smoothing_.lam_raw`, then times each `S.scale` | |
 | `m$gcv.ubre` | `fit.reml_score_` | ML: equal; REML: up to a constant |
 | `m$Vp`, `m$Ve` | `fit.posterior_covariance_`, `fit.frequentist_covariance_` | |

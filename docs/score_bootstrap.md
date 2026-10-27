@@ -49,6 +49,7 @@ import statsmodels.api as sm
 from scipy.stats import norm
 
 from glmnet import GLM, GLMNet, LinearTerm
+from modelmatrix import Outcome
 from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import glmstar_inference_problem, score_perturbation
@@ -82,7 +83,7 @@ $$y^* = \hat\beta_0 + X\hat\beta + \epsilon^*, \qquad \epsilon^*_i \sim N(0, \ha
 
 ```{code-cell} ipython3
 X1 = np.column_stack([np.ones(n), X])
-wls = GLM(response_id='y', weight_id='w').fit(X, D)
+wls = GLM(outcome=Outcome('y', weight='w')).fit(X, D)
 fitted = wls.predict(X)
 resid = y - fitted
 sigma2 = wls.dispersion_
@@ -93,12 +94,12 @@ We bootstrap the lasso at one value of $\lambda$, taken from the path
 fit to the data.
 
 ```{code-cell} ipython3
-path = GLMNet(response_id='y', weight_id='w').fit(X, D)
+path = GLMNet(outcome=Outcome('y', weight='w')).fit(X, D)
 lam = path.lambda_values_[20]
 print(lam, (path.coefs_[20] != 0).sum())
 
 def lasso(D, linear_term=None):
-    fit = GLMNet(response_id='y', weight_id='w',
+    fit = GLMNet(outcome=Outcome('y', weight='w'),
                  lambda_values=np.array([lam]),
                  linear_term=linear_term).fit(X, D)
     return fit.coefs_[0], fit.intercepts_[0]

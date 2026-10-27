@@ -157,3 +157,15 @@ def test_errors():
         GAM(TERMS, family=CoxFamily(), outcome=Outcome('time')).fit(D, D)
     with pytest.raises(ValueError, match='one column'):
         GAM(TERMS, outcome=Outcome(['y', 'z'])).fit(D, D)
+
+
+def test_response_alone():
+    # outcome=Surv(...) or Binomial(...): an Outcome of it
+    D = _data()
+    a = GAM(TERMS, family=CoxFamily(), outcome=Surv('time', 'status')).fit(D, D)
+    b = GAM(TERMS, family=CoxFamily(), outcome=Outcome(Surv('time', 'status'))).fit(D, D)
+    np.testing.assert_allclose(a.predict(D, prediction_type='link'),
+                               b.predict(D, prediction_type='link'), rtol=1e-12)
+    G = GAM(TERMS, family=BINOMIAL, outcome=Binomial('succ', trials='trials'))
+    assert r'w_i &= \text{trials}_i' in G.model_latex()
+    G.fit(D, D)

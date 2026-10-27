@@ -377,6 +377,11 @@ class CoxFamily(object):
         Column name for start times (for start-stop data).
     strata_id : str, optional, default=None
         Column name for strata (for stratified Cox models).
+
+    The ids are deprecated: give the survival data by the estimator's
+    `outcome`, e.g. `outcome=Surv('time', 'status')` or
+    `outcome=Outcome(Surv('start', 'stop', 'status'), strata='inst')`
+    (modelmatrix).
     """
     tie_breaking: Literal['breslow', 'efron'] = 'breslow'
     event_id: Optional[str] = 'event'
