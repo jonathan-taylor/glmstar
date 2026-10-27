@@ -47,6 +47,7 @@ A C++17 compiler is required to build the extension modules.
 
 ```bash
 uv venv                         # .venv in the project
+source .venv/bin/activate       # (uv finds .venv without it; python, pytest need it)
 uv pip install --group build    # the build tools first (meson-python, coxdev, ...)
 uv sync                         # editable install plus the test tools (the `dev` group)
 uv run pytest tests --test-size=small
@@ -68,7 +69,11 @@ uv pip install -e .      # or `uv pip install .` for a regular install
 
 ### Install with pip
 
+In a virtual environment of its own:
+
 ```bash
+python -m venv .venv
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
 pip install .
 ```
 
