@@ -59,6 +59,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
+from modelmatrix import Feature
 from scipy.linalg import solve_banded
 from scipy.optimize import brentq
 
@@ -133,7 +134,7 @@ class Smoother(BaseEstimator):
         """The term's name, as `s(age, df=5)`: its label, or the prefix and column."""
         label = getattr(self, 'label', None)
         prefix = getattr(self, '_label', None) or type(self).__name__
-        return label if label else f'{prefix}({self.column})'
+        return label if label else f'{prefix}({_column_label(self.column)})'
 
     def setup(self, x):
         """Set the term up on its column `x` of the training data."""
@@ -393,11 +394,13 @@ def _weighted_fit(X, r, w):
 
 
 def _is_interaction(column):
-    return isinstance(column, (list, tuple))
+    # (a modelmatrix Feature is a tuple, but one column)
+    return isinstance(column, (list, tuple)) and not isinstance(column, Feature)
 
 
 def _group_label(column):
-    return ':'.join(str(c) for c in column) if _is_interaction(column) else column
+    return (':'.join(str(_column_label(c)) for c in column) if _is_interaction(column)
+            else _column_label(column))
 
 
 def _interaction(x):
@@ -1011,10 +1014,19 @@ class RandomEffectSmoother(Smoother):
         return effects * (1. if v is None else v)
 
 
+def _column_label(column):
+    """A column as a term's name shows it: a modelmatrix Feature by its name."""
+    if isinstance(column, Feature):
+        return column.name
+    if isinstance(column, (list, tuple)):
+        return type(column)(_column_label(c) for c in column)
+    return column
+
+
 def _name(label, column, **kwargs):
     # the term's name shows the arguments given (that differ from the defaults)
-    args = ', '.join(f'{k}={v}' for k, v in kwargs.items() if v is not None)
-    return f'{label}({column}{", " + args if args else ""})'
+    args = ', '.join(f'{k}={_column_label(v)}' for k, v in kwargs.items() if v is not None)
+    return f'{label}({_column_label(column)}{", " + args if args else ""})'
 
 
 @dataclass
