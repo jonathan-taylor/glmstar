@@ -85,6 +85,25 @@ pip install meson-python meson ninja pybind11 setuptools_scm coxdev
 pip install --no-build-isolation -e .
 ```
 
+### Building the docs
+
+The documentation is a Jupyter Book 2 site, its pages executed, and a Sphinx API
+reference. It needs [Node.js](https://nodejs.org) 18 or later (Jupyter Book 2 runs on
+it) and R (for `rpy2`, one of the docs' dependencies). In the activated environment of
+the development install above, from the repository's root:
+
+```bash
+uv sync --extra doc --extra gam     # Jupyter Book 2, Sphinx, rpy2, lassoinf, jax
+uv pip install --no-deps ISLP       # the data of some pages, without ISLP's dependencies
+cd docs
+jupyter-book build --html --execute         # the pages, executed: docs/_build/html
+sphinx-build -b html api _build/html/api    # the API reference: docs/_build/html/api
+open _build/html/index.html
+```
+
+`jupyter-book start` serves the pages instead, rebuilding them as they change. This is
+what `.github/workflows/build_docs.yml` runs.
+
 ### Troubleshooting
 
 If the build fails with `'pybind11/pybind11.h' file not found`, a stale meson build
