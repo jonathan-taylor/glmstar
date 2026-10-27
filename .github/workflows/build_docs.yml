@@ -77,7 +77,8 @@ jobs:
           BASE_URL: /${{ github.event.repository.name }}/${{ env.FOLDER }}
         run: |
           cd docs
-          jupyter-book build --html --execute --ci
+          # (two pages at a time: all at once runs the runner out of memory)
+          jupyter-book build --html --execute --execute-parallel 2 --ci
           test -f _build/html/index.html
 
       # The API reference: Sphinx autodoc, into api/ next to the book
