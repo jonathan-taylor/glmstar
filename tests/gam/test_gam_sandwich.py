@@ -213,9 +213,30 @@ def test_max_dense_design(data):
     from sklearn.utils import estimator_html_repr
     dir(G), estimator_html_repr(G)
     assert G._covariance['design'] is None
+    # with a smooth, fixed_effects_ needs the posterior covariance (it raises)
+    S = GAM(terms=terms[:2], control=GAMControl(max_dense_design=10)).fit(D, D['y'])
+    dir(S), estimator_html_repr(S)
     # at the limit, as before
     H = GAM(terms=terms, control=GAMControl(max_dense_design=D.shape[0] * n_coef)).fit(D, D['y'])
     np.testing.assert_allclose(H.posterior_covariance_, ref.posterior_covariance_)
+
+
+def test_display_forms_nothing(data):
+    # dir() and the HTML display leave out the computed properties: nothing
+    # dense is formed, and fixed_effects_ (which raises for a categorical)
+    # is not evaluated
+    from sklearn.utils import estimator_html_repr
+    D = data
+    G = GAM(terms=[s('a', df=5), linear('b'), categorical('c')]).fit(D, D['y'])
+    names = dir(G)
+    estimator_html_repr(G)
+    assert not set(GAM._computed_properties) & set(names)
+    assert G._covariance is None
+    # still there when asked for
+    assert G.design_ is not None
+    with pytest.raises(NotImplementedError, match='categorical'):
+        G.fixed_effects_
+
 
 def test_cox(data):
     D = data.copy()

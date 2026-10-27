@@ -726,6 +726,21 @@ class GAM(BaseEstimator):
         self._covariance = cov
         return cov
 
+    # computed on demand: dense (the design, P x P covariances), or raising
+    _computed_properties = ('design_', 'posterior_covariance_', 'frequentist_covariance_',
+                            'edf_influence_', 'penalty_matrix_', 'fixed_effects_',
+                            'fixed_effects_covariance_')
+
+    def __dir__(self):
+        # scikit-learn's evaluates every attribute (hasattr), and so does
+        # its HTML display of the estimator (inspect.getmembers, by dir()):
+        # leave out the computed properties, so neither forms nor raises
+        names = [name for name in object.__dir__(self) if name not in self._computed_properties]
+        # (as scikit-learn's, for available_if)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=FutureWarning)
+            return [name for name in names if hasattr(self, name)]
+
     @property
     def design_(self):
         """The `JointDesign` of the terms' bases (None if a term has none)."""
