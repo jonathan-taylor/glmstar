@@ -38,6 +38,17 @@
   `modelmatrix>=0.3.1` is a new dependency.
   The ids are unchanged; giving both raises. `CoxLM` and `RegCoxLM`
   default to a `CoxFamily`, as `CoxNetIRLS` does.
+- **`outcome=` for `GAM` and `GLMM`**, as for the GLMs: e.g.
+  `GAM(terms, family=Poisson(), outcome=Outcome('claims',
+  offset=log_exposure))`, mgcv's `offset(log(exposure))`, or
+  `outcome=Outcome(Surv('time', 'status'), strata='inst')` for the Cox
+  family. A `Binomial` gives a GAM labels of any two levels (the success
+  second) and, with `trials=`, a proportion weighted by its trials, which
+  the ids could only give as columns computed beforehand. `model_latex`
+  names the outcome's offset (a feature by its name) and weights (the
+  trials, times any weights). `big_glm` and the inference functions
+  (`glmstar_problem`, `glmstar_inference_problem`) take the estimators of
+  an outcome as they are.
 
 ### Bug fixes
 
