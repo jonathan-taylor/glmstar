@@ -21,6 +21,13 @@ Generalized additive models
    :show-inheritance:
    :no-index:
 
+Linear hypotheses and ANOVA tables
+----------------------------------
+
+.. automodule:: glmnet.hypothesis
+   :members:
+   :no-index:
+
 Paths module
 ------------
 

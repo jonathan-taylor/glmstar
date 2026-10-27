@@ -740,6 +740,10 @@ class CoxLM(GLM):
         return result.loglik_sat - result.deviance / 2
 
     def _score_meat(self):
+        S = self._score_contributions()
+        return S.T @ S
+
+    def _score_contributions(self):
         # the score residuals (Lin and Wei, 1989), as R's coxph(robust=TRUE)
         design = self.design_
         X = design.X[:, np.nonzero(self._kept)[0]]
@@ -752,8 +756,7 @@ class CoxLM(GLM):
         if not scipy.sparse.issparse(design.X):
             U = U * design.scaling_[self._kept][None, :]
         # they are linear in the weights, which are normalized
-        U = self.weight_total_ * U
-        return U.T @ U
+        return self.weight_total_ * U
 
     def score(self, X, y, sample_weight=None):
         """

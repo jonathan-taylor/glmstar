@@ -64,6 +64,21 @@
   (`glmstar_problem`, `glmstar_inference_problem`) take the estimators of
   an outcome as they are.
 
+- **Linear hypotheses and ANOVA tables** (`glmnet.hypothesis`), for an
+  unpenalized `GLM` or `CoxLM`: `linear_hypothesis(fit, L, rhs)`, the
+  Wald test of `L beta = rhs` (R's `car::linearHypothesis`), `L` by the
+  coefficients' names (`{'c[b]': 1, 'c[c]': -1}`; the intercept only if
+  named) or an array with a column for each coefficient;
+  `anova_table(estimator, spec, X, y, type='I'|'III')`, the table by term
+  of a modelmatrix `ModelSpec`, sequential (R's `anova(lm)`,
+  `anova(glm, test="Chisq")`, `anova(coxph)`, checked against R) or each
+  term last (Wald, as `car::Anova(type=3)`); and
+  `sandwich_covariance(fit, meat=..., groups=...)` with
+  `score_contributions(fit)`, for a meat of one's own (HC3, serial
+  correlation, a bootstrap) or clusters. They, and `summarize`, take
+  `covariance=` (the fit's, `'model'`, `'sandwich'` or an array). A page,
+  "Linear hypotheses and ANOVA tables".
+
 ### Bug fixes
 
 - **`GLM.score` reads `y` as `fit` does**: the response, offset and
