@@ -304,3 +304,47 @@ def test_inference(name):
     ia = glmstar_inference_problem(a, X, D, lambda_val=lam, selection_rows=rows)
     ib = glmstar_inference_problem(b, X, D, lambda_val=lam, selection_rows=rows)
     np.testing.assert_allclose(ia.Z_full, ib.Z_full, rtol=1e-10, atol=1e-12)
+
+
+def _future(record):
+    return [str(w.message) for w in record if issubclass(w.category, FutureWarning)]
+
+
+def test_ids_deprecated():
+    import warnings
+    X, D = _data()
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter('always')
+        GLMNet(family=POISSON, response_id='cnt', offset_id='O', weight_id='w').fit(X, D)
+    messages = _future(record)
+    # once, from the fit called (not again from the fits within it)
+    assert len(messages) == 1
+    assert 'response_id, offset_id, weight_id are deprecated' in messages[0]
+    with pytest.warns(FutureWarning, match="CoxFamily's event_id"):
+        CoxNet(family=CoxFamily(event_id='time', status_id='status')).fit(X, D)
+    with pytest.warns(FutureWarning, match="CoxFamily's event_id"):
+        CoxNet().fit(X, D.rename(columns={'time': 'event'}))   # the default ids, too
+    with pytest.warns(FutureWarning, match='every column of y'):
+        MultiGaussNet().fit(X, D[['y', 'y2']])
+    # no warning: a response alone, or an outcome
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter('always')
+        GaussNet().fit(X, D['y'])
+        GaussNet(outcome=Outcome('y', weight='w')).fit(X, D)
+        CoxNet(outcome=Surv('time', 'status')).fit(X, D)
+    assert _future(record) == []
+
+
+@pytest.mark.parametrize('est, response, wrapped', [
+    (CoxNet, Surv('time', 'status'), Outcome(Surv('time', 'status'))),
+    (LogNet, Binomial('lab'), Outcome(Binomial('lab'))),
+    (MultiClassNet, Multinomial('cls'), Outcome(Multinomial('cls'))),
+])
+def test_response_alone(est, response, wrapped):
+    # a modelmatrix response alone is an Outcome of it
+    X, D = _data()
+    a = est(outcome=response).fit(X, D)
+    b = est(outcome=wrapped).fit(X, D)
+    np.testing.assert_allclose(a.coefs_, b.coefs_, rtol=1e-12)
+    _same_scores(a.score_path(X, D), b.score_path(X, D))
+    assert a.outcome is response and isinstance(a.outcome_, Outcome)

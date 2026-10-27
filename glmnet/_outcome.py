@@ -10,11 +10,13 @@ reads the columns of `response_id`, `offset_id` and `weight_id`.
 """
 
 from copy import deepcopy
+import sys
+import warnings
 
 import numpy as np
 import pandas as pd
 
-from modelmatrix import Outcome, Surv, Binomial, Multinomial
+from modelmatrix import Outcome, Response, Surv, Binomial, Multinomial
 
 # the attribute of a frame built by an outcome: the fitted outcome, so that
 # the frame is not built again, and an estimator fit to it (e.g. a clone, on
@@ -30,12 +32,17 @@ def _fit_outcome(estimator, y):
     outcome = getattr(estimator, 'outcome', None)
     if outcome is None:
         estimator.__dict__.pop('outcome_', None)
+        if _called_from_outside():
+            _warn_ids(estimator, y)
         return y
     if _is_built(y):   # built by an enclosing fit
         estimator.outcome_ = y.attrs[_BUILT]
         return y
+    if isinstance(outcome, Response) and not isinstance(outcome, Outcome):
+        outcome = Outcome(outcome)   # a response alone, e.g. Surv('time', 'status')
     if not isinstance(outcome, Outcome):
-        raise TypeError(f'outcome should be a modelmatrix Outcome, got {type(outcome).__name__}')
+        raise TypeError('outcome should be a modelmatrix Outcome or response (Surv, '
+                        f'Binomial, Multinomial), got {type(outcome).__name__}')
     given = [name for name in ['response_id', 'offset_id', 'weight_id']
              if getattr(estimator, name, None) is not None]
     if given:
@@ -54,6 +61,37 @@ def _fit_outcome(estimator, y):
         outcome.fit(_as_frame(y))
     estimator.outcome_ = outcome
     return _outcome_y(estimator, y)
+
+
+def _called_from_outside():
+    # is the fit calling _fit_outcome called from outside glmstar (not a fit
+    # of glmstar's own, e.g. a sub-estimator's, or a fit calling its parent's)?
+    caller = sys._getframe(3).f_globals.get('__name__', '')
+    return not (caller == 'glmnet' or caller.startswith('glmnet.'))
+
+
+def _warn_ids(estimator, y):
+    """The FutureWarnings of a fit without an outcome that names columns of `y`."""
+    given = [name for name in ['response_id', 'offset_id', 'weight_id']
+             if getattr(estimator, name, None) is not None]
+    if given:
+        warnings.warn(f'{", ".join(given)} {"are" if len(given) > 1 else "is"} deprecated: '
+                      'give the columns of y by outcome=, a modelmatrix Outcome, e.g. '
+                      "outcome=Outcome('y', offset='O', weight='w')",
+                      FutureWarning, stacklevel=4)
+    if hasattr(getattr(estimator, 'family', None), 'event_id'):   # a CoxFamily
+        warnings.warn("the survival data by the CoxFamily's event_id, status_id, start_id and "
+                      'strata_id are deprecated: give them by outcome=, e.g. '
+                      "outcome=Surv('time', 'status') or outcome=Outcome(Surv('start', "
+                      "'stop', 'status'), strata='inst', weight='w') (modelmatrix)",
+                      FutureWarning, stacklevel=4)
+    elif (getattr(estimator, 'response_id', None) is None and isinstance(y, pd.DataFrame)
+          and y.shape[1] - sum(getattr(estimator, name, None) is not None
+                               for name in ['offset_id', 'weight_id']) > 1):
+        warnings.warn('the response taken as every column of y but the offset and weights is '
+                      'deprecated: give the response by outcome=, e.g. '
+                      "outcome=Outcome(['y1', 'y2']) or outcome=Binomial('successes', "
+                      "trials='trials') (modelmatrix)", FutureWarning, stacklevel=4)
 
 
 def _outcome_y(estimator, y):

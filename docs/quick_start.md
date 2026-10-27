@@ -84,10 +84,11 @@ ax.set_title('Coefficient Paths for Linear Regression');
 For several `GLMNet` estimators we may have to pass several columns to specify
 the response (e.g. for `CoxNet`). We also may want to specify offset
 and possibly sample weights. For this reason, weights are specified
-as a column of the `y` argument to fit, typically a `pd.DataFrame`.
-
-Using this approach allows construction of several columns from `y` that are not simply the
-response. This potentially use other uses beyond weights and offsets.
+as a column of the `y` argument to fit, typically a `pd.DataFrame`,
+and the estimator's `outcome` says which column is which: a modelmatrix
+`Outcome`, the response with the other columns named by their role
+(`offset=`, `weight=`, and for a Cox model the survival data and
+`strata=`).
 
 ```{warning}
 Since weights are found through the response, the `sample_weights` argument to `fit` is ignored!
@@ -103,10 +104,11 @@ Df = pd.DataFrame({'response':y_gaussian,
                    'weight': weights})
 ```
 
-Now fit with `response_id`, and `weight_id`:
+Now fit with an `Outcome` of the response and its weights:
 
 ```{code-cell} ipython3
-fit_gaussian = GaussNet(response_id="response", weight_id="weight").fit(X_gaussian, Df)
+from modelmatrix import Outcome, Binomial
+fit_gaussian = GaussNet(outcome=Outcome('response', weight='weight')).fit(X_gaussian, Df)
 ```
 
 # Linear Regression: GaussNet
@@ -254,7 +256,8 @@ Df['weight'] = weights
 Fit with $\alpha=0.2$ and custom weights:
 
 ```{code-cell} ipython3
-fit_ridge_gaussian = GaussNet(alpha=0.2, nlambda=20, weight_id='weight').fit(X_gaussian, Df)
+fit_ridge_gaussian = GaussNet(alpha=0.2, nlambda=20,
+                              outcome=Outcome('response', weight='weight')).fit(X_gaussian, Df)
 ax = fit_ridge_gaussian.coef_path_.plot();
 ax.set_title('Ridge Regression (α=0.2) with Custom Weights');
 ```
@@ -395,7 +398,7 @@ Two conventions differ from R's `cv.glmnet` by design. 'Binomial Deviance' clamp
 
 ## Grouped data: proportions and counts
 
-The response can also be grouped: the proportion of successes among a number of trials for each observation. In R this is a two-column matrix of proportions with the numbers of trials as `weights`. In Python, give the proportions as the response and the numbers of trials (or any observation weights) with `weight_id`:
+The response can also be grouped: the number of successes among a number of trials for each observation. In R this is a two-column matrix of proportions with the numbers of trials as `weights`. In Python, a modelmatrix `Binomial` of the successes and trials gives the proportions, weighted by the trials:
 
 ```{code-cell} ipython3
 rng = np.random.default_rng(0)
@@ -405,16 +408,15 @@ trials = rng.integers(1, 20, size=n)
 p_true = 1 / (1 + np.exp(-(X_grouped[:, 0] - 0.5 * X_grouped[:, 1])))
 successes = rng.binomial(trials, p_true)
 
-Df_grouped = pd.DataFrame({'proportion': successes / trials,
-                           'trials': trials})
-fit_prop = LogNet(response_id='proportion', weight_id='trials').fit(X_grouped, Df_grouped)
+Df_grouped = pd.DataFrame({'successes': successes, 'trials': trials})
+fit_counts = LogNet(outcome=Binomial('successes', trials='trials')).fit(X_grouped, Df_grouped)
 ```
 
-Equivalently, the response can be the pairs (trials, successes), in which case the numbers of trials are multiplied into any observation weights:
+Equivalently, the response can be the proportions, with the numbers of trials as weights:
 
 ```{code-cell} ipython3
-Df_counts = pd.DataFrame({'trials': trials, 'successes': successes})
-fit_counts = LogNet(response_id=['trials', 'successes']).fit(X_grouped, Df_counts)
+Df_grouped['proportion'] = successes / trials
+fit_prop = LogNet(outcome=Outcome('proportion', weight='trials')).fit(X_grouped, Df_grouped)
 np.max(np.abs(fit_prop.coefs_ - fit_counts.coefs_))
 ```
 
@@ -743,20 +745,20 @@ offset = np.random.randn(X_gaussian.shape[0])
 Df = pd.DataFrame({'response':y_gaussian,
                    'offset': offset})
 
-# Fit with response_id, offset_id, and weight_id
-fit_with_offset = GaussNet(response_id="response", 
-                           offset_id='offset').fit(X_gaussian, Df)
-
+# Fit with the offset, the column `offset` of the Outcome
+fit_with_offset = GaussNet(outcome=Outcome('response', offset='offset')).fit(X_gaussian, Df)
 
 # Compare with fit without offset
-fit_no_offset = GaussNet(response_id='response').fit(X_gaussian, Df)
+fit_no_offset = GaussNet(outcome=Outcome('response')).fit(X_gaussian, Df)
 
 print("Intercept with offset:", fit_with_offset.intercepts_[0])
 print("Intercept without offset:", fit_no_offset.intercepts_[0])
 ```
 
-Of course, weights can also be added as above with a `weight_id` argument
-to the `GLMNet` object.
+Of course, weights can also be added as above with `weight=` in the
+`Outcome`. An offset can be a feature of the data too, e.g. R's
+`offset(log(exposure))`; `fit.outcome_.transform(new, response=False)`
+gives the offset of new data, for `predict(X, offset=...)`.
 
 ## Sparse matrix support
 

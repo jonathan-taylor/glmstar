@@ -144,11 +144,11 @@ class GAM(BaseEstimator):
     control: GAMControl
         Parameters for the IRLS iterations and the backfitting.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional)
+        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional)
+        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional)
+        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
     outcome: modelmatrix.Outcome
         The columns of `y`, named by their role: the response, offset and
         weights (and for the Cox family the survival data and strata), e.g.

@@ -4,6 +4,7 @@ import pytest
 
 from glmnet import GaussNet, LogNet, FishNet, MultiGaussNet, MultiClassNet, CoxNet
 from glmnet.cox import CoxFamily
+from modelmatrix import Outcome, Surv
 from glmnet.paths.fastnet import FastNetControl
 
 rng = np.random.default_rng(0)
@@ -25,17 +26,16 @@ FAMILIES = ['gaussian', 'binomial', 'poisson', 'mgaussian', 'multinomial', 'cox'
 
 def _estimator(family, **kw):
     if family == 'gaussian':
-        return GaussNet(response_id='gaussian', **kw)
+        return GaussNet(outcome=Outcome('gaussian'), **kw)
     if family == 'binomial':
-        return LogNet(response_id='binomial', **kw)
+        return LogNet(outcome=Outcome('binomial'), **kw)
     if family == 'poisson':
-        return FishNet(response_id='poisson', **kw)
+        return FishNet(outcome=Outcome('poisson'), **kw)
     if family == 'mgaussian':
-        return MultiGaussNet(response_id=['gaussian', 'Y2'], **kw)
+        return MultiGaussNet(outcome=Outcome(['gaussian', 'Y2']), **kw)
     if family == 'multinomial':
-        return MultiClassNet(response_id='multinomial', **kw)
-    return CoxNet(family=CoxFamily(tie_breaking='breslow', event_id='stop',
-                                   status_id='status'), **kw)
+        return MultiClassNet(outcome=Outcome('multinomial'), **kw)
+    return CoxNet(family=CoxFamily(tie_breaking='breslow'), outcome=Surv('stop', 'status'), **kw)
 
 
 @pytest.mark.parametrize('family', FAMILIES)

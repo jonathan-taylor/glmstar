@@ -23,15 +23,19 @@ The `CoxNetIRLS` class fits a Cox proportional hazards model with elastic net re
 >   - `'event'`: event or observed time (float)
 >   - `'status'`: event indicator (1=event, 0=censored)
 >   Optionally, a `'start'` column for start-stop (interval) data, and a `'strata'` column for stratified models.
+>   The estimator's `outcome`, a modelmatrix `Surv` (or an `Outcome` of it with
+>   `strata=`, `weight=`, `offset=`), names them.
 
 ## Example Usage
 
 ```{code-cell} ipython3
 from glmnet.data import make_survival
 from glmnet.cox import CoxFamily, CoxNetIRLS
+from modelmatrix import Surv
 
 X, y, coef = make_survival(n_samples=100, n_features=10, start_id=True)
-model = CoxNetIRLS(family=CoxFamily(start_id='start', tie_breaking='efron'))
+model = CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
+                   outcome=Surv('start', 'event', 'status'))
 model.fit(X, y)
 print(model.coefs_.shape)
 ```

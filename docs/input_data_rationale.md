@@ -47,11 +47,11 @@ A polars `Enum` keeps its levels in their order (the levels of a GAM's
 
 ```python
 import polars as pl
+from modelmatrix import Outcome
 from glmnet import GLM
 
 df = pl.read_csv('data.csv')
-fit = GLM(response_id='y', weight_id='w').fit(df.select('x1', 'x2'),
-                                               df.select('y', 'w'))
+fit = GLM(outcome=Outcome('y', weight='w')).fit(df.select('x1', 'x2'), df)
 fit.summary_     # a pandas DataFrame
 ```
 
