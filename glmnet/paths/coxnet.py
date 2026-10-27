@@ -24,6 +24,7 @@ from .._utils import (_get_data,
 from .._coxnet import coxnet as _dense
 from .._coxnet import spcoxnet as _sparse
 from .._frames import as_pandas
+from .._outcome import _fit_outcome, _outcome_y, _cox_ids
 
 """
 Implements the CoxNet path algorithm for Cox proportional hazards models.
@@ -102,6 +103,7 @@ class CoxNet(FastNetMixin):
             Fitted estimator.
         """
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         if not isinstance(y, pd.DataFrame):
             raise ValueError('CoxNet requires y to be a DataFrame of survival data')
         if self.fit_intercept:
@@ -161,16 +163,18 @@ class CoxNet(FastNetMixin):
         """
         check_is_fitted(self, ["coefs_"])
 
+        y = _outcome_y(self, as_pandas(y))
         _, _, _, offset, weight = self.get_data_arrays(X, y, check=False)
         surv_data = self._get_survival_data(y)
         strata = None
-        if self.family.strata_id is not None:
-            strata = np.asarray(y[self.family.strata_id])
+        ids = _cox_ids(self)
+        if ids['strata_id'] is not None:
+            strata = np.asarray(y[ids['strata_id']])
         if offset is None:
             offset = np.zeros(X.shape[0])
 
         if newX is not None:
-            if self.offset_id is not None and new_offset is None:
+            if _y_ids(self)['offset_id'] is not None and new_offset is None:
                 raise ValueError('new_offset is required for a model fit with an offset')
             if strata is not None and new_strata is None:
                 raise ValueError('new_strata is required for a stratified model')
@@ -190,7 +194,7 @@ class CoxNet(FastNetMixin):
             # R's default curve is at coxph's `means`, which are weighted for
             # right-censored data but unweighted for (start, stop] data; the
             # offset enters at its weighted mean
-            if self.family.start_id is None:
+            if ids['start_id'] is None:
                 center = np.average(lp, weights=weight)
             else:
                 center = eta.mean() + np.average(offset, weights=weight)
@@ -242,36 +246,34 @@ class CoxNet(FastNetMixin):
                          response):
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             event_id=self.family.event_id,
-                             status_id=self.family.status_id,
-                             start_id=self.family.start_id,
-                             strata_id=self.family.strata_id)
+                             **_cox_ids(self))
 
     def _get_survival_data(self, y):
         """Extract and validate (start, stop, status, strata) as in R's coxnet."""
 
         family = self.family
-        for col in [family.event_id, family.status_id, family.start_id, family.strata_id]:
+        ids = _cox_ids(self)
+        for col in [ids['event_id'], ids['status_id'], ids['start_id'], ids['strata_id']]:
             if col is not None and col not in y.columns:
                 raise ValueError(f'expecting column "{col}" in survival data')
 
         n = y.shape[0]
         # np.array copies: with pandas >= 3 (copy-on-write) np.asarray of a column
         # is a read-only view, which the C++ binding does not accept
-        stop = np.array(y[family.event_id], float)
-        status = np.asarray(y[family.status_id])
+        stop = np.array(y[ids['event_id']], float)
+        status = np.asarray(y[ids['status_id']])
         if not np.all(np.isin(status, [0, 1])):
             raise ValueError('status should be binary (0=censored, 1=event)')
         status = status.astype(np.int32)
 
-        if family.start_id is not None:
-            start = np.array(y[family.start_id], float)
+        if ids['start_id'] is not None:
+            start = np.array(y[ids['start_id']], float)
         else:
             start = np.zeros(n)
 
-        if family.strata_id is not None:
+        if ids['strata_id'] is not None:
             # integer labels; empty means a single stratum
-            strata = pd.factorize(y[family.strata_id], sort=True)[0].astype(np.int32)
+            strata = pd.factorize(y[ids['strata_id']], sort=True)[0].astype(np.int32)
         else:
             strata = np.zeros(0, np.int32)
 

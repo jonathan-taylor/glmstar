@@ -22,7 +22,8 @@ from .glm import (GLMFamilySpec,
 from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
-from ._utils import _get_data, _y_ids, _check_offset, _check_predict_X
+from ._utils import _get_data, _y_ids, _sub_ids, _check_offset, _check_predict_X
+from ._outcome import _outcome_y, _cox_ids
 from ._frames import as_pandas
 
 def c_index(pred,
@@ -616,6 +617,7 @@ def _cox_score(estimator, X, y, sample_weight=None):
     the family of `y` is built for scoring new data (as `GridSearchCV` does).
     """
     X, y = as_pandas(X), as_pandas(y)
+    y = _outcome_y(estimator, y)
     family = estimator._finalize_family(response=y)
     _, _, _, offset, weight = estimator.get_data_arrays(X, y, check=False)
     if sample_weight is None:
@@ -636,8 +638,11 @@ class CoxLM(GLM):
     fit_intercept : Literal[False], default=False
         Whether to fit an intercept. For Cox models, this is always False
         as the intercept is absorbed into the baseline hazard.
+    family : CoxFamily
+        The tie breaking and the columns of the survival data in `y`.
     """
     fit_intercept: Literal[False] = False
+    family: CoxFamily = field(default_factory=CoxFamily)
 
     _shift_invariant = True
 
@@ -645,10 +650,7 @@ class CoxLM(GLM):
                          response):
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             event_id=self.family.event_id,
-                             status_id=self.family.status_id,
-                             start_id=self.family.start_id,
-                             strata_id=self.family.strata_id)
+                             **_cox_ids(self))
 
     def _get_regularizer(self,
                          nvars=None):
@@ -791,8 +793,11 @@ class RegCoxLM(RegGLM):
     fit_intercept : Literal[False], default=False
         Whether to fit an intercept. For Cox models, this is always False
         as the intercept is absorbed into the baseline hazard.
+    family : CoxFamily
+        The tie breaking and the columns of the survival data in `y`.
     """
     fit_intercept: Literal[False] = False
+    family: CoxFamily = field(default_factory=CoxFamily)
 
     def get_data_arrays(self,
                         X,
@@ -809,10 +814,7 @@ class RegCoxLM(RegGLM):
                          response):
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             event_id=self.family.event_id,
-                             status_id=self.family.status_id,
-                             start_id=self.family.start_id,
-                             strata_id=self.family.strata_id)
+                             **_cox_ids(self))
 
     def score(self, X, y, sample_weight=None):
         """
@@ -862,14 +864,11 @@ class CoxNetIRLS(GLMNet):
                          response):
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             event_id=self.family.event_id,
-                             status_id=self.family.status_id,
-                             start_id=self.family.start_id,
-                             strata_id=self.family.strata_id)
+                             **_cox_ids(self))
     
     def get_LM(self):
         return CoxLM(family=self.family,
-                     **_y_ids(self))
+                     **_sub_ids(self))
 
     def _get_initial_state(self,
                            X,

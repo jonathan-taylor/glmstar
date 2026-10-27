@@ -183,6 +183,9 @@ class MultiClassNet(MultiFastNetMixin):
         """
 
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
+        if offset is not None and np.ndim(offset) == 1:
+            raise ValueError('a multinomial offset has a column for each class; an offset '
+                             'of one column (e.g. of an Outcome) does not change the fit')
         
         y_onehot, weight, self.categories_ = _multinomial_response(self, response, weight)
         return X, y, y_onehot, offset, weight

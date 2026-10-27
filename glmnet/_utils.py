@@ -6,6 +6,10 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from dataclasses import fields
 from ._frames import as_pandas
+from ._outcome import (_outcome_y,
+                       _outcome_ids,
+                       _outcome_binomial,
+                       _outcome_multinomial)
 
 def _get_data(estimator,
               X,
@@ -55,6 +59,7 @@ def _get_data(estimator,
         The extracted weights, or an array of ones if not provided.
     """
     X, y = as_pandas(X), as_pandas(y)
+    y = _outcome_y(estimator, y)
     response, offset, weight = _extract_y(y,
                                           offset_id=offset_id,
                                           weight_id=weight_id,
@@ -143,7 +148,24 @@ def _extract_y(y,
     return response, offset, weight
 
 def _y_ids(estimator):
-    """The column ids of `y` of an estimator, to pass to another."""
+    """
+    The column ids of `y` an estimator reads: with an outcome, those of
+    the `y` it builds.
+    """
+    if getattr(estimator, 'outcome', None) is not None:
+        return _outcome_ids(estimator.outcome_)
+    return dict(offset_id=estimator.offset_id,
+                weight_id=estimator.weight_id,
+                response_id=estimator.response_id)
+
+def _sub_ids(estimator):
+    """
+    The columns of `y` of an estimator, for another it builds (e.g. at each
+    point of a path, or `get_fixed_lambda`'s): its fitted outcome, used as it
+    is, or its ids.
+    """
+    if getattr(estimator, 'outcome', None) is not None:
+        return dict(outcome=estimator.outcome_)
     return dict(offset_id=estimator.offset_id,
                 weight_id=estimator.weight_id,
                 response_id=estimator.response_id)
@@ -171,6 +193,11 @@ def _binomial_response(estimator,
     -------
     labels, weight, classes : np.ndarray
     """
+    outcome = getattr(estimator, 'outcome_', None)
+    if outcome is not None and getattr(estimator, 'outcome', None) is not None:
+        coded = _outcome_binomial(outcome, response, weight)
+        if coded is not None:
+            return coded
     if response.ndim == 2 and response.shape[1] == 2:
         trials = response[:, 0]
         successes = response[:, 1]
@@ -205,6 +232,11 @@ def _multinomial_response(estimator,
     -------
     y_onehot, weight, categories : np.ndarray
     """
+    outcome = getattr(estimator, 'outcome_', None)
+    if outcome is not None and getattr(estimator, 'outcome', None) is not None:
+        coded = _outcome_multinomial(outcome, response, weight)
+        if coded is not None:
+            return coded
     if response.ndim == 2 and response.shape[1] > 1:
         trials = response.sum(axis=1)
         if np.any(response < 0) or np.any(trials <= 0):

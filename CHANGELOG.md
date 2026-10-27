@@ -11,6 +11,30 @@
   for polars), keeping an `Enum`'s level order. The outputs stay pandas.
   narwhals is a new dependency (#206).
 
+- **`outcome=`: the columns of `y` by their role**, with modelmatrix's
+  `Outcome` (modelmatrix 0.3.0 is a new dependency): `GLM`, `GLMNet`,
+  the C++ paths and the Cox models take `outcome=Outcome('y',
+  offset='O', weight='w')` in place of `response_id`, `offset_id` and
+  `weight_id`, and `outcome=Outcome(Surv('time', 'status'),
+  strata='inst')` in place of the `CoxFamily`'s `event_id`, `status_id`,
+  `start_id` and `strata_id`. `fit(X, D)` takes the data frame as it is.
+  The outcome (a copy, `outcome_`) is fit on the `y` of `fit`, unless
+  fitted already, and builds every `y` given later (`score`,
+  `score_path`, `cross_validation_path`, `survfit`); the estimators of
+  `get_fixed_lambda` and `get_GLM` take it as fitted. So:
+  - an offset can be a feature, e.g. `offset=log(exposure)`, and
+    `outcome_.transform(new, response=False)['offset']` is the offset
+    of new data for `predict`;
+  - `Binomial('y')` gives the classes (its levels, the success second,
+    or `level=`), and `Binomial(successes, trials=...)` a proportion
+    weighted by its trials (with `output='counts'` too);
+  - `Multinomial('class')` gives `MultiClassNet`'s categories (a
+    categorical's, unseen ones included), and `glmnet.Columns(['y1',
+    'y2'])` a response of several columns for `MultiGaussNet` (whose
+    offset, of a column for each response, an Outcome does not give yet).
+  The ids are unchanged; giving both raises. `CoxLM` and `RegCoxLM`
+  default to a `CoxFamily`, as `CoxNetIRLS` does.
+
 ### Bug fixes
 
 - **`GLM.score` reads `y` as `fit` does**: the response, offset and

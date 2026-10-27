@@ -28,6 +28,7 @@ from .._utils import (_forget_encoding,
                       _check_offset,
                       _check_predict_X)
 from .._frames import as_pandas
+from .._outcome import _fit_outcome
 
 class _NoProgress(object):
     """Stand-in for a tqdm progress bar that shows nothing."""
@@ -224,6 +225,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     
         # a fit starts afresh: the design is of these data, not of an earlier fit
         X, y = as_pandas(X), as_pandas(y)
+        y = _fit_outcome(self, y)
         self.__dict__.pop('design_', None)
 
         if self.linear_term is not None:
