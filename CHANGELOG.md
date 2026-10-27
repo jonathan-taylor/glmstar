@@ -125,6 +125,24 @@
 
 ### Packaging
 
+- **Installing from source works again**, in a fresh environment:
+  - the README says that the glmnetpp submodule, a private repository, is
+    cloned over SSH, needing access and a GitHub key (otherwise, PyPI's
+    source distribution includes it);
+  - `meson.build` takes the version from the build's Python
+    (`find_program`), not whatever `python` is on the PATH, which may be
+    none;
+  - coxdev's headers are a compile argument, so the build works with the
+    environment inside the source tree (uv's `.venv`), where meson refused
+    their absolute path;
+  - with uv, install the build tools (now with coxdev) first,
+    `uv pip install --group build`, then `uv sync`: a plain `uv sync` in a
+    new environment fails with `No module named 'mesonpy'`, as glmstar's
+    build is not isolated under uv. The README says so, and gives `pip
+    install glmstar` first.
+- **Python 3.11 or later**, as modelmatrix (a dependency since this
+  release) requires; 0.6.0 remains for 3.10.
+
 - **The wheels carry the license files** (`license-files`, PEP 639):
   glmstar's `LICENSE.txt` and glmnetpp's, whose code they contain; 0.6.0's
   wheels declared GPL-2.0-only without the text. The build needs

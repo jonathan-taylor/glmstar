@@ -10,7 +10,7 @@ authors = [
 ]
 description = "GlmNet for Python"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 maintainers = [{name="Jonathan Taylor", email="jonathan.taylor@stanford.edu"},]
 
 dependencies = [
@@ -86,6 +86,7 @@ build-backend = "mesonpy"
 [dependency-groups]
 build = [
     "meson-python>=0.18.0",
+    "coxdev>=0.4.0",
     "meson",
     "ninja",
     "pybind11",
