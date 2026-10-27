@@ -22,6 +22,13 @@
   memory. A new `GAMControl(max_dense_design=2e8)`, the most entries of that
   design: above it the covariances are not formed (None; standard errors
   raise, saying so), as above `max_dense_coef`.
+- **Displaying a GAM evaluates none of its computed properties**: `dir()`
+  and scikit-learn's HTML display (which reads every attribute `dir()`
+  lists) evaluated `design_`, the covariances, `penalty_matrix_` and
+  `fixed_effects_`: dense matrices below the limits above, and an error
+  that broke the display above them, or with a `categorical()` term
+  (`fixed_effects_` raises). `GAM.__dir__` now leaves these out; they are
+  computed only when asked for.
 
 ## 0.7.0 (2026-10-27)
 
