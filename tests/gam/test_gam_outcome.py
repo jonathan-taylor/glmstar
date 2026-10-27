@@ -155,6 +155,5 @@ def test_errors():
         GAM(TERMS, outcome=Outcome(Surv('time', 'status'))).fit(D, D)
     with pytest.raises(ValueError, match='Surv response'):
         GAM(TERMS, family=CoxFamily(), outcome=Outcome('time')).fit(D, D)
-    from glmnet import Columns
     with pytest.raises(ValueError, match='one column'):
-        GAM(TERMS, outcome=Outcome(Columns(['y', 'z']))).fit(D, D)
+        GAM(TERMS, outcome=Outcome(['y', 'z'])).fit(D, D)
