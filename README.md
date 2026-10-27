@@ -14,14 +14,25 @@ A Python implementation of the glmnet algorithm for fitting generalized linear m
 
 ## Installation
 
-### Get the source
-
-The C++ code depends on two git submodules, [Eigen](https://gitlab.com/libeigen/eigen) and
-[glmnetpp](https://github.com/intro-stat-learning/glmnetpp), so clone recursively:
+### From PyPI
 
 ```bash
-git clone --recursive https://github.com/jonathan-taylor/pyglmnet.git
-cd pyglmnet
+pip install glmstar
+```
+
+Wheels are on PyPI for Python 3.11 to 3.14 (glmstar 0.6.0 also for 3.10) on Linux
+(x86-64), macOS (Apple silicon) and Windows; elsewhere pip builds from the source
+distribution, which needs a C++17 compiler. The package imports as `glmnet`.
+
+### Get the source
+
+The C++ code depends on two git submodules, [Eigen](https://gitlab.com/libeigen/eigen)
+(from its GitHub mirror) and [glmnetpp](https://github.com/intro-stat-learning/glmnetpp),
+so clone recursively:
+
+```bash
+git clone --recursive https://github.com/jonathan-taylor/glmstar.git
+cd glmstar
 
 # Or, if already cloned without submodules
 git submodule update --init --recursive
@@ -32,24 +43,25 @@ A C++17 compiler is required to build the extension modules.
 ### Development install with uv (recommended)
 
 ```bash
-uv sync          # editable install plus build and test tools (the `dev` group)
+uv venv                         # .venv in the project
+uv pip install --group build    # the build tools first (meson-python, coxdev, ...)
+uv sync                         # editable install plus the test tools (the `dev` group)
 uv run pytest tests --test-size=small
 ```
 
 The project uses meson-python, whose editable installs recompile the C++ extensions on
 import. For that reason `pyproject.toml` disables build isolation for `glmstar` under
-uv, so the build tools (meson, ninja, pybind11, ...) must live in the project
-environment -- `uv sync` takes care of this. To target an already-activated venv other
-than `.venv`, use `uv sync --active`.
+uv, so the build tools must live in the project environment, and they have to be there
+before uv first builds glmstar: a plain `uv sync` in a new environment fails with
+`No module named 'mesonpy'`. To target an already-activated venv other than `.venv`,
+use `uv sync --active`.
 
-If you prefer `uv pip`, install the build tools first:
+If you prefer `uv pip`, install the build tools first in the same way:
 
 ```bash
-uv pip install meson-python meson ninja pybind11 setuptools_scm
+uv pip install --group build
 uv pip install -e .      # or `uv pip install .` for a regular install
 ```
-
-Running `uv pip install .` without them fails with `No module named 'mesonpy'`.
 
 ### Install with pip
 
@@ -61,14 +73,14 @@ For an editable install with pip, again install the build tools into the environ
 and disable build isolation:
 
 ```bash
-pip install meson-python meson ninja pybind11 setuptools_scm
+pip install meson-python meson ninja pybind11 setuptools_scm coxdev
 pip install --no-build-isolation -e .
 ```
 
 ### Troubleshooting
 
 If the build fails with `'pybind11/pybind11.h' file not found`, a stale meson build
-directory (e.g. `build/cp310`) is pointing at a temporary build environment that no
+directory (e.g. `build/cp312`) is pointing at a temporary build environment that no
 longer exists. Delete it and reinstall:
 
 ```bash

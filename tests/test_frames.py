@@ -83,7 +83,8 @@ def test_dtypes():
     assert list(df['e'].cat.categories) == ['lo', 'hi']
     assert list(df['c'].cat.categories) == ['x', 'z']
     assert list(df['e']) == ['lo', 'hi', 'lo']
-    assert df['s'].dtype == object and pd.isna(df['s'][1])
+    # (strings: object, or pandas 3's str dtype)
+    assert pd.api.types.is_string_dtype(df['s']) and pd.isna(df['s'][1])
     np.testing.assert_array_equal(df['i'], [1, np.nan, 3])
     assert df['b'].dtype == bool
 
