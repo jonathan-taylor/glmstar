@@ -1,14 +1,16 @@
 """
 `glmnet.hypothesis.anova_table` (type I) against R: `anova(lm(...))`,
 `anova(glm(...), test="Chisq")` for a Poisson GLM with a factor and an interaction, and
-`anova(coxph(...))` (sequential likelihood ratio tests).
+`anova(coxph(...))` (sequential likelihood ratio tests); type III against
+`car::Anova(type=3)` (F for `lm`, Wald for `glm` and `coxph`), with sum
+contrasts.
 """
 import numpy as np
 import pandas as pd
 import pytest
 import statsmodels.api as sm
 
-from modelmatrix import ModelSpec as MS
+from modelmatrix import ModelSpec as MS, contrast
 
 from glmnet.glm import GLM, GLMFamilySpec, GLMControl
 from glmnet.cox import CoxLM, CoxFamily
@@ -78,3 +80,56 @@ def test_cox_type_I(Rinfo):
     pval = np.asarray(rpy.r('a[["Pr(>|Chi|)"]]'), float)[1:]
     np.testing.assert_allclose(table['chi2'].iloc[:2], chisq, rtol=1e-6)
     np.testing.assert_allclose(table['P(>chi2)'].iloc[:2], pval, rtol=1e-5)
+
+
+def _car(Rinfo):
+    rpy = Rinfo['rpy']
+    if not rpy.r('isTRUE(requireNamespace("car", quietly=TRUE))')[0]:
+        pytest.skip('requires the R package car')
+    return rpy
+
+
+SUM = MS(['x', contrast('c', 'sum'), ('x', contrast('c', 'sum'))])
+
+
+def test_gaussian_type_III_car(Rinfo):
+    D = _data()
+    D['y'] = D['x'] + 0.4 * (D['c'] == 'b') + np.random.default_rng(0).standard_normal(len(D))
+    rpy = _R(Rinfo, D)
+    _car(Rinfo)
+    rpy.globalenv['y'] = Rinfo['FloatVector'](D['y'].to_numpy())
+    table = anova_table(GLM(control=TIGHT), SUM, D, D['y'], type='III')
+    rpy.r('contrasts(cc) <- contr.sum(3); a <- car::Anova(lm(y ~ x * cc), type=3)')
+    F = np.asarray(rpy.r('a[["F value"]]'), float)
+    P = np.asarray(rpy.r('a[["Pr(>F)"]]'), float)
+    # car's rows: (Intercept), x, cc, x:cc, Residuals
+    np.testing.assert_allclose(table['F'].to_numpy(), F[:4], rtol=1e-8)
+    np.testing.assert_allclose(table['P(>F)'].to_numpy(), P[:4], rtol=1e-6)
+
+
+def test_poisson_type_III_car(Rinfo):
+    D = _data()
+    rpy = _R(Rinfo, D)
+    _car(Rinfo)
+    table = anova_table(GLM(family=GLMFamilySpec(sm.families.Poisson()), control=TIGHT),
+                        SUM, D, D['cnt'], type='III')
+    rpy.r('contrasts(cc) <- contr.sum(3); '
+          'a <- car::Anova(glm(cnt ~ x * cc, family=poisson, '
+          'control=glm.control(epsilon=1e-12)), type=3, test.statistic="Wald")')
+    chisq = np.asarray(rpy.r('a$Chisq'), float)
+    # car's rows: (Intercept), x, cc, x:cc
+    np.testing.assert_allclose(table['chi2'].to_numpy(), chisq, rtol=1e-6)
+
+
+def test_cox_type_III_car(Rinfo):
+    D = _data()
+    rpy = _R(Rinfo, D)
+    _car(Rinfo)
+    spec = MS(['x', contrast('c', 'sum')])
+    table = anova_table(CoxLM(family=CoxFamily(event_id='time', status_id='status')),
+                        spec, D, D, type='III')
+    rpy.r('library(survival); contrasts(cc) <- contr.sum(3); '
+          'a <- car::Anova(coxph(Surv(time, status) ~ x + cc, ties="breslow", '
+          'control=coxph.control(eps=1e-14, iter.max=100)), type=3, test.statistic="Wald")')
+    chisq = np.asarray(rpy.r('a$Chisq'), float)
+    np.testing.assert_allclose(table['chi2'].to_numpy(), chisq, rtol=1e-6)
