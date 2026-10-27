@@ -34,6 +34,29 @@ A DataFrame naturally groups these multiple columns into a single object passed 
 ### 3. Binomial / Multinomial Trials
 When dealing with aggregated binomial or multinomial data, each observation isn't a single trial but a collection of trials. The model must ingest both the **number of successes** and the **number of failures** (or the counts of each category), the columns of the response.
 
+### 4. Weights, and Cross-Validation
+The weights could be an argument of `fit`, as scikit-learn's
+`sample_weight`, but cross-validation is why glmstar takes them, and the
+offset and survival data, as columns of `y`. scikit-learn's
+cross-validation (`cross_val_score`, `cross_validate`, `GridSearchCV`)
+and glmstar's own `cross_validation_path` split `X` and `y` into folds by
+their rows, so every column of `y` goes with its rows, to the fits on the
+training folds *and* to the score on the held-out fold.
+An array beside `y` is split only when each call passes it on
+(`cross_validate(..., params={'sample_weight': w})`, or through a
+`Pipeline` with metadata routing,
+`sklearn.set_config(enable_metadata_routing=True)`), and it reaches the
+scorer of the held-out fold only with metadata routing and a scorer that
+asks for it (`set_score_request(sample_weight=True)`): otherwise the
+held-out deviance silently drops the weights or the offset. A column
+of `y` needs none of this, and the same goes for any other column a
+model needs, e.g. a Cox model's `strata`.
+
+`fit(X, y, sample_weight=w)` and `score(X, y, sample_weight=w)` still
+work, for scikit-learn's sake: `w` becomes the column `weight` of `y`.
+The weights are given once, so `sample_weight` with a column `weight`
+raises.
+
 ## The Columns of `y` by Role
 
 A data frame `y` names each column by its role:

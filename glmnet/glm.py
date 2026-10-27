@@ -41,7 +41,7 @@ from .family import (GLMFamilySpec,
                      BinomFamilySpec,
                      GLMState)
 from ._frames import as_pandas
-from ._roles import _role_y, legacy
+from ._roles import _role_y, legacy, with_sample_weight
 
 
 @dataclass
@@ -475,7 +475,7 @@ class GLMBase(BaseEstimator,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
             
         Returns
         -------
@@ -519,7 +519,7 @@ class GLMBase(BaseEstimator,
     def fit(self,
             X,
             y,
-            sample_weight=None,           # ignored
+            sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
             warm_state=None,
             dispersion=None,
@@ -538,7 +538,7 @@ class GLMBase(BaseEstimator,
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
         regularizer: GLMRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
         warm_state: GLMState, optional
@@ -560,7 +560,7 @@ class GLMBase(BaseEstimator,
             GLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         if not getattr(self, '_path_refit', False):
             # a fit starts afresh: the design, the family (Cox's holds the
             # event data) and the information are of these data, not of an
@@ -901,7 +901,7 @@ class GLMBase(BaseEstimator,
             Response variable, or a DataFrame with the columns `offset` and
             `weight` and the response, as for `fit`.
         sample_weight: Optional[np.ndarray]
-            Sample weights, in place of the column `weight` of `y`.
+            The weights, in place of a column `weight` of `y` (not both).
 
         Returns
         -------
@@ -909,14 +909,12 @@ class GLMBase(BaseEstimator,
             Minus half the deviance of family for `(X, y, sample_weight)`.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         _, _, response, offset, weight = _get_data(self, X, y,
                                                    check=False)
         mu = self.predict(X, prediction_type='response', offset=offset)
-        if sample_weight is None:
-            sample_weight = weight
         return -self._family.deviance(np.asarray(response, float), mu,
-                                      np.asarray(sample_weight, float)) / 2 # GLM specific
+                                      np.asarray(weight, float)) / 2 # GLM specific
 
     def _set_coef_intercept(self, state):
         """
@@ -1031,7 +1029,7 @@ class GLM(GLMBase):
     def fit(self,
             X,
             y,
-            sample_weight=None,           # ignored
+            sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
             warm_state=None,
             dispersion=None,
@@ -1050,7 +1048,7 @@ class GLM(GLMBase):
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
         regularizer: GLMRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
         warm_state: GLMState, optional
@@ -1070,12 +1068,12 @@ class GLM(GLMBase):
             GLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         if self._unpenalized:
             X = self._drop_intercept_column(X, fitting=True)
         super().fit(X,
                     y,
-                    sample_weight=sample_weight,
+                    sample_weight=None, # (in y)
                     regularizer=regularizer,
                     warm_state=warm_state,
                     dispersion=dispersion,
@@ -1717,7 +1715,7 @@ class BinomialGLM(ClassifierMixin, GLM):
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
         regularizer: GLMRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer. For a GLM this is just the 0 function.
         warm_state: GLMState, optional
@@ -1734,12 +1732,12 @@ class BinomialGLM(ClassifierMixin, GLM):
             BinomialGLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         self._family = self._finalize_family(response=y)
 
         return super().fit(X,
                            y,
-                           sample_weight=sample_weight,
+                           sample_weight=None, # (in y)
                            regularizer=regularizer,             # last 4 options non sklearn API
                            warm_state=warm_state,
                            dispersion=dispersion,

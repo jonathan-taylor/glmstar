@@ -28,7 +28,7 @@ from .._utils import (_forget_encoding,
                       _check_offset,
                       _check_predict_X)
 from .._frames import as_pandas
-from .._roles import _role_y
+from .._roles import _role_y, with_sample_weight
 
 class _NoProgress(object):
     """Stand-in for a tqdm progress bar that shows nothing."""
@@ -201,7 +201,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     def fit(self,
             X,
             y,
-            sample_weight=None, # ignored
+            sample_weight=None,
             interpolation_grid=None):
         """
         Fit the penalized regression model using the FastNet path algorithm.
@@ -213,7 +213,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         y : array-like
             Target vector or matrix.
         sample_weight : array-like, optional
-            Sample weights (ignored).
+            The weights, in place of a column `weight` of `y` (not both).
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 
@@ -225,7 +225,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
     
         # a fit starts afresh: the design is of these data, not of an earlier fit
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         self.__dict__.pop('design_', None)
 
         if self.linear_term is not None:
@@ -908,7 +908,7 @@ class FixedLambdaMultiNet(BaseEstimator):
     def fit(self,
             X,
             y,
-            sample_weight=None,  # ignored
+            sample_weight=None,
             warm_state=None):
         """
         Fit at `lambda_val`.
@@ -920,7 +920,7 @@ class FixedLambdaMultiNet(BaseEstimator):
         y : array-like
             Target matrix, with any weight or offset columns.
         sample_weight : array-like, optional
-            Sample weights (ignored).
+            The weights, in place of a column `weight` of `y` (not both).
         warm_state : MultiState, optional
             Ignored: the C++ paths take no warm start, the path from the
             largest lambda value supplies it.
@@ -933,7 +933,7 @@ class FixedLambdaMultiNet(BaseEstimator):
         path = clone(self.path_estimator)
         path.relax = False # only the lasso solution is used
         path.lambda_values = np.asarray(self.lambda_values, float)
-        path.fit(X, y)
+        path.fit(X, y, sample_weight=sample_weight)
         if not np.isclose(path.lambda_values_[-1], self.lambda_val):
             warnings.warn('the path stopped before reaching lambda_val; '
                           'returning the solution at the smallest lambda fitted')

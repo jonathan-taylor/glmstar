@@ -218,6 +218,32 @@ def _cox_y(estimator, y, outside):
     return pd.DataFrame(out, index=y.index)
 
 
+def with_sample_weight(y, sample_weight):
+    """
+    `y`, named by role, with the weights `sample_weight` (scikit-learn's
+    argument, e.g. of `cross_validate(..., params=...)`) as its column
+    `weight`. The weights are given once: with a column `weight` of `y` too,
+    a ValueError.
+    """
+    if sample_weight is None:
+        return y
+    if isinstance(y, pd.DataFrame) and WEIGHT in y.columns:
+        raise ValueError('the weights are given twice, as the column weight of y and as '
+                         'sample_weight: give one')
+    sample_weight = np.asarray(sample_weight, float).reshape(-1)
+    if not isinstance(y, pd.DataFrame):
+        y = (pd.DataFrame(np.asarray(y)) if np.ndim(y) == 2 else
+             (y if isinstance(y, pd.Series) else pd.Series(np.asarray(y))).to_frame())
+    if sample_weight.shape[0] != y.shape[0]:
+        raise ValueError(f'sample_weight has {sample_weight.shape[0]} weights, y '
+                         f'{y.shape[0]} rows')
+    renamed = y.attrs.get(_RENAMED)
+    y = y.assign(**{WEIGHT: sample_weight})
+    if renamed:
+        y.attrs[_RENAMED] = True
+    return y
+
+
 def broadcast_offset(offset, nresponse):
     """A multi-response model's offset `offset`, the same for every response."""
     if offset is not None and np.ndim(offset) == 1:

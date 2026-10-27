@@ -371,7 +371,7 @@ class RegGLM(GLM,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
             
         Returns
         -------
@@ -386,7 +386,7 @@ class RegGLM(GLM,
     def fit(self,
             X,
             y,
-            sample_weight=None,           # ignored
+            sample_weight=None,
             regularizer=None,             # last 3 options non sklearn API
             warm_state=None,
             check=True,
@@ -404,7 +404,7 @@ class RegGLM(GLM,
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
         regularizer: ElNetRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
         warm_state: GLMState, optional
@@ -544,7 +544,7 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
     def fit(self,
             X,
             y,
-            sample_weight=None,           # ignored
+            sample_weight=None,
             regularizer=None,             # last 4 options non sklearn API
             warm_state=None,
             dispersion=1,
@@ -562,7 +562,7 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
         regularizer: ElNetRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
         warm_state: GLMState, optional
