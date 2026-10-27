@@ -11,32 +11,30 @@
   for polars), keeping an `Enum`'s level order. The outputs stay pandas.
   narwhals is a new dependency (#206).
 
-- **`outcome=`: the columns of `y` by their role**, with modelmatrix's
-  `Outcome`: `GLM`, `GLMNet`,
-  the C++ paths and the Cox models take `outcome=Outcome('y',
-  offset='O', weight='w')` in place of `response_id`, `offset_id` and
-  `weight_id`, and `outcome=Outcome(Surv('time', 'status'),
-  strata='inst')` in place of the `CoxFamily`'s `event_id`, `status_id`,
-  `start_id` and `strata_id`. `fit(X, D)` takes the data frame as it is.
-  The outcome (a copy, `outcome_`) is fit on the `y` of `fit`, unless
-  fitted already, and builds every `y` given later (`score`,
-  `score_path`, `cross_validation_path`, `survfit`); the estimators of
-  `get_fixed_lambda` and `get_GLM` take it as fitted. So:
-  - an offset can be a feature, e.g. `offset=log(exposure)`, and
-    `outcome_.transform(new, response=False)['offset']` is the offset
-    of new data for `predict`;
-  - `Binomial('y')` gives the classes (its levels, the success second,
-    or `level=`), and `Binomial(successes, trials=...)` a proportion
-    weighted by its trials (with `output='counts'` too);
-  - `Multinomial('class')` gives `MultiClassNet`'s categories (a
-    categorical's, unseen ones included), and a list of columns,
-    `Outcome(['y1', 'y2'])`, a response of several columns for
-    `MultiGaussNet`;
-  - a multi-response model's `offset='O'` is the same for every
-    response, and `offset={'y1': 'O1', 'y2': 'O2'}` (by the classes of a
-    `Multinomial`) one for each.
-  `modelmatrix>=0.3.1` is a new dependency.
-  The ids are unchanged; giving both raises. `CoxLM` and `RegCoxLM`
+- **The columns of `y` named by their role**: a data frame `y` names
+  each column by its role, as modelmatrix's `Outcome` builds it (e.g.
+  `Y = Outcome('y', offset='O', weight='w').fit_transform(D)`, then
+  `fit(X, Y)`), and `GLM`, `GLMNet`, the C++ paths, the Cox models,
+  `GAM` and `GLMM` find each column by its name:
+  - `offset`, or `offset[r]` for each response `r` of a multi-response
+    model (`Outcome(..., offset={...})`; `offset` alone is the same for
+    every response); `weight`, the prior weights;
+  - for a Cox model, `stop` and `status`, `start` for (start, stop] data
+    and `strata` (`Outcome(Surv('time', 'status'), strata='inst')`); a
+    Cox `y` with another column raises;
+  - the response: every other column. Of a binomial, two columns are
+    R's `cbind(successes, failures)` (`Binomial(s, trials=n)`), the
+    proportion of successes weighted by the trials (**breaking**: a
+    binomial `y` of two columns, e.g. an array, without `response_id`,
+    was (trials, successes)); a column of labels
+    keeps them as the classes (`Binomial('y')` gives 0/1). Of a
+    multinomial, a categorical's levels are its categories, in their
+    order.
+
+  An offset can be a feature, e.g. `offset=log(exposure)`, R's and
+  mgcv's `offset(log(exposure))`, and `outcome.transform(new,
+  response=False)['offset']` is the offset of new data for `predict`.
+  `modelmatrix>=0.3.1` is a new dependency. `CoxLM` and `RegCoxLM`
   default to a `CoxFamily`, as `CoxNetIRLS` does.
 - **A modelmatrix feature as a smoother's column**: `s(log_x)`, with
   `log_x = derived_feature(['x'], encoder=FunctionTransformer(np.log),
@@ -62,18 +60,6 @@
   blocks of columns built by hand. A column that is a smooth's and a
   parametric term's (`s('x')` and `'x'`) raises, their linear parts not
   identified. `linear()` and `categorical()` remain.
-- **`outcome=` for `GAM` and `GLMM`**, as for the GLMs: e.g.
-  `GAM(terms, family=Poisson(), outcome=Outcome('claims',
-  offset=log_exposure))`, mgcv's `offset(log(exposure))`, or
-  `outcome=Outcome(Surv('time', 'status'), strata='inst')` for the Cox
-  family. A `Binomial` gives a GAM labels of any two levels (the success
-  second) and, with `trials=`, a proportion weighted by its trials, which
-  the ids could only give as columns computed beforehand. `model_latex`
-  names the outcome's offset (a feature by its name) and weights (the
-  trials, times any weights). `big_glm` and the inference functions
-  (`glmstar_problem`, `glmstar_inference_problem`) take the estimators of
-  an outcome as they are.
-
 - **Linear hypotheses and ANOVA tables** (`glmnet.hypothesis`), for an
   unpenalized `GLM` or `CoxLM`: `linear_hypothesis(fit, L, rhs)`, the
   Wald test of `L beta = rhs` (R's `car::linearHypothesis`), `L` by the
@@ -129,16 +115,13 @@
 
 ### Deprecated
 
-- **The ids of `y`, for `outcome=`**: `response_id`, `offset_id` and
-  `weight_id`, the `CoxFamily`'s `event_id`, `status_id`, `start_id` and
-  `strata_id` (also their defaults: a Cox fit without `outcome=` warns),
-  and the response taken as every column of `y` but the offset and
-  weights, warn (FutureWarning), once, from the fit called (not from the
-  fits within it). Give the columns of `y` by `outcome=`, a modelmatrix
-  `Outcome`, or a response alone: `CoxNet(outcome=Surv('time',
-  'status'))`, `LogNet(outcome=Binomial('cases', trials='size'))`,
-  `MultiClassNet(outcome=Multinomial('kind'))` are `Outcome`s of their
-  response. The documentation uses `outcome=` throughout.
+- **The ids of `y`, for its columns named by role**: `response_id`,
+  `offset_id` and `weight_id`, and the `CoxFamily`'s `event_id`,
+  `status_id`, `start_id` and `strata_id` (also their defaults, the
+  columns `event` and `status`), warn (FutureWarning), once, from the
+  fit called. Their columns are renamed to their roles; the former
+  binomial `response_id=[trials, successes]` is read as before. Name the
+  columns of `y` by their role, e.g. with modelmatrix's `Outcome`.
 
 ### Packaging
 

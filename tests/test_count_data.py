@@ -10,7 +10,7 @@ def test_lognet_trials_successes():
     trials = rng.integers(1, 10, size=n)
     successes = rng.binomial(trials, 0.5)
     
-    Y_counts = np.column_stack([trials, successes])
+    Y_counts = np.column_stack([successes, trials - successes])   # R's cbind
     
     # We provide a fixed lambda sequence so path generation is identical
     lambda_grid = np.geomspace(0.5, 0.001, 10)
@@ -73,7 +73,7 @@ def test_binomial_reg_glm_trials_successes():
     trials = rng.integers(1, 10, size=n)
     successes = rng.binomial(trials, 0.5)
     
-    Y_counts = np.column_stack([trials, successes])
+    Y_counts = np.column_stack([successes, trials - successes])   # R's cbind
     
     # Fit with BinomialRegGLM
     reg_glm = BinomialRegGLM(lambda_val=0.1)
@@ -101,7 +101,7 @@ def test_binomial_glm_trials_successes():
     trials = rng.integers(1, 10, size=n)
     successes = rng.binomial(trials, 0.5)
     
-    Y_counts = np.column_stack([trials, successes])
+    Y_counts = np.column_stack([successes, trials - successes])   # R's cbind
     
     glm = BinomialGLM()
     glm.fit(X, Y_counts)

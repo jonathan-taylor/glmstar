@@ -7,7 +7,6 @@ from dataclasses import dataclass, asdict, field, InitVar
 from typing import Union, Optional
    
 import numpy as np
-from modelmatrix import Outcome
 import pandas as pd
 from scipy.interpolate import interp1d
 
@@ -32,7 +31,6 @@ from .glm import (GLM,
                   GLMFamilySpec,
                   _state_on_design)
 from ._utils import (_get_data,
-                     _y_ids,
                      _sub_ids,
                      _forget_encoding,
                      _check_offset,
@@ -44,7 +42,7 @@ from .scorer import (PathScorer,
                      RelaxedScorePath,
                      _tune_relaxed)
 from ._frames import as_pandas
-from ._outcome import _fit_outcome, _outcome_y
+from ._roles import _role_y, legacy
 
 
 
@@ -156,17 +154,11 @@ class GLMNetSpec(object):
     regularized_estimator: BaseEstimator
         Estimator class used for fitting each point on path.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -210,7 +202,6 @@ class GLMNetSpec(object):
     offset_id: Union[str,int] = None
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
-    outcome: Optional[Outcome] = None
     exclude: list = field(default_factory=list)
     relax: bool = False
     relax_maxp: Optional[int] = None
@@ -270,17 +261,11 @@ class GLMNet(BaseEstimator,
     regularized_estimator: BaseEstimator
         Estimator class used for fitting each point on path.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -340,7 +325,6 @@ class GLMNet(BaseEstimator,
         return _get_data(self,
                          X,
                          y,
-                         **_y_ids(self),
                          check=check)
 
     def _finalize_family(self,
@@ -399,7 +383,7 @@ class GLMNet(BaseEstimator,
         # a fit starts afresh: the family (Cox's holds the event data) is of
         # these data, not of an earlier fit
         X, y = as_pandas(X), as_pandas(y)
-        y = _fit_outcome(self, y)
+        y = _role_y(self, y)
         self.__dict__.pop('_family', None)
         self._family = self._finalize_family(response=y)
 
@@ -1090,7 +1074,7 @@ class GLMNet(BaseEstimator,
             holds the results for the lasso (`gamma=1`), as without `relax`.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _outcome_y(self, y)
+        y = _role_y(self, y)
         check_is_fitted(self, ["coefs_"])
 
         if alignment not in ['lambda', 'fraction']:
@@ -1254,7 +1238,7 @@ class GLMNet(BaseEstimator,
         >>> val_path.scores['Mean Squared Error']
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _outcome_y(self, y)
+        y = _role_y(self, y)
         check_is_fitted(self, ["coefs_"])
 
         predictions = self.predict(X, interpolation_grid=self.lambda_values_)

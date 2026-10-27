@@ -10,8 +10,8 @@ from sklearn.utils.validation import check_is_fitted
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from ._utils import _get_data, _y_ids
-from ._outcome import _outcome_y, _cox_ids
+from ._utils import _get_data
+from ._roles import _role_y, START
 from ._frames import as_pandas
 from .cox import CoxFamilySpec, c_index
 from .family import is_link
@@ -60,7 +60,6 @@ def _link_predictions(estimator, X, y):
     _, _, response, offset, weight = _get_data(estimator,
                                                X,
                                                y,
-                                               **_y_ids(estimator),
                                                check=False,
                                                multi_output=True)
     nfit = estimator.lambda_values_.shape[0]
@@ -104,11 +103,11 @@ def assess(estimator, X, y):
     index = pd.Index(estimator.lambda_values_, name='lambda')
 
     if family == 'cox':
-        y = _outcome_y(estimator, as_pandas(y))
+        y = _role_y(estimator, as_pandas(y))
         link, _, weight = _link_predictions(estimator, X, y)
         fam = estimator._finalize_family(y)
         surv = estimator._get_survival_data(y)
-        start = surv['start'] if _cox_ids(estimator)['start_id'] is not None else None
+        start = surv['start'] if START in y.columns else None
         # R's coxnet.deviance standardizes the weights to sum to n
         std_weight = weight * weight.shape[0] / weight.sum()
         deviance = [fam._coxdev_at(std_weight)(link[:, j], std_weight).deviance for j in range(link.shape[1])]
