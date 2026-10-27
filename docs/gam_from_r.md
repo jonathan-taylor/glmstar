@@ -62,8 +62,9 @@ R's `gam` (Hastie and Tibshirani's local scoring with backfitting) is a
 |---|---|---|
 | `s(x, df=4)` | `s('x', df=4)` (`df=4` by default in a `GAM`) | fits to about 1e-4, R's precision of the df |
 | `lo(x, span=0.5, degree=1)` | `lo('x', span=0.5, degree=1)` | against R's `loess` and `gam::lo` |
-| `x` (linear) | `linear('x')` | |
-| a factor | `categorical('f')` (formerly `factor('f')`, deprecated) | |
+| `x` (linear) | `'x'`, or `linear('x')` | |
+| a factor | `'f'` (a categorical column) or `contrast('f')`, or `categorical('f')` (formerly `factor('f')`, deprecated) | |
+| `x:f`, `poly(x, 2)`, `ns(x, df=3)` | `('x', 'f')`, `poly('x', 2)`, `ns('x', df=3)` (modelmatrix's terms, as items of `terms`) | against mgcv's parametric coefficients |
 | `family=binomial`, `weights=`, `offset(o)` | `family=sm.families.Binomial()`, `weight_id=`, `offset_id=` | Gaussian, binomial, Poisson, Gamma |
 | `predict(m, newdata, type="terms")` | `fit.partial_effect(term, x)` | |
 | `plot(m, se=TRUE)` | `fit.plot()` | |
