@@ -154,10 +154,10 @@ def test_stratified_cox_agrees_with_unstratified(Rinfo):
     y['strata'] = 0  # Single stratum
 
     # Unstratified
-    fam_unstrat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id=None)
+    fam_unstrat = CoxFamilySpec(y, event_id='stop', status_id='status', strata_id=None)
     fit_unstrat = CoxNetIRLS(family=fam_unstrat).fit(X, y)
     # Stratified, but only one stratum
-    fam_strat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id='strata')
+    fam_strat = CoxFamilySpec(y, event_id='stop', status_id='status', strata_id='strata')
     fit_strat = CoxNetIRLS(family=fam_strat).fit(X, y)
 
     # Compare coefficient paths
@@ -165,7 +165,7 @@ def test_stratified_cox_agrees_with_unstratified(Rinfo):
     assert np.allclose(fit_unstrat.intercepts_, fit_strat.intercepts_, atol=1e-8)
 
     # Now test with strata_id=None (should be same as above)
-    fam_none = CoxFamilySpec(y, event_id='event', status_id='status', strata_id=None)
+    fam_none = CoxFamilySpec(y, event_id='stop', status_id='status', strata_id=None)
     fit_none = CoxNetIRLS(family=fam_none).fit(X, y)
     assert np.allclose(fit_unstrat.coefs_, fit_none.coefs_, atol=1e-8)
 
@@ -192,9 +192,9 @@ def test_stratified_cox_differs_with_multiple_strata(Rinfo):
     # Create 3 strata
     y['strata'] = np.repeat(np.arange(3), n // 3 + 1)[:n]
 
-    fam_unstrat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id=None)
+    fam_unstrat = CoxFamilySpec(y, event_id='stop', status_id='status', strata_id=None)
     fit_unstrat = CoxNetIRLS(family=fam_unstrat).fit(X, y)
-    fam_strat = CoxFamilySpec(y, event_id='event', status_id='status', strata_id='strata')
+    fam_strat = CoxFamilySpec(y, event_id='stop', status_id='status', strata_id='strata')
     fit_strat = CoxNetIRLS(family=fam_strat).fit(X, y)
 
     # The coefficient paths should generally differ

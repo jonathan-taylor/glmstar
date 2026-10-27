@@ -19,11 +19,14 @@ The `CoxNet` class fits a Cox proportional hazards model with elastic net regula
 **Data requirements:**
 > The `CoxNet` class fits Cox proportional hazards models for survival analysis. It expects:
 > - `X`: a 2D NumPy array, pandas DataFrame or scipy sparse matrix of shape `(n_samples, n_features)` (predictors).
->   - `y`: a pandas DataFrame whose columns the estimator's `outcome` names, a
->     modelmatrix `Surv(time, status)` (or `Surv(start, stop, status)` for start-stop
->     data) or an `Outcome` of it with `strata=`, `weight=` and `offset=` columns:
->   - the time: event or observed time (float, > 0)
->   - the status: event indicator (1=event, 0=censored)
+> - `y`: a pandas DataFrame whose columns are named by their role:
+>   - `'stop'`: event or observed time (float, > 0)
+>   - `'status'`: event indicator (1=event, 0=censored)
+>   - optionally `'start'` for start-stop (interval) data, `'strata'` for stratified
+>     models, and `'weight'` and `'offset'`.
+>
+>   modelmatrix's `Outcome` builds it from other names, e.g.
+>   `Outcome(Surv('time', 'status'), strata='inst').fit_transform(D)`.
 
 ## Example Usage
 
@@ -31,11 +34,9 @@ The `CoxNet` class fits a Cox proportional hazards model with elastic net regula
 from glmnet.data import make_survival
 from glmnet.cox import CoxFamily
 from glmnet.paths.coxnet import CoxNet
-from modelmatrix import Surv
 
 X, y, coef = make_survival(n_samples=100, n_features=10, start_id=True)
-model = CoxNet(family=CoxFamily(tie_breaking='efron'),
-               outcome=Surv('start', 'event', 'status'))
+model = CoxNet(family=CoxFamily(tie_breaking='efron'))   # y: start, stop, status
 model.fit(X, y)
 print(model.coefs_.shape)
 ```

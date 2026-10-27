@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-from modelmatrix import Binomial
+from modelmatrix import Outcome, Binomial
 
 from glmnet.gam import GAM, GLMM, s, random_effect as re, linear, categorical, correlated_random_effect
 
@@ -341,8 +341,9 @@ Herds['p'] = Herds['incidence'] / Herds['size']
 glmm = {}
 for method in ['ML', 'REML']:
     glmm[method] = GLMM(terms=[categorical('period'), re('herd')], family=sm.families.Binomial(),
-                       method=method, outcome=Binomial('incidence', trials='size'))
-    glmm[method].fit(Herds, Herds)
+                       method=method)
+    # the incidence out of the herd's size: R's cbind(incidence, size - incidence)
+    glmm[method].fit(Herds, Outcome(Binomial('incidence', trials='size')).fit_transform(Herds))
 pd.DataFrame({method: glmm[method].variance_components_['sd'] for method in glmm})
 ```
 

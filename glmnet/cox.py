@@ -765,7 +765,7 @@ class CoxLM(GLM):
     def score(self, X, y, sample_weight=None):
         """
         Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
-        with the weights of `y` (`weight_id`) unless `sample_weight` is given.
+        with the weights of `y` (its column `weight`) unless `sample_weight` is given.
         """
         return _cox_score(self, X, y, sample_weight)
 
@@ -826,7 +826,7 @@ class RegCoxLM(RegGLM):
     def score(self, X, y, sample_weight=None):
         """
         Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
-        with the weights of `y` (`weight_id`) unless `sample_weight` is given.
+        with the weights of `y` (its column `weight`) unless `sample_weight` is given.
         """
         return _cox_score(self, X, y, sample_weight)
 
@@ -1074,17 +1074,18 @@ class CoxCIndexScorer(Scorer):
     averaged with fold weights equal to the summed sample weights, as in R's
     ``cv.coxnet``. Strata are ignored unless ``stratified=True``, matching R.
 
-    Use ``CoxCIndexScorer.from_family(family)`` to take the column names from
-    a `CoxFamily` or `CoxFamilySpec`.
+    The columns are those of `y` named by their role, `stop`, `status`, and
+    `start` and `strata` if `y` has them; ``CoxCIndexScorer.from_family(family)``
+    takes the column names of a `CoxFamily` or `CoxFamilySpec` instead.
     """
 
     name: str = 'C-index'
     maximize: bool = True
     use_full_data: bool = True
-    event_id: str = 'event'
+    event_id: str = 'stop'
     status_id: str = 'status'
-    start_id: Optional[str] = None
-    strata_id: Optional[str] = None
+    start_id: Optional[str] = 'start'      # (if the data have it)
+    strata_id: Optional[str] = 'strata'    # (if the data have it)
     stratified: bool = False
 
     @staticmethod
@@ -1103,9 +1104,10 @@ class CoxCIndexScorer(Scorer):
 
         event_split = event_data.iloc[split]
         start = strata = None
-        if self.start_id is not None:
+        if self.start_id is not None and self.start_id in event_split.columns:
             start = event_split[self.start_id]
-        if self.stratified and self.strata_id is not None:
+        if (self.stratified and self.strata_id is not None
+            and self.strata_id in event_split.columns):
             strata = event_split[self.strata_id]
         split_w = np.asarray(sample_weight)[split]
 

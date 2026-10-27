@@ -42,7 +42,6 @@ from scipy.stats import norm
 
 from glmnet import LinearTerm
 from glmnet.cox import CoxFamily, CoxFamilySpec, CoxLM, CoxNetIRLS, CoxState
-from modelmatrix import Surv
 from glmnet.glm import GLMControl
 from glmnet.glmnet import GLMNetControl
 from glmnet.inference import GLMProblem
@@ -127,10 +126,9 @@ def cox_lm(X, time, status, exclude=(), warm=None):
     warm started at the coefficients warm, if given.
     """
     warm_state = None if warm is None else CoxState(coef=np.asarray(warm, float))
-    return CoxLM(family=CoxFamily(tie_breaking='efron'), outcome=Surv('event', 'status'),
-                 exclude=list(exclude),
+    return CoxLM(family=CoxFamily(tie_breaking='efron'), exclude=list(exclude),
                  summarize=True, control=GLMControl(epsnr=1e-12)).fit(
-                     X, pd.DataFrame({'event': time, 'status': status}),
+                     X, pd.DataFrame({'stop': time, 'status': status}),
                      warm_state=warm_state)
 
 def cox_coef(X, time, status, warm=None):
@@ -300,12 +298,12 @@ def lam(pi):
     return 0.7 * np.sqrt(2 * np.log(p) / (pi * n))
 
 def cox_lasso(X, time, status, pi, linear_term=None, relax=False, control=None):
-    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'), outcome=Surv('event', 'status'),
+    return CoxNetIRLS(family=CoxFamily(tie_breaking='efron'),
                       lambda_values=np.array([lam(pi)]),
                       linear_term=linear_term,
                       relax=relax,
                       control=control or GLMNetControl()).fit(
-                          X, pd.DataFrame({'event': time, 'status': status}))
+                          X, pd.DataFrame({'stop': time, 'status': status}))
 
 def cox_coef_on(X, time, status, E):
     """The unpenalized Cox regression on the features E, as coefficients of all p."""

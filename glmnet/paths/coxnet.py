@@ -40,8 +40,9 @@ class CoxNet(FastNetMixin):
     tie-breaking, right-censored or start-stop data, and optional strata.
 
     The response `y` passed to `fit` must be a DataFrame whose columns are
-    named by `family` (see `CoxFamily`), along with any columns named by
-    `weight_id` and `offset_id`.
+    named by their role: `stop`, `status`, and optionally `start`, `strata`,
+    `weight` and `offset` (e.g. `Outcome(Surv('time', 'status'),
+    strata='inst').fit_transform(D)`, modelmatrix).
 
     Parameters
     ----------
@@ -92,7 +93,7 @@ class CoxNet(FastNetMixin):
         y : pd.DataFrame
             Survival data, with optional weight and offset columns.
         sample_weight : array-like, optional
-            Sample weights (ignored; use `weight_id`).
+            Sample weights (ignored; use the column `weight` of `y`).
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 

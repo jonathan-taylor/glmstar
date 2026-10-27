@@ -499,10 +499,10 @@ class GLMBase(BaseEstimator,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         y: Union[np.ndarray, pd.DataFrame]
-            Target variables. It is highly recommended to pass a DataFrame
-            (pandas, polars, a pyarrow Table...) when utilizing `offset_id`,
-            `weight_id`, or `response_id` so that these vectors can be
-            extracted by column name robustly.
+            The response, or a DataFrame (pandas, polars, a pyarrow Table...)
+            whose columns are named by their role: `offset`, `weight` and the
+            response, the other columns (e.g. `Outcome('y', offset='O',
+            weight='w').fit_transform(D)`, modelmatrix).
         check: bool
             Run the `sklearn.utils.check_X_y` method to validate `(X, response)`.
             
@@ -884,9 +884,9 @@ class GLMBase(BaseEstimator,
     def score(self, X, y, sample_weight=None):
         """
         Compute weighted log-likelihood (i.e. negative deviance / 2) for test X and y using fitted model.
-        `y` is as for `fit`: the response, offset and weights are its columns
-        `response_id`, `offset_id` and `weight_id`. The weights (all 1 without
-        `weight_id`) are not normalized, so this is a sum over the
+        `y` is as for `fit`: the offset and weights are its columns `offset`
+        and `weight`, the response the others. The weights (all 1 without
+        a column `weight`) are not normalized, so this is a sum over the
         observations, not an average: it grows with the number of
         observations, as `CoxLM.score`.
 
@@ -898,10 +898,10 @@ class GLMBase(BaseEstimator,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         y: Union[np.ndarray, pd.DataFrame]
-            Response variable, or a DataFrame with the columns `response_id`,
-            `offset_id` and `weight_id`, as for `fit`.
+            Response variable, or a DataFrame with the columns `offset` and
+            `weight` and the response, as for `fit`.
         sample_weight: Optional[np.ndarray]
-            Sample weights, in place of the weights of `weight_id`.
+            Sample weights, in place of the column `weight` of `y`.
 
         Returns
         -------

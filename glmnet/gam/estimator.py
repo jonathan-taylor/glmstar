@@ -270,7 +270,8 @@ class GAM(BaseEstimator):
         X: Union[np.ndarray, pd.DataFrame]
             The data: the terms name its columns.
         y: Union[np.ndarray, pd.DataFrame]
-            Response (with offset and weights, see `offset_id`, `weight_id`).
+            The response, or a frame of it and the columns `offset` and
+            `weight` (for the Cox family, `stop`, `status`, `start`, `strata`).
         linear_term: np.ndarray, optional
             A linear term `linear_term @ eta` added to the objective, one entry
             per observation (0 where the weight is 0), with `eta` the linear
@@ -537,7 +538,7 @@ class GAM(BaseEstimator):
     def score(self, X, y, sample_weight=None):
         """
         Minus half the deviance of the fit on `(X, y)` (with its offset and
-        weights, `offset_id` and `weight_id`, unless `sample_weight` is
+        weights, the columns `offset` and `weight`, unless `sample_weight` is
         given): a sum over the observations, as `GLM.score`, the larger the
         better, for scikit-learn's cross-validation. For the Cox family, the
         partial log-likelihood of the rows of `y`, the risk sets among them.

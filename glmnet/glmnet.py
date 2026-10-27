@@ -310,10 +310,10 @@ class GLMNet(BaseEstimator,
             unstandardized.  If it is not a sparse matrix, a copy is made and
             standardized.
         y: Union[np.ndarray, pd.DataFrame]
-            Target variables. It is highly recommended to pass a DataFrame
-            (pandas, polars, a pyarrow Table...) when utilizing `offset_id`,
-            `weight_id`, or `response_id` so that these vectors can be
-            extracted by column name robustly.
+            The response, or a DataFrame (pandas, polars, a pyarrow Table...)
+            whose columns are named by their role: `offset`, `weight` and the
+            response, the other columns (e.g. `Outcome('y', offset='O',
+            weight='w').fit_transform(D)`, modelmatrix).
         check: bool
             Run the `sklearn.utils.check_X_y` method to validate `(X, response)`.
             
@@ -568,9 +568,9 @@ class GLMNet(BaseEstimator,
             to these values before prediction.
         offset: np.ndarray, optional
             Offset for the rows of `X`, of shape `(nobs,)`, added to the linear
-            predictor (R's `newoffset`). If the model was fit with `offset_id`,
-            pass the offset for the new data here; if omitted, no offset is
-            used.
+            predictor (R's `newoffset`). If the model was fit with an offset
+            (a column `offset` of `y`), pass the offset for the new data here;
+            if omitted, no offset is used.
         gamma: float, optional
             Blend of the lasso (1, the default) and relaxed (0) fits, as R's
             `predict(..., gamma=)`; requires `relax=True` unless 1.

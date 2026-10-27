@@ -16,7 +16,7 @@ The feature matrix `X` has a single, well-defined mathematical purpose: to be mu
 
 In standard OLS regression, the response `y` is just a single vector of length `n_samples`. However, Generalized Linear Models (GLMs) are frequently more complex. Constructing the appropriate loss function often requires **multiple `(n_samples,)` vectors** beyond just the primary target variable. 
 
-By providing a `pandas.DataFrame` and specifying column names (or IDs) for these components, the `fit` method can seamlessly extract perfectly aligned vectors without requiring a massive, cluttered function signature. 
+By providing a `pandas.DataFrame` whose columns are named by their role (below), the `fit` method can find perfectly aligned vectors by their names, without a cluttered function signature. 
 
 Here are the primary cases where columnar access is essential:
 
@@ -32,8 +32,64 @@ Survival models require more than a single scalar per observation. To properly c
 A DataFrame naturally groups these multiple columns into a single object passed to `y`, avoiding the need for multiple array arguments.
 
 ### 3. Binomial / Multinomial Trials
-*(Note: Planned for future releases)*
-When dealing with aggregated binomial or multinomial data, each observation isn't a single trial but a collection of trials. The model must ingest both the **number of successes** and the **total trial count** (or totals per category). Column-focused structures allow the estimator to retrieve both vectors explicitly by name.
+When dealing with aggregated binomial or multinomial data, each observation isn't a single trial but a collection of trials. The model must ingest both the **number of successes** and the **number of failures** (or the counts of each category), the columns of the response.
+
+## The Columns of `y` by Role
+
+A data frame `y` names each column by its role:
+
+| Column | Role |
+|---|---|
+| `offset` | the offset, added to the linear predictor; for a multi-response model (`MultiGaussNet`, `MultiClassNet`) the same for every response |
+| `offset[r]` | the offset of the response `r` (a column, or a class of a multinomial) of a multi-response model, one for each |
+| `weight` | the prior weights of the observations |
+| `stop`, `status` | a Cox model's times (of the events, or of censoring) and status (1 = event, 0 = censored) |
+| `start` | a Cox model's start times, of (start, stop] data |
+| `strata` | a Cox model's strata (labels of any type) |
+| every other column | the response |
+
+The response depends on the family:
+
+- **Binomial**: one column, of the labels of two classes (they are the
+  classes of `predict`), of 0/1, or of proportions (with the trials as
+  `weight`); or **two columns, read as R's `cbind(successes,
+  failures)`**: the response is the proportion `s / (s + f)`, and the
+  number of trials `s + f` multiplies the weights. (glmstar 0.6.0 read
+  two columns as (trials, successes): give them in R's order.)
+- **Multinomial**: a column of the classes (a categorical's levels in
+  their order are the categories), or a column of counts (or one-hot
+  indicators) for each class.
+- **Multi-response Gaussian**: a column for each response.
+- **Cox**: the response is `stop` and `status` (and `start`); a Cox `y`
+  with a column other than the Cox roles, `offset` and `weight` raises.
+
+A response alone (a `Series` or an array) has no offset and weights.
+
+modelmatrix's `Outcome` builds such a frame from the data, whatever the
+names of its columns, as `ModelSpec` builds `X`:
+
+```python
+from modelmatrix import ModelSpec as MS, Outcome, Surv, Binomial
+
+X = MS(['x1', 'x2']).fit_transform(D)
+Y = Outcome('claims', offset='O', weight='w').fit_transform(D)   # claims, offset, weight
+GLM(family=sm.families.Poisson()).fit(X, Y)
+
+Y = Outcome(Surv('time', 'status'), strata='inst').fit_transform(D)   # stop, status, strata
+CoxNet().fit(X, Y)
+
+Y = Outcome(Binomial('cases', trials='size')).fit_transform(D)   # cases, size-cases
+LogNet().fit(X, Y)
+```
+
+An offset can be a feature of the data, e.g. R's `offset(log(exposure))`,
+and `outcome.transform(new, response=False)` gives the offset (and
+strata) of new data, for `predict(X, offset=...)`.
+
+The former `response_id`, `offset_id` and `weight_id`, and the
+`CoxFamily`'s `event_id`, `status_id`, `start_id` and `strata_id`, which
+named the columns of a frame of one's own, are deprecated: they still
+work, with a FutureWarning.
 
 ## Polars and Other Data Frames
 
@@ -51,7 +107,7 @@ from modelmatrix import Outcome
 from glmnet import GLM
 
 df = pl.read_csv('data.csv')
-fit = GLM(outcome=Outcome('y', weight='w')).fit(df.select('x1', 'x2'), df)
+fit = GLM().fit(df.select('x1', 'x2'), Outcome('y', weight='w').fit_transform(df))
 fit.summary_     # a pandas DataFrame
 ```
 
