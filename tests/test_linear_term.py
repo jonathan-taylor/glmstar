@@ -2,7 +2,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from modelmatrix import Outcome
 import pytest
 import scipy.sparse
 import statsmodels.api as sm
@@ -34,8 +33,9 @@ FAMILIES = {'gaussian': sm.families.Gaussian(),
 
 
 def _glmnet(family='gaussian', offset=None, **kwargs):
-    columns = dict(weight='w') if offset is None else dict(weight='w', offset=offset)
-    return GLMNet(family=FAMILIES[family], outcome=Outcome('y', **columns), **kwargs)
+    # (the deprecated ids, of the columns of the tests' y; they warn)
+    return GLMNet(family=FAMILIES[family], response_id='y', weight_id='w', offset_id=offset,
+                  **kwargs)
 
 
 def _kkt(fit, X, Y, G, alpha=1.0, pf=None, family='gaussian'):
@@ -223,6 +223,7 @@ def test_unbounded_duplicated_column():
     _unbounded_check(fit, c)
     with warnings.catch_warnings():
         warnings.simplefilter('error')
+        warnings.filterwarnings('ignore', category=FutureWarning)   # (the ids)
         _glmnet(linear_term=G, standardize=False, alpha=0.5).fit(X, Y)
 
 
@@ -393,6 +394,7 @@ def test_lambda_zero_is_glm():
     params = G.get_params()
     with warnings.catch_warnings():
         warnings.simplefilter('error')
+        warnings.filterwarnings('ignore', category=FutureWarning)   # (the ids)
         G.fit(X, y)
     assert G.get_params()['lambda_min_ratio'] is params['lambda_min_ratio']
     glm = sm.GLM(y, sm.add_constant(X), family=PROBIT).fit(tol=1e-12)

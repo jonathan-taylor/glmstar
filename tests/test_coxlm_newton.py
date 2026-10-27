@@ -7,7 +7,7 @@ import statsmodels.api as sm
 import pytest
 
 from glmnet.cox import CoxLM, CoxFamily, CoxFamilySpec
-from modelmatrix import Surv
+from modelmatrix import Outcome, Surv
 from glmnet.glm import GLM, GLMControl
 
 TIGHT_LIFELINES = {'precision': 1e-12}
@@ -33,7 +33,7 @@ def _data(seed=0, n=85, p=8):
 def _score(fit, X, Y):
     # the score of the partial likelihood at the fit, X^T (minus half the deviance's gradient)
     family = CoxFamilySpec(event_data=Y, tie_breaking=fit.family.tie_breaking,
-                           event_id='time', status_id='status')
+                           event_id='stop', status_id='status')
     result = family._coxdev(X @ fit.coef_, np.ones(X.shape[0]))
     return -X.T @ result.gradient / 2
 
@@ -41,13 +41,12 @@ def _score(fit, X, Y):
 @pytest.mark.parametrize('ties', ['breslow', 'efron'])
 def test_coxlm_converges(ties):
     X, Y = _data()
+    Y = Outcome(Surv('time', 'status')).fit_transform(Y)   # named by role
     family = CoxFamily(tie_breaking=ties)
-    outcome = Surv('time', 'status')
     with warnings.catch_warnings():
         warnings.simplefilter('error')
-        fit = CoxLM(family=family, outcome=outcome, summarize=True).fit(X, Y)
-    tight = CoxLM(family=family, outcome=outcome,
-                  control=GLMControl(epsnr=1e-14, mxitnr=50)).fit(X, Y)
+        fit = CoxLM(family=family, summarize=True).fit(X, Y)
+    tight = CoxLM(family=family, control=GLMControl(epsnr=1e-14, mxitnr=50)).fit(X, Y)
     np.testing.assert_allclose(fit.coef_, tight.coef_, atol=1e-6)
     np.testing.assert_allclose(_score(fit, X, Y), 0, atol=1e-6)
 

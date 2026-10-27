@@ -63,6 +63,9 @@ class LogNet(FastNetMixin):
     `glmnet.scoring.binomial_deviance_scorer` for the unclamped deviance.
     """
 
+    # the deprecated response_id=[trials, successes]: as (successes, failures)
+    _binomial_two_columns = True
+
     modified_newton: bool = False
     _dense = _dense
     _sparse = _sparse

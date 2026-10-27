@@ -25,10 +25,10 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from statsmodels.genmod.families import family as sm_family
 
-from modelmatrix import Outcome, Feature
+from modelmatrix import Feature
 
-from glmnet._utils import _extract_y, _y_ids, _parent_dataclass_from_child
-from glmnet._outcome import _fit_outcome, _outcome_y, _cox_ids
+from glmnet._utils import _extract_y, _binomial_counts, _parent_dataclass_from_child
+from glmnet._roles import _role_y, cox_ids, OFFSET, WEIGHT
 from glmnet.family import GLMFamilySpec
 from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
@@ -144,20 +144,11 @@ class GAM(BaseEstimator):
     control: GAMControl
         Parameters for the IRLS iterations and the backfitting.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for the Cox family the survival data and strata), e.g.
-        `Outcome('y', offset=log_exposure, weight='w')` or
-        `Outcome(Surv('time', 'status'), strata='inst')`, in place of
-        `response_id`, `offset_id`, `weight_id` and the `CoxFamily`'s ids.
-        A `Binomial` gives 0/1 (its levels, the success second), or a
-        proportion weighted by its trials. It is fit on the `y` of `fit` (a
-        copy, as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     method: str, optional
         Deprecated. `'fixed'`, the only smoothing of a GAM, is the default;
         `'REML'`, `'ML'` or a `SmoothingMethod` are a `GLMM`'s
@@ -223,7 +214,6 @@ class GAM(BaseEstimator):
     offset_id: Union[str, int] = None
     weight_id: Union[str, int] = None
     response_id: Union[str, int] = None
-    outcome: Optional[Outcome] = None
     method: Optional[str] = None
 
     fit_intercept = True
@@ -296,7 +286,10 @@ class GAM(BaseEstimator):
         self
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _fit_outcome(self, y)
+        y = _role_y(self, y)
+        # (the roles of its columns, as the LaTeX shows them)
+        self.y_roles_ = tuple(c for c in (OFFSET, WEIGHT)
+                              if isinstance(y, pd.DataFrame) and c in y.columns)
         terms, X = self._model_terms(X)
         if not terms:
             raise ValueError('a GAM needs at least one term')
@@ -318,10 +311,13 @@ class GAM(BaseEstimator):
             estimate_theta = getattr(self.family, 'estimate_theta', False)
             family = self._family = GLMFamilySpec.from_family(
                 deepcopy(self.family) if estimate_theta else self.family, y)
-            response, offset, weight = _extract_y(y, **_y_ids(self))
-            if self.outcome is not None and np.ndim(response) == 2 and response.shape[1] > 1:
-                raise ValueError(f'a GAM has a response of one column: {self.outcome!r} '
-                                 f'gives {response.shape[1]}')
+            response, offset, weight = _extract_y(y)
+            if family.is_binomial:   # (successes, failures), as R's cbind
+                response, weight = _binomial_counts(response, weight)
+            if np.ndim(response) == 2 and response.shape[1] > 1:
+                raise ValueError(f'a GAM has a response of one column, y gives '
+                                 f'{response.shape[1]}: the columns of y other than offset '
+                                 'and weight')
             response = np.asarray(response, float).reshape(-1)
             weight = np.asarray(weight, float).reshape(-1)
         self._response, self._weight = response, weight
@@ -552,14 +548,16 @@ class GAM(BaseEstimator):
         serially correlated rows need blocked folds.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _outcome_y(self, y)
+        y = _role_y(self, y)
         nobs = X.shape[0]
         if self._cox:
             family, _, offset, weight = self._cox_data(y, nobs)
             eta = self._linear_predictor(X, offset)
             w = weight if sample_weight is None else np.asarray(sample_weight, float)
             return -float(family.deviance(None, eta, w)) / 2
-        response, offset, weight = _extract_y(y, **_y_ids(self))
+        response, offset, weight = _extract_y(y)
+        if self._family.is_binomial:   # (successes, failures), as R's cbind
+            response, weight = _binomial_counts(response, weight)
         response = np.asarray(response, float).reshape(-1)
         w = (np.asarray(weight, float).reshape(-1) if sample_weight is None
              else np.asarray(sample_weight, float))
@@ -948,9 +946,10 @@ class GAM(BaseEstimator):
     def _cox_data(self, y, nobs):
         """
         The Cox family of the event data in `y` (a DataFrame with the
-        columns of `family`: event times, status, and optionally start times
-        and strata), and the offset and weights (`offset_id`, `weight_id`).
+        columns `stop`, `status`, and optionally `start` and `strata`), and
+        the offset and weights (`offset`, `weight`).
         """
+        y = _role_y(self, y)
         if not isinstance(y, pd.DataFrame):
             raise ValueError('for the Cox family, y should be a DataFrame with the columns '
                              'of the event times and status (and the start times, strata, '
@@ -959,8 +958,8 @@ class GAM(BaseEstimator):
             raise ValueError('X and y should have the same number of rows')
         family = CoxFamilySpec(event_data=y,
                                tie_breaking=self.family.tie_breaking,
-                               **_cox_ids(self))
-        _, offset, weight = _extract_y(y, **_y_ids(self))
+                               **cox_ids(y))
+        _, offset, weight = _extract_y(y)
         if offset is not None:
             offset = np.asarray(offset, float).reshape(-1)
         weight = np.asarray(weight, float).reshape(-1)

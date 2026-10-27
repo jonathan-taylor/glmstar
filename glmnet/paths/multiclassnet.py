@@ -7,6 +7,7 @@ from dataclasses import (dataclass,
                          field)
    
 import numpy as np
+import pandas as pd
 
 from sklearn.utils import check_X_y
 from sklearn.metrics import (accuracy_score,
@@ -14,7 +15,7 @@ from sklearn.metrics import (accuracy_score,
 
 from .fastnet import MultiFastNetMixin
 from .._utils import _jerr_lognet, _multinomial_response
-from .._outcome import _broadcast_offset
+from .._roles import broadcast_offset, legacy, response_columns
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -185,9 +186,16 @@ class MultiClassNet(MultiFastNetMixin):
 
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         
-        y_onehot, weight, self.categories_ = _multinomial_response(self, response, weight)
-        if self.outcome is not None:
-            offset = _broadcast_offset(offset, y_onehot.shape[1])
+        levels = None
+        if isinstance(y, pd.DataFrame):
+            # a column of labels, a categorical: its levels, in their order
+            columns = response_columns(y)
+            if len(columns) == 1 and isinstance(y[columns[0]].dtype, pd.CategoricalDtype):
+                levels = list(y[columns[0]].cat.categories)
+        y_onehot, weight, self.categories_ = _multinomial_response(self, response, weight,
+                                                                   levels=levels)
+        if not legacy(self):
+            offset = broadcast_offset(offset, y_onehot.shape[1])
         return X, y, y_onehot, offset, weight
 
     def predict_proba(self,

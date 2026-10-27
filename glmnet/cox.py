@@ -22,8 +22,8 @@ from .glm import (GLMFamilySpec,
 from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
-from ._utils import _get_data, _y_ids, _sub_ids, _check_offset, _check_predict_X
-from ._outcome import _outcome_y, _cox_ids
+from ._utils import _get_data, _sub_ids, _check_offset, _check_predict_X
+from ._roles import _role_y, cox_ids
 from ._frames import as_pandas
 
 def c_index(pred,
@@ -378,10 +378,9 @@ class CoxFamily(object):
     strata_id : str, optional, default=None
         Column name for strata (for stratified Cox models).
 
-    The ids are deprecated: give the survival data by the estimator's
-    `outcome`, e.g. `outcome=Surv('time', 'status')` or
-    `outcome=Outcome(Surv('start', 'stop', 'status'), strata='inst')`
-    (modelmatrix).
+    The ids are deprecated: name the columns of `y` by their role, `stop`,
+    `status`, `start` and `strata`, e.g. `Y = Outcome(Surv('time',
+    'status'), strata='inst').fit_transform(D)` (modelmatrix).
     """
     tie_breaking: Literal['breslow', 'efron'] = 'breslow'
     event_id: Optional[str] = 'event'
@@ -622,7 +621,7 @@ def _cox_score(estimator, X, y, sample_weight=None):
     the family of `y` is built for scoring new data (as `GridSearchCV` does).
     """
     X, y = as_pandas(X), as_pandas(y)
-    y = _outcome_y(estimator, y)
+    y = _role_y(estimator, y)
     family = estimator._finalize_family(response=y)
     _, _, _, offset, weight = estimator.get_data_arrays(X, y, check=False)
     if sample_weight is None:
@@ -653,9 +652,10 @@ class CoxLM(GLM):
 
     def _finalize_family(self,
                          response):
+        response = _role_y(self, response)
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             **_cox_ids(self))
+                             **cox_ids(response))
 
     def _get_regularizer(self,
                          nvars=None):
@@ -735,7 +735,6 @@ class CoxLM(GLM):
         return _get_data(self,
                          X,
                          y,
-                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
@@ -814,15 +813,15 @@ class RegCoxLM(RegGLM):
         return _get_data(self,
                          X,
                          y,
-                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
     def _finalize_family(self,
                          response):
+        response = _role_y(self, response)
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             **_cox_ids(self))
+                             **cox_ids(response))
 
     def score(self, X, y, sample_weight=None):
         """
@@ -864,15 +863,15 @@ class CoxNetIRLS(GLMNet):
         return _get_data(self,
                          X,
                          y,
-                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
     def _finalize_family(self,
                          response):
+        response = _role_y(self, response)
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             **_cox_ids(self))
+                             **cox_ids(response))
     
     def get_LM(self):
         return CoxLM(family=self.family,

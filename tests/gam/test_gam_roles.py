@@ -1,4 +1,4 @@
-# outcome=Outcome(...) (modelmatrix) for GAM and GLMM: the same fits as by
+# y named by role, Y = Outcome(...).fit_transform(D), for GAM and GLMM: the same fits as by
 # response_id, offset_id, weight_id and the CoxFamily's ids
 
 import warnings
@@ -84,13 +84,13 @@ def test_gam_matches_ids(name):
     family, outcome, ids = CASES[name]
     D = _data()
     R = _ref_data(D)
-    a = _gam(GAM, family, outcome=outcome).fit(D, D)
+    Y = outcome.fit_transform(D)
+    a = _gam(GAM, family).fit(D, Y)
     b = _gam(GAM, family, **ids).fit(R, R)
     np.testing.assert_allclose(a.predict(D, prediction_type='link'),
                                b.predict(R, prediction_type='link'), rtol=1e-9, atol=1e-12)
     np.testing.assert_allclose(a.edf_, b.edf_, rtol=1e-9)
-    np.testing.assert_allclose(a.score(D, D), b.score(R, R), rtol=1e-9)
-    assert not hasattr(outcome, 'columns_')   # a copy is fit
+    np.testing.assert_allclose(a.score(D, Y), b.score(R, R), rtol=1e-9)
 
 
 @pytest.mark.parametrize('name', ['gaussian', 'poisson', 'binomial-trials', 'cox'])
@@ -102,7 +102,7 @@ def test_glmm_matches_ids(name):
     terms = [s('x'), random_effect('g')]
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', ExperimentalWarning)
-        a = _gam(GLMM, family, terms, outcome=outcome).fit(D, D)
+        a = _gam(GLMM, family, terms).fit(D, outcome.fit_transform(D))
         b = _gam(GLMM, family, terms, **ids).fit(R, R)
     np.testing.assert_allclose(a.smoothing_.lam, b.smoothing_.lam, rtol=1e-6)
     np.testing.assert_allclose(a.predict(D, prediction_type='link'),
@@ -114,58 +114,44 @@ def test_feature_offset():
     D = _data()
     log_exposure = derived_feature(['exposure'], encoder=FunctionTransformer(np.log),
                                    name='log(exposure)')
-    a = GAM(TERMS, family=POISSON, outcome=Outcome('cnt', offset=log_exposure)).fit(D, D)
+    outcome = Outcome('cnt', offset=log_exposure)
+    a = GAM(TERMS, family=POISSON).fit(D, outcome.fit_transform(D))
     R = D.assign(log_exposure=np.log(D['exposure']))
     b = GAM(TERMS, family=POISSON, response_id='cnt', offset_id='log_exposure').fit(R, R)
     np.testing.assert_allclose(a.predict(D, prediction_type='link'),
                                b.predict(R, prediction_type='link'), rtol=1e-9)
-    offset = a.outcome_.transform(D.iloc[:10], response=False)['offset']
+    offset = outcome.transform(D.iloc[:10], response=False)['offset']
     np.testing.assert_allclose(a.predict(D.iloc[:10], offset=offset),
                                b.predict(R.iloc[:10], offset=R['log_exposure'].iloc[:10]),
                                rtol=1e-9)
-    assert r'\text{log(exposure)}_i' in a.model_latex()
+    assert r'\text{offset}_i' in a.model_latex()
 
 
 def test_latex():
+    # the offset and weights of y, once fitted; of the ids, also before
     D = _data()
-    gam = GAM(TERMS, family=BINOMIAL,
-              outcome=Outcome(Binomial('succ', trials='trials'), offset='O', weight='w'))
-    tex = gam.model_latex()   # unfitted, as Jupyter shows it
-    assert r'\text{O}_i' in tex
-    assert r'w_i &= \text{trials}_i \cdot \text{w}_i' in tex
+    Y = Outcome(Binomial('succ', trials='trials', output='proportion'), offset='O').fit_transform(D)
+    gam = GAM(TERMS, family=BINOMIAL)
+    assert r'\text{offset}_i' not in gam.model_latex()
+    gam.fit(D, Y)
+    tex = gam.model_latex()
+    assert r'\text{offset}_i' in tex and r'w_i &= \text{weight}_i' in tex
     ids = GAM(TERMS, offset_id='O', weight_id='w').model_latex()
     assert r'\text{O}_i' in ids and r'w_i &= \text{w}_i' in ids
-    gam.fit(D, D)
-    assert gam.model_latex() == tex
 
 
 def test_sklearn():
     D = _data()
     cv = KFold(4, shuffle=True, random_state=0)
-    a = cross_val_score(GAM(TERMS, family=POISSON, outcome=Outcome('cnt', offset='O')), D, D, cv=cv)
+    a = cross_val_score(GAM(TERMS, family=POISSON), D, Outcome('cnt', offset='O').fit_transform(D),
+                        cv=cv)
     b = cross_val_score(GAM(TERMS, family=POISSON, response_id='cnt', offset_id='O'), D, D, cv=cv)
     np.testing.assert_allclose(a, b, rtol=1e-9)
 
 
 def test_errors():
     D = _data()
-    with pytest.raises(ValueError, match='not both'):
-        GAM(TERMS, outcome=Outcome('y'), weight_id='w').fit(D, D)
-    with pytest.raises(ValueError, match='for a Cox model'):
-        GAM(TERMS, outcome=Outcome(Surv('time', 'status'))).fit(D, D)
-    with pytest.raises(ValueError, match='Surv response'):
-        GAM(TERMS, family=CoxFamily(), outcome=Outcome('time')).fit(D, D)
+    with pytest.raises(ValueError, match='no columns stop and status'):
+        GAM(TERMS, family=CoxFamily()).fit(D, Outcome('time').fit_transform(D))
     with pytest.raises(ValueError, match='one column'):
-        GAM(TERMS, outcome=Outcome(['y', 'z'])).fit(D, D)
-
-
-def test_response_alone():
-    # outcome=Surv(...) or Binomial(...): an Outcome of it
-    D = _data()
-    a = GAM(TERMS, family=CoxFamily(), outcome=Surv('time', 'status')).fit(D, D)
-    b = GAM(TERMS, family=CoxFamily(), outcome=Outcome(Surv('time', 'status'))).fit(D, D)
-    np.testing.assert_allclose(a.predict(D, prediction_type='link'),
-                               b.predict(D, prediction_type='link'), rtol=1e-12)
-    G = GAM(TERMS, family=BINOMIAL, outcome=Binomial('succ', trials='trials'))
-    assert r'w_i &= \text{trials}_i' in G.model_latex()
-    G.fit(D, D)
+        GAM(TERMS).fit(D, Outcome(['y', 'z']).fit_transform(D))

@@ -482,6 +482,9 @@ class BinomialRegGLM(ClassifierMixin, RegGLM):
     control: RegGLMControl
         Parameters to control the solver.
     """
+
+    # the deprecated response_id=[trials, successes]: as (successes, failures)
+    _binomial_two_columns = True
     family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
     def _finalize_family(self,

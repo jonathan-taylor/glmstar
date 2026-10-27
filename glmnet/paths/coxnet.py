@@ -18,13 +18,12 @@ from ..cox import (CoxFamily,
                    cox_survfit)
 
 from .._utils import (_get_data,
-                      _y_ids,
                       _jerr_coxnet)
 
 from .._coxnet import coxnet as _dense
 from .._coxnet import spcoxnet as _sparse
 from .._frames import as_pandas
-from .._outcome import _fit_outcome, _outcome_y, _cox_ids
+from .._roles import _role_y, cox_ids, OFFSET
 
 """
 Implements the CoxNet path algorithm for Cox proportional hazards models.
@@ -103,7 +102,7 @@ class CoxNet(FastNetMixin):
             Fitted estimator.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _fit_outcome(self, y)
+        y = _role_y(self, y)
         if not isinstance(y, pd.DataFrame):
             raise ValueError('CoxNet requires y to be a DataFrame of survival data')
         if self.fit_intercept:
@@ -163,18 +162,18 @@ class CoxNet(FastNetMixin):
         """
         check_is_fitted(self, ["coefs_"])
 
-        y = _outcome_y(self, as_pandas(y))
+        y = _role_y(self, as_pandas(y))
         _, _, _, offset, weight = self.get_data_arrays(X, y, check=False)
         surv_data = self._get_survival_data(y)
         strata = None
-        ids = _cox_ids(self)
+        ids = cox_ids(y)
         if ids['strata_id'] is not None:
             strata = np.asarray(y[ids['strata_id']])
         if offset is None:
             offset = np.zeros(X.shape[0])
 
         if newX is not None:
-            if _y_ids(self)['offset_id'] is not None and new_offset is None:
+            if OFFSET in y.columns and new_offset is None:
                 raise ValueError('new_offset is required for a model fit with an offset')
             if strata is not None and new_strata is None:
                 raise ValueError('new_strata is required for a stratified model')
@@ -238,21 +237,22 @@ class CoxNet(FastNetMixin):
         return _get_data(self,
                          X,
                          y,
-                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 
     def _finalize_family(self,
                          response):
+        response = _role_y(self, response)
         return CoxFamilySpec(event_data=response,
                              tie_breaking=self.family.tie_breaking,
-                             **_cox_ids(self))
+                             **cox_ids(response))
 
     def _get_survival_data(self, y):
         """Extract and validate (start, stop, status, strata) as in R's coxnet."""
 
         family = self.family
-        ids = _cox_ids(self)
+        y = _role_y(self, y)
+        ids = cox_ids(y)
         for col in [ids['event_id'], ids['status_id'], ids['start_id'], ids['strata_id']]:
             if col is not None and col not in y.columns:
                 raise ValueError(f'expecting column "{col}" in survival data')

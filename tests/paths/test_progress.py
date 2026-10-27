@@ -4,7 +4,6 @@ import pytest
 
 from glmnet import GaussNet, LogNet, FishNet, MultiGaussNet, MultiClassNet, CoxNet
 from glmnet.cox import CoxFamily
-from modelmatrix import Outcome, Surv
 from glmnet.paths.fastnet import FastNetControl
 
 rng = np.random.default_rng(0)
@@ -26,22 +25,30 @@ FAMILIES = ['gaussian', 'binomial', 'poisson', 'mgaussian', 'multinomial', 'cox'
 
 def _estimator(family, **kw):
     if family == 'gaussian':
-        return GaussNet(outcome=Outcome('gaussian'), **kw)
+        return GaussNet(**kw)
     if family == 'binomial':
-        return LogNet(outcome=Outcome('binomial'), **kw)
+        return LogNet(**kw)
     if family == 'poisson':
-        return FishNet(outcome=Outcome('poisson'), **kw)
+        return FishNet(**kw)
     if family == 'mgaussian':
-        return MultiGaussNet(outcome=Outcome(['gaussian', 'Y2']), **kw)
+        return MultiGaussNet(**kw)
     if family == 'multinomial':
-        return MultiClassNet(outcome=Outcome('multinomial'), **kw)
-    return CoxNet(family=CoxFamily(tie_breaking='breslow'), outcome=Surv('stop', 'status'), **kw)
+        return MultiClassNet(**kw)
+    return CoxNet(family=CoxFamily(tie_breaking='breslow'), **kw)
+
+
+def _Y(family):
+    # y, its columns named by role
+    columns = {'gaussian': ['gaussian'], 'binomial': ['binomial'], 'poisson': ['poisson'],
+               'mgaussian': ['gaussian', 'Y2'], 'multinomial': ['multinomial'],
+               'cox': ['stop', 'status']}[family]
+    return D[columns]
 
 
 @pytest.mark.parametrize('family', FAMILIES)
 def test_silent_by_default(family, capfd):
-    fit = _estimator(family).fit(X, D)
-    fit.cross_validation_path(X, D, cv=3)
+    fit = _estimator(family).fit(X, _Y(family))
+    fit.cross_validation_path(X, _Y(family), cv=3)
     out, err = capfd.readouterr()
     assert out == ''
     assert err == ''
@@ -49,12 +56,12 @@ def test_silent_by_default(family, capfd):
 
 @pytest.mark.parametrize('family', FAMILIES)
 def test_itrace_shows_progress(family, capfd):
-    fit = _estimator(family, control=FastNetControl(itrace=1)).fit(X, D)
+    fit = _estimator(family, control=FastNetControl(itrace=1)).fit(X, _Y(family))
     out, err = capfd.readouterr()
     assert out == ''
     # the bar advances to the number of lambda values fitted
     assert f'{len(fit.lambda_values_)}/{fit.nlambda}' in err
     # and cross-validation folds inherit the setting
-    fit.cross_validation_path(X, D, cv=3)
+    fit.cross_validation_path(X, _Y(family), cv=3)
     out, err = capfd.readouterr()
     assert err.count(f'/{fit.nlambda}') >= 3

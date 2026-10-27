@@ -17,7 +17,7 @@ from .fastnet import MultiFastNetMixin
 
 from .._multigaussnet import multigaussnet as _dense
 from .._multigaussnet import spmultigaussnet as _sparse
-from .._outcome import _broadcast_offset
+from .._roles import broadcast_offset, legacy
 
 from ..scoring import Scorer
 
@@ -125,8 +125,8 @@ class MultiGaussNet(MultiFastNetMixin):
                                                                  y,
                                                                  check=check)
         response = np.asfortranarray(response)
-        if self.outcome is not None:
-            offset = _broadcast_offset(offset, response.shape[1])
+        if not legacy(self):   # (with offset_id, as in R: one for each response)
+            offset = broadcast_offset(offset, response.shape[1])
         return X, y, response, offset, weight
 
     def _wrapper_args(self,

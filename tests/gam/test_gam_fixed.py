@@ -135,8 +135,7 @@ def test_order_and_wildcard():
     # a wildcard leaves out the terms given, and the outcome's columns
     outcome = Outcome('y')
     G = GAM([s('x', df=4), 'z', wildcard(exclude=[outcome, 'x', 'g', 'f', 'cnt', 'time',
-                                                    'status'])],
-            outcome=outcome).fit(D, D)
+                                                    'status'])]).fit(D, outcome.fit_transform(D))
     assert list(G.edf_.index) == ['s(x, df=4)', 'z', 'w', 'c']
 
 

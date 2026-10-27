@@ -7,7 +7,6 @@ import logging
 import warnings
    
 import numpy as np
-from modelmatrix import Outcome
 from numpy.linalg import LinAlgError
 import pandas as pd
 
@@ -30,7 +29,6 @@ from sklearn.utils.validation import _get_feature_names
 
 from ._utils import (_parent_dataclass_from_child,
                      _get_data,
-                     _y_ids,
                      _binomial_response,
                      _forget_encoding)
 
@@ -43,7 +41,7 @@ from .family import (GLMFamilySpec,
                      BinomFamilySpec,
                      GLMState)
 from ._frames import as_pandas
-from ._outcome import _fit_outcome, _outcome_y
+from ._roles import _role_y, legacy
 
 
 @dataclass
@@ -96,17 +94,11 @@ class GLMBaseSpec(object):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -118,7 +110,6 @@ class GLMBaseSpec(object):
     offset_id: Union[str,int] = None
     weight_id: Union[str,int] = None
     response_id: Union[str,int] = None
-    outcome: Optional[Outcome] = None
     exclude: list = field(default_factory=list)
 
 
@@ -443,17 +434,11 @@ class GLMBase(BaseEstimator,
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -529,7 +514,6 @@ class GLMBase(BaseEstimator,
         return _get_data(self,
                          X,
                          y,
-                         **_y_ids(self),
                          check=check)
     
     def fit(self,
@@ -576,7 +560,7 @@ class GLMBase(BaseEstimator,
             GLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _fit_outcome(self, y)
+        y = _role_y(self, y)
         if not getattr(self, '_path_refit', False):
             # a fit starts afresh: the design, the family (Cox's holds the
             # event data) and the information are of these data, not of an
@@ -925,9 +909,8 @@ class GLMBase(BaseEstimator,
             Minus half the deviance of family for `(X, y, sample_weight)`.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _outcome_y(self, y)
+        y = _role_y(self, y)
         _, _, response, offset, weight = _get_data(self, X, y,
-                                                   **_y_ids(self),
                                                    check=False)
         mu = self.predict(X, prediction_type='response', offset=offset)
         if sample_weight is None:
@@ -966,17 +949,11 @@ class GLM(GLMBase):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -1093,7 +1070,7 @@ class GLM(GLMBase):
             GLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _fit_outcome(self, y)
+        y = _role_y(self, y)
         if self._unpenalized:
             X = self._drop_intercept_column(X, fitting=True)
         super().fit(X,
@@ -1612,17 +1589,11 @@ class GaussianGLM(RegressorMixin, GLM):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -1650,17 +1621,11 @@ class BinomialGLM(ClassifierMixin, GLM):
     control: GLMControl
         Parameters to control the solver.
     offset_id: Union[str,int]
-        Column identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Column identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     weight_id: Union[str,int]
-        Weight identifier in `y`. (Optional; deprecated: give `outcome`.)
+        Weight identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     response_id: Union[str,int]
-        Response identifier in `y`. (Optional; deprecated: give `outcome`.)
-    outcome: modelmatrix.Outcome
-        The columns of `y`, named by their role: the response, offset and
-        weights (and for a Cox model the survival data and strata), e.g.
-        `Outcome('y', offset='O', weight='w')`, in place of `response_id`,
-        `offset_id` and `weight_id`. It is fit on the `y` of `fit` (a copy,
-        as `outcome_`), unless already fitted. (Optional)
+        Response identifier in `y`. (Optional; deprecated: name the columns of `y` by role, `offset`, `weight`.)
     exclude: list
         Indices of variables to be excluded from the model. Default is
         `[]`. Equivalent to an infinite penalty factor.
@@ -1669,6 +1634,9 @@ class BinomialGLM(ClassifierMixin, GLM):
     ridge_coef: float
         Ridge coefficient for a GLM. Added to objective **after** having divided by the sum of the weights.
     """
+
+    # the deprecated response_id=[trials, successes]: as (successes, failures)
+    _binomial_two_columns = True
     family: BinomFamilySpec = field(default_factory=BinomFamilySpec)
 
     def get_data_arrays(self, X, y, check=True):
@@ -1766,7 +1734,7 @@ class BinomialGLM(ClassifierMixin, GLM):
             BinomialGLM class instance.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _fit_outcome(self, y)
+        y = _role_y(self, y)
         self._family = self._finalize_family(response=y)
 
         return super().fit(X,

@@ -26,8 +26,8 @@ def test_score_path_one_class():
     by_label = LogNet().fit(X, labels)
     by_code = LogNet().fit(X, coded)
     np.testing.assert_allclose(by_label.coefs_, by_code.coefs_)
-    # (trials, successes) are coded the same whatever the classes
-    counts = np.column_stack([np.ones(n), coded])
+    # (successes, failures), R's cbind, are coded the same whatever the classes
+    counts = np.column_stack([coded, 1 - coded])
     np.testing.assert_allclose(_scores(by_label, X[only_b], labels[only_b]),
                                _scores(by_code, X[only_b], counts[only_b]))
     # scoring does not change the classes
@@ -70,6 +70,6 @@ def test_lognet_refit_relearns():
     # a DataFrame y, with the ids
     Y = pd.DataFrame({'y': labels, 'w': np.ones(n)})
     fit = LogNet(response_id='y', weight_id='w').fit(X, Y)
-    counts = np.column_stack([np.ones(n), coded])
+    counts = np.column_stack([coded, 1 - coded])
     np.testing.assert_allclose(_scores(fit, X[only_b], Y[only_b]),
                                _scores(LogNet().fit(X, coded), X[only_b], counts[only_b]))

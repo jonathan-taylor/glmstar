@@ -15,7 +15,7 @@ def big_glm(estimator, X, y, path=False):
     `glmnet::bigGlm`.
 
     All the other options of `estimator` are used: family, weights and
-    offset (`outcome`, or `weight_id` and `offset_id`), `exclude`, `lower_limits`,
+    offset (the columns `weight` and `offset` of `y`), `exclude`, `lower_limits`,
     `upper_limits`, `fit_intercept`, `control`, ... . Penalty factors only
     matter through which variables are excluded (infinite factors).
 

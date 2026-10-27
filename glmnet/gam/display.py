@@ -26,22 +26,18 @@ def _tex(name):
 
 def _offset_weight(gam):
     """
-    The offset and the weights of a GAM in LaTeX (None if none): its
-    `offset_id` and `weight_id`, or those of its outcome (a feature by its
-    name), a binomial's trials (times any weights) its weights.
+    The offset and the weights of a GAM in LaTeX (None if none): those its
+    deprecated `offset_id` and `weight_id` name, or, once fitted, the
+    columns `offset` and `weight` of its `y`.
     """
-    outcome = getattr(gam, 'outcome', None)
-    if outcome is None:
-        offset, weight = getattr(gam, 'offset_id', None), getattr(gam, 'weight_id', None)
-        trials = None
-    else:
-        extra = getattr(outcome, 'extra', {})   # (a response alone has none)
-        names = {key: getattr(value, 'name', value) for key, value in extra.items()}
-        offset, weight = names.get('offset'), names.get('weight')
-        trials = getattr(getattr(outcome, 'response', outcome), 'trials', None)
+    offset, weight = getattr(gam, 'offset_id', None), getattr(gam, 'weight_id', None)
+    roles = getattr(gam, 'y_roles_', ())
+    if offset is None and 'offset' in roles:
+        offset = 'offset'
+    if weight is None and 'weight' in roles:
+        weight = 'weight'
     tex = lambda name: None if name is None else rf'{_tex(name)}_i'
-    weights = [w for w in [tex(trials), tex(weight)] if w is not None]
-    return tex(offset), r' \cdot '.join(weights) if weights else None
+    return tex(offset), tex(weight)
 
 
 def _columns(term):

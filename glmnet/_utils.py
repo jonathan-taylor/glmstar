@@ -6,40 +6,28 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from dataclasses import fields
 from ._frames import as_pandas
-from ._outcome import (_outcome_y,
-                       _outcome_ids,
-                       _outcome_binomial,
-                       _outcome_multinomial)
+from ._roles import _role_y, read_y, response_columns
 
 def _get_data(estimator,
               X,
               y,
-              offset_id=None,
-              weight_id=None,
-              response_id=None,
               check=True,
               multi_output=True # always true below
               ):
     """
-    Extracts response, offset, and weights from the input `y`.
-
-    This function handles various input formats for `y` (DataFrame or array)
-    and separates the response variable from any specified offset or weight columns.
+    The response, offset and weights of `y`, a frame whose columns are named
+    by their role (`glmnet._roles`), or the response alone.
 
     Parameters
     ----------
     estimator : object
-        The estimator calling this function (for `check_X_y`).
+        The estimator calling this function (for `check_X_y`, and the
+        deprecated ids of its `y`).
     X : array-like
         The input data matrix.
     y : array-like or pd.DataFrame
-        The target variable, which may contain response, offset, and weights.
-    offset_id : str, int, or list, optional
-        Column identifier for the offset in `y`.
-    weight_id : str, int, or list, optional
-        Column identifier for the weights in `y`.
-    response_id : str, int, or list, optional
-        Column identifier for the response in `y`.
+        The response, or a frame of it, the offset (`offset`) and the
+        weights (`weight`).
     check : bool, default=True
         Whether to perform `sklearn.utils.check_X_y` validation.
     multi_output : bool, default=True
@@ -50,20 +38,14 @@ def _get_data(estimator,
     X : array-like
         The input data matrix (possibly validated).
     y : array-like or pd.DataFrame
-        The original target variable.
+        `y`, named by role.
     response : np.ndarray
-        The extracted response variable.
     offset : np.ndarray or None
-        The extracted offset term, or None if not provided.
     weight : np.ndarray
-        The extracted weights, or an array of ones if not provided.
     """
     X, y = as_pandas(X), as_pandas(y)
-    y = _outcome_y(estimator, y)
-    response, offset, weight = _extract_y(y,
-                                          offset_id=offset_id,
-                                          weight_id=weight_id,
-                                          response_id=response_id)
+    y = _role_y(estimator, y)
+    response, offset, weight = read_y(y)
 
     # Validate against Response
     if check:
@@ -74,98 +56,16 @@ def _get_data(estimator,
 
     return X, y, np.squeeze(response), offset, weight
 
-def _extract_y(y,
-               offset_id=None,
-               weight_id=None,
-               response_id=None):
-    """
-    The response, offset and weights of `y`, from their columns.
-
-    With `response_id` None, the response is every column of `y` other
-    than the offset and weights (or `y` itself if it is 1-dimensional).
-
-    Parameters
-    ----------
-    y : array-like or pd.DataFrame
-        The target variable, which may contain response, offset, and weights.
-    offset_id, weight_id, response_id : str, int, or list, optional
-        Column identifiers in `y`.
-
-    Returns
-    -------
-    response : np.ndarray
-        The response, not squeezed.
-    offset : np.ndarray or None
-        The offset, or None if not provided.
-    weight : np.ndarray
-        The weights, or an array of ones if not provided.
-    """
-    y = as_pandas(y)
-    is_df = isinstance(y, pd.DataFrame)
-
-    def _as_list(val):
-        """Helper to ensure column identifiers are lists for dropping/indexing."""
-        if isinstance(val, (list, tuple, np.ndarray)):
-            return list(val)
-        return [val]
-
-    # Extract Offset
-    offset = None
-    if offset_id is not None:
-        offset = np.asarray(y.loc[:, offset_id] if is_df else y[:, offset_id])
-
-    # Extract Weight
-    weight = None
-    if weight_id is not None:
-        weight = np.asarray(y.loc[:, weight_id] if is_df else y[:, weight_id])
-
-    # Extract Response
-    if response_id is not None:
-        response = np.asarray(y.loc[:, response_id] if is_df else y[:, response_id])
-    else:
-        if is_df:
-            drop_cols = []
-            if offset_id is not None:
-                drop_cols.extend(_as_list(offset_id))
-            if weight_id is not None:
-                drop_cols.extend(_as_list(weight_id))
-            response = np.asarray(y.drop(columns=drop_cols) if drop_cols else y)
-        else:
-            if y.ndim == 1:
-                response = np.asarray(y)
-            else:
-                keep = np.ones(y.shape[1], dtype=bool)
-                if offset_id is not None:
-                    keep[_as_list(offset_id)] = False
-                if weight_id is not None:
-                    keep[_as_list(weight_id)] = False
-                response = np.asarray(y[:, keep])
-
-    # Default Weights
-    if weight is None:
-        weight = np.ones(y.shape[0])
-
-    return response, offset, weight
-
-def _y_ids(estimator):
-    """
-    The column ids of `y` an estimator reads: with an outcome, those of
-    the `y` it builds.
-    """
-    if getattr(estimator, 'outcome', None) is not None:
-        return _outcome_ids(estimator.outcome_)
-    return dict(offset_id=estimator.offset_id,
-                weight_id=estimator.weight_id,
-                response_id=estimator.response_id)
+def _extract_y(y):
+    """The response, offset and weights of `y`, named by role (see `glmnet._roles`)."""
+    return read_y(as_pandas(y))
 
 def _sub_ids(estimator):
     """
-    The columns of `y` of an estimator, for another it builds (e.g. at each
-    point of a path, or `get_fixed_lambda`'s): its fitted outcome, used as it
-    is, or its ids.
+    The deprecated ids of `y` of an estimator, for another it builds (e.g.
+    `get_fixed_lambda`'s), to fit to the same `y` (a frame they renamed is
+    left as it is).
     """
-    if getattr(estimator, 'outcome', None) is not None:
-        return dict(outcome=estimator.outcome_)
     return dict(offset_id=estimator.offset_id,
                 weight_id=estimator.weight_id,
                 response_id=estimator.response_id)
@@ -183,8 +83,9 @@ def _binomial_response(estimator,
     The labels (in [0, 1]), weights and classes of a binomial response.
 
     The response is a vector of labels of two classes, a 2-column array of
-    (trials, successes), whose trials multiply the weights, or (with
-    `proportion`) a vector of proportions. The classes of labels are
+    (successes, failures) as R's `cbind(successes, failures)`, the trials
+    `successes + failures` multiplying the weights, or (with `proportion`)
+    a vector of proportions. The classes of labels are
     learned when the estimator has none, i.e. at `fit`; otherwise the
     labels are coded by them, e.g. those of a fold being scored, which
     may not have both classes.
@@ -193,17 +94,9 @@ def _binomial_response(estimator,
     -------
     labels, weight, classes : np.ndarray
     """
-    outcome = getattr(estimator, 'outcome_', None)
-    if outcome is not None and getattr(estimator, 'outcome', None) is not None:
-        coded = _outcome_binomial(outcome, response, weight)
-        if coded is not None:
-            return coded
     if response.ndim == 2 and response.shape[1] == 2:
-        trials = response[:, 0]
-        successes = response[:, 1]
-        if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
-            raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
-        return successes / trials, weight * trials, np.array([0, 1])
+        proportion, weight = _binomial_counts(response, weight)
+        return proportion, weight, np.array([0, 1])
     if proportion and _is_proportion(response):
         return np.asfortranarray(np.asarray(response, float).ravel()), weight, np.array([0, 1])
     if response.ndim == 2 and response.shape[1] == 1:
@@ -218,25 +111,38 @@ def _binomial_response(estimator,
         encoder.classes_ = np.asarray(classes)
     return np.asfortranarray(encoder.transform(response)), weight, encoder.classes_
 
+def _binomial_counts(response, weight):
+    """
+    A binomial response of two columns, (successes, failures) as R's
+    `cbind(successes, failures)`: the proportion of successes, the trials
+    multiplying the weights; any other response as it is.
+    """
+    response = np.asarray(response)
+    if response.ndim != 2 or response.shape[1] != 2:
+        return response, weight
+    successes, failures = (np.asarray(response[:, 0], float), np.asarray(response[:, 1], float))
+    trials = successes + failures
+    if np.any(successes < 0) or np.any(failures < 0) or np.any(trials <= 0):
+        raise ValueError('a binomial response of two columns is (successes, failures), as '
+                         "R's cbind: nonnegative, with a positive total")
+    return successes / trials, weight * trials
+
 def _multinomial_response(estimator,
                           response,
-                          weight):
+                          weight,
+                          levels=None):
     """
     The one-hot response (proportions), weights and categories of a
     multinomial response: a vector of labels, or a 2-column (or more)
     array of counts of each class, whose row sums multiply the weights.
     The categories of labels are learned when the estimator has none,
-    i.e. at `fit`; otherwise the labels are coded by them.
+    i.e. at `fit` (`levels`, a categorical's, if given; otherwise sorted);
+    otherwise the labels are coded by them.
 
     Returns
     -------
     y_onehot, weight, categories : np.ndarray
     """
-    outcome = getattr(estimator, 'outcome_', None)
-    if outcome is not None and getattr(estimator, 'outcome', None) is not None:
-        coded = _outcome_multinomial(outcome, response, weight)
-        if coded is not None:
-            return coded
     if response.ndim == 2 and response.shape[1] > 1:
         trials = response.sum(axis=1)
         if np.any(response < 0) or np.any(trials <= 0):
@@ -246,6 +152,8 @@ def _multinomial_response(estimator,
     if response.ndim == 2 and response.shape[1] == 1:
         response = response.ravel()
     categories = getattr(estimator, 'categories_', None)
+    if categories is None and levels is not None:
+        categories = np.asarray(levels, dtype=object)
     encoder = OneHotEncoder(sparse_output=False,
                             categories='auto' if categories is None else [categories])
     y_onehot = encoder.fit_transform(np.asarray(response).reshape((-1, 1)))

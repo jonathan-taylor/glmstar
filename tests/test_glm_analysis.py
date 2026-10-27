@@ -531,14 +531,12 @@ def test_islp_empty_design(family):
 def test_islp_empty_design_cox():
     # the null model of a Cox stepwise search: no warning, coefficient 0
     from glmnet.cox import CoxFamily, CoxLM
-    from modelmatrix import Surv
     rng = np.random.default_rng(6)
     n = 60
-    Y = pd.DataFrame({'event': rng.exponential(1, n), 'status': rng.binomial(1, 0.7, n)})
+    Y = pd.DataFrame({'stop': rng.exponential(1, n), 'status': rng.binomial(1, 0.7, n)})
     with warnings.catch_warnings():
         warnings.simplefilter('error')
-        L = CoxLM(family=CoxFamily(), outcome=Surv('event', 'status')).fit(
-            pd.DataFrame({'zero': np.zeros(n)}), Y)
+        L = CoxLM(family=CoxFamily()).fit(pd.DataFrame({'zero': np.zeros(n)}), Y)
     np.testing.assert_allclose(L.coef_, 0)
 
 

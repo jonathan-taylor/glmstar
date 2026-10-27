@@ -28,7 +28,7 @@ dependencies = [
     "matplotlib",
     # data frames other than pandas (polars, pyarrow...) as inputs
     "narwhals>=1.30",
-    # outcome=Outcome(...): the columns of y named by their role
+    # Outcome: y with its columns named by role; GAM terms from ModelSpec features
     "modelmatrix>=0.3.1"
 ]
 classifiers = ["Development Status :: 3 - Alpha",
@@ -127,5 +127,5 @@ no-build-isolation-package = ["glmstar"]
 testpaths = ["tests"]
 # glmnet.gam's REML/ML is experimental, and warns (tested in test_gam_reml.py)
 filterwarnings = ["ignore:GAM\\(method=:UserWarning",
-                  # the ids of y, deprecated for outcome= (tested in test_outcome.py)
-                  "ignore:.*by outcome=:FutureWarning"]
+                  # the ids of y, deprecated for its columns named by role (tested in test_roles.py)
+                  "ignore:.*by their role:FutureWarning"]
