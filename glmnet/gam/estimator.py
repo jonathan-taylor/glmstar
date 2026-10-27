@@ -74,6 +74,13 @@ class GAMControl(GLMControl):
         raise), and REML and ML raise, but for one large random effect (see
         `reml_backend`): a random effect of many levels is fitted by
         backfitting without them.
+    max_dense_design: int
+        The most entries (observations times coefficients) of the dense
+        joint design `X`, `N x P`, that the covariances above are formed
+        from: above it they are not formed either (None; standard errors
+        raise). The default, 2e8, is 1.6 GB of float64. With a random effect
+        of many levels, `N x P` can be far larger than `P x P`: 100000 rows
+        and 12000 coefficients are 9.6 GB.
     reml_backend: str
         The factorization of REML and ML's Hessian: `'dense'`, `'blocked'`
         (the random effect with the most levels kept implicit, and the
@@ -87,6 +94,7 @@ class GAMControl(GLMControl):
     bf_modified: bool = True
     solver: str = 'backfit'
     max_dense_coef: int = 20000
+    max_dense_design: int = 200_000_000
     reml_backend: str = 'auto'
 
 
@@ -672,19 +680,28 @@ class GAM(BaseEstimator):
         cov = dict(design=None, posterior=None, frequentist=None, edf=None,
                    bread_inv=None, penalty=None)
         self._covariance_reason = None
+        # (a joint fit's design, already formed)
+        formed = (self.regularizer_.design_ if isinstance(self.regularizer_, JointRegularizer)
+                  else None)
+        n_coef = 1 + sum(term.n_coef() for term in self.terms_ if term.has_basis)
+        nobs = len(self._covariance_weights)
         if not all(term.has_basis for term in self.terms_):
             self._covariance_reason = 'standard errors need a basis for every term (not lo())'
-        elif 1 + sum(term.n_coef() for term in self.terms_) > self.control.max_dense_coef:
-            n_coef = 1 + sum(term.n_coef() for term in self.terms_)
+        elif n_coef > self.control.max_dense_coef:
             self._covariance_reason = (
                 f'the posterior covariance is the dense {n_coef} x {n_coef} matrix, more than '
                 f'GAMControl(max_dense_coef={self.control.max_dense_coef}): raise it to form it')
+        elif formed is None and nobs * n_coef > self.control.max_dense_design:
+            # (the properties built from it are evaluated by dir() and by
+            # scikit-learn's HTML display of the estimator, e.g. in a notebook)
+            self._covariance_reason = (
+                f'the covariances are formed from the dense {nobs} x {n_coef} joint design, '
+                f'{nobs * n_coef:.3g} entries, more than '
+                f'GAMControl(max_dense_design={self.control.max_dense_design:.3g}): raise it '
+                'to form it')
         else:
             w = self._covariance_weights
-            D = cov['design'] = (self.regularizer_.design_
-                                 if isinstance(self.regularizer_, JointRegularizer)
-                                 and self.regularizer_.design_ is not None
-                                 else JointDesign(self.terms_))
+            D = cov['design'] = formed if formed is not None else JointDesign(self.terms_)
             lams = [term.penalty_lams() for term in self.terms_]
             if self._cox:
                 # the full information of the partial likelihood (as mgcv's

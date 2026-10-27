@@ -9,6 +9,20 @@
   which compare with R, keep it). The book executes two pages at a time
   (`--execute-parallel 2`): all at once, the runner was killed part way.
 
+### Bug fixes
+
+- **No dense `N x P` design from displaying a GAM**: the covariance
+  properties (`design_`, `posterior_covariance_`, `frequentist_covariance_`,
+  `edf_influence_`) formed the dense joint design, observations by
+  coefficients, whenever the coefficients were at most `max_dense_coef`:
+  with a random effect of many levels, gigabytes (100000 rows and 12000
+  coefficients are 9.6 GB). `dir()` and scikit-learn's HTML display of the
+  estimator (a notebook's) evaluate every property, so displaying a fitted
+  `GLMM` formed it, and the docs' `gam_crossed.md` ran the runner out of
+  memory. A new `GAMControl(max_dense_design=2e8)`, the most entries of that
+  design: above it the covariances are not formed (None; standard errors
+  raise, saying so), as above `max_dense_coef`.
+
 ## 0.7.0 (2026-10-27)
 
 ### New features
