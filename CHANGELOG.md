@@ -139,7 +139,8 @@
     `uv pip install --group build`, then `uv sync`: a plain `uv sync` in a
     new environment fails with `No module named 'mesonpy'`, as glmstar's
     build is not isolated under uv. The README says so, and gives `pip
-    install glmstar` first.
+    install glmstar` first, and activating the environment, and how to
+    build the docs locally.
 - **Python 3.11 or later**, as modelmatrix (a dependency since this
   release) requires; 0.6.0 remains for 3.10.
 

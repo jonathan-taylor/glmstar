@@ -47,6 +47,7 @@ A C++17 compiler is required to build the extension modules.
 
 ```bash
 uv venv                         # .venv in the project
+source .venv/bin/activate       # (uv finds .venv without it; python, pytest need it)
 uv pip install --group build    # the build tools first (meson-python, coxdev, ...)
 uv sync                         # editable install plus the test tools (the `dev` group)
 uv run pytest tests --test-size=small
@@ -68,7 +69,11 @@ uv pip install -e .      # or `uv pip install .` for a regular install
 
 ### Install with pip
 
+In a virtual environment of its own:
+
 ```bash
+python -m venv .venv
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
 pip install .
 ```
 
@@ -79,6 +84,25 @@ and disable build isolation:
 pip install meson-python meson ninja pybind11 setuptools_scm coxdev
 pip install --no-build-isolation -e .
 ```
+
+### Building the docs
+
+The documentation is a Jupyter Book 2 site, its pages executed, and a Sphinx API
+reference. It needs [Node.js](https://nodejs.org) 18 or later (Jupyter Book 2 runs on
+it) and R (for `rpy2`, one of the docs' dependencies). In the activated environment of
+the development install above, from the repository's root:
+
+```bash
+uv sync --extra doc --extra gam     # Jupyter Book 2, Sphinx, rpy2, lassoinf, jax
+uv pip install --no-deps ISLP       # the data of some pages, without ISLP's dependencies
+cd docs
+jupyter-book build --html --execute         # the pages, executed: docs/_build/html
+sphinx-build -b html api _build/html/api    # the API reference: docs/_build/html/api
+open _build/html/index.html
+```
+
+`jupyter-book start` serves the pages instead, rebuilding them as they change. This is
+what `.github/workflows/build_docs.yml` runs.
 
 ### Troubleshooting
 
