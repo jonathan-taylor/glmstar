@@ -23,7 +23,7 @@ from .._utils import (_get_data,
 from .._coxnet import coxnet as _dense
 from .._coxnet import spcoxnet as _sparse
 from .._frames import as_pandas
-from .._roles import _role_y, cox_ids, OFFSET
+from .._roles import _role_y, cox_ids, OFFSET, with_sample_weight
 
 """
 Implements the CoxNet path algorithm for Cox proportional hazards models.
@@ -82,7 +82,7 @@ class CoxNet(FastNetMixin):
     def fit(self,
             X,
             y,
-            sample_weight=None, # ignored
+            sample_weight=None,
             interpolation_grid=None):
         """Fit the Cox regularization path.
 
@@ -93,7 +93,7 @@ class CoxNet(FastNetMixin):
         y : pd.DataFrame
             Survival data, with optional weight and offset columns.
         sample_weight : array-like, optional
-            Sample weights (ignored; use the column `weight` of `y`).
+            The weights, in place of a column `weight` of `y` (not both).
         interpolation_grid : array-like, optional
             Grid for coefficient interpolation.
 
@@ -103,7 +103,7 @@ class CoxNet(FastNetMixin):
             Fitted estimator.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         if not isinstance(y, pd.DataFrame):
             raise ValueError('CoxNet requires y to be a DataFrame of survival data')
         if self.fit_intercept:

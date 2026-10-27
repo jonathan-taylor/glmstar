@@ -569,9 +569,9 @@ def test_score(name, case):
     np.testing.assert_allclose(g.score(X_fit, Y), -family.deviance(y, mu, var_weights=w) / 2,
                                rtol=1e-12)
     np.testing.assert_allclose(g.score(X_fit, Y), -s.deviance / 2, rtol=1e-6)
-    # sample_weight replaces the weights of weight_id
-    np.testing.assert_allclose(g.score(X_fit, Y, sample_weight=np.ones(n)),
-                               -family.deviance(y, mu) / 2, rtol=1e-12)
+    # the weights are given once: of weight_id, or sample_weight
+    with pytest.raises(ValueError, match='given twice'):
+        g.score(X_fit, Y, sample_weight=np.ones(n))
 
 
 def test_score_cross_validation():

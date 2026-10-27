@@ -85,6 +85,14 @@
 
 ### Bug fixes
 
+- **`sample_weight` is honoured by `fit`**: `GLM`, `GLMNet`, `RegGLM`, the
+  C++ paths and `CoxNet` took `sample_weight=` and ignored it, so e.g.
+  `cross_validate(..., params={'sample_weight': w})` fitted without the
+  weights. It is now the column `weight` of `y` (and `GAM.fit` takes it
+  too). The weights are given once: `sample_weight` with a column
+  `weight` (or a `weight_id`) raises, in `fit` and in `score`, where
+  `sample_weight` used to replace the column.
+
 - **One coding of a grouping's levels in GAMs**: a random effect's (and a
   correlated random effect's) levels are now in the order of a pandas
   categorical's categories (those seen in fitting), as `categorical()`

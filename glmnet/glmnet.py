@@ -42,7 +42,7 @@ from .scorer import (PathScorer,
                      RelaxedScorePath,
                      _tune_relaxed)
 from ._frames import as_pandas
-from ._roles import _role_y, legacy
+from ._roles import _role_y, legacy, with_sample_weight
 
 
 
@@ -348,7 +348,7 @@ class GLMNet(BaseEstimator,
     def fit(self,
             X,
             y,
-            sample_weight=None,           # ignored
+            sample_weight=None,
             regularizer=None,             # last 3 options non sklearn API
             warm_state=None,
             interpolation_grid=None):
@@ -365,7 +365,7 @@ class GLMNet(BaseEstimator,
         y: np.ndarray
             Response variable.
         sample_weight: Optional[np.ndarray]
-            Sample weights.
+            The weights, in place of a column `weight` of `y` (not both).
         regularizer: ElNetRegularizer, optional
             Regularizer used in fitting the model. Allows for inspection of parameters of regularizer.
         warm_state: GLMState, optional
@@ -383,7 +383,7 @@ class GLMNet(BaseEstimator,
         # a fit starts afresh: the family (Cox's holds the event data) is of
         # these data, not of an earlier fit
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         self.__dict__.pop('_family', None)
         self._family = self._finalize_family(response=y)
 

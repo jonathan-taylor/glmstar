@@ -23,7 +23,7 @@ from .scoring import Scorer
 from .regularized_glm import RegGLM
 from .glmnet import GLMNet
 from ._utils import _get_data, _sub_ids, _check_offset, _check_predict_X
-from ._roles import _role_y, cox_ids
+from ._roles import _role_y, cox_ids, with_sample_weight
 from ._frames import as_pandas
 
 def c_index(pred,
@@ -621,13 +621,11 @@ def _cox_score(estimator, X, y, sample_weight=None):
     the family of `y` is built for scoring new data (as `GridSearchCV` does).
     """
     X, y = as_pandas(X), as_pandas(y)
-    y = _role_y(estimator, y)
+    y = with_sample_weight(_role_y(estimator, y), sample_weight)
     family = estimator._finalize_family(response=y)
     _, _, _, offset, weight = estimator.get_data_arrays(X, y, check=False)
-    if sample_weight is None:
-        sample_weight = weight
     eta = estimator._linear_predictor(X, offset)
-    return -family.deviance(None, eta, np.asarray(sample_weight, float)) / 2
+    return -family.deviance(None, eta, np.asarray(weight, float)) / 2
 
 
 @dataclass
@@ -765,7 +763,7 @@ class CoxLM(GLM):
     def score(self, X, y, sample_weight=None):
         """
         Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
-        with the weights of `y` (its column `weight`) unless `sample_weight` is given.
+        with the weights of `y` (its column `weight`, or `sample_weight` in its place).
         """
         return _cox_score(self, X, y, sample_weight)
 
@@ -826,7 +824,7 @@ class RegCoxLM(RegGLM):
     def score(self, X, y, sample_weight=None):
         """
         Partial log-likelihood (minus half the deviance) of the fit on `(X, y)`,
-        with the weights of `y` (its column `weight`) unless `sample_weight` is given.
+        with the weights of `y` (its column `weight`, or `sample_weight` in its place).
         """
         return _cox_score(self, X, y, sample_weight)
 

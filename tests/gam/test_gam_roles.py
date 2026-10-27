@@ -155,3 +155,25 @@ def test_errors():
         GAM(TERMS, family=CoxFamily()).fit(D, Outcome('time').fit_transform(D))
     with pytest.raises(ValueError, match='one column'):
         GAM(TERMS).fit(D, Outcome(['y', 'z']).fit_transform(D))
+
+
+@pytest.mark.parametrize('family', [None, POISSON, BINOMIAL])
+def test_gam_sample_weight(family):
+    # sample_weight, scikit-learn's argument: the column weight of y
+    D = _data()
+    D['lab01'] = (D['lab'] == 'yes').astype(float)
+    response = {None: 'y', id(POISSON): 'cnt', id(BINOMIAL): 'lab01'}[
+        None if family is None else id(family)]
+    Y = Outcome(response).fit_transform(D)
+    kw = {} if family is None else dict(family=family)
+    w = D['w'].to_numpy()
+    a = GAM(terms=[s('x'), 'z'], **kw).fit(D, Y, sample_weight=w)
+    b = GAM(terms=[s('x'), 'z'], **kw).fit(D, Y.assign(weight=w))
+    np.testing.assert_allclose(a.predict(D, prediction_type='link'),
+                               b.predict(D, prediction_type='link'), rtol=1e-10)
+    np.testing.assert_allclose(a.score(D, Y, sample_weight=w), b.score(D, Y.assign(weight=w)),
+                               rtol=1e-12)
+    with pytest.raises(ValueError, match='given twice'):
+        GAM(terms=[s('x'), 'z'], **kw).fit(D, Y.assign(weight=1.), sample_weight=w)
+    with pytest.raises(ValueError, match='given twice'):
+        a.score(D, Y.assign(weight=1.), sample_weight=w)

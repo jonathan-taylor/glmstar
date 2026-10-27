@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import statsmodels.api as sm
 from sklearn.model_selection import KFold, cross_val_score, GridSearchCV
+from sklearn.base import is_classifier
 from sklearn.preprocessing import FunctionTransformer
 
 from modelmatrix import Outcome, Surv, Binomial, Multinomial, derived_feature
@@ -296,3 +297,76 @@ def test_ids_deprecated():
         CoxNet().fit(X, Outcome(Surv('time', 'status')).fit_transform(D))
         MultiGaussNet().fit(X, Outcome(['y', 'y2']).fit_transform(D))
     assert _future(record) == []
+
+
+# sample_weight, scikit-learn's argument: the column weight of y
+
+def _coef(est):
+    return est.coefs_ if hasattr(est, 'coefs_') else est.coef_
+
+
+@pytest.mark.parametrize('est, outcome', [
+    (lambda: GLM(), Outcome('y')),
+    (lambda: GLM(family=POISSON), Outcome('cnt', offset='O')),
+    (lambda: BinomialGLM(), Outcome('lab01')),
+    (lambda: RegGLM(lambda_val=0.05), Outcome('y')),
+    (lambda: GLMNet(), Outcome('y')),
+    (lambda: GaussNet(), Outcome('y')),
+    (lambda: LogNet(), Outcome('lab')),
+    (lambda: MultiGaussNet(), Outcome(['y', 'y2'])),
+    (lambda: CoxNet(), Outcome(Surv('time', 'status'), strata='inst')),
+])
+def test_sample_weight_fit(est, outcome):
+    X, D = _data()
+    Y = outcome.fit_transform(D)
+    a = est().fit(X, Y, sample_weight=D['w'].to_numpy())
+    b = est().fit(X, Y.assign(weight=D['w'].to_numpy()))
+    np.testing.assert_allclose(_coef(a), _coef(b), rtol=1e-10)
+    unweighted = est().fit(X, Y)
+    # (the weights matter: a path of another length, or other coefficients)
+    assert (np.shape(_coef(a)) != np.shape(_coef(unweighted))
+            or not np.allclose(_coef(a), _coef(unweighted)))
+    with pytest.raises(ValueError, match='given twice'):
+        est().fit(X, Y.assign(weight=1.), sample_weight=D['w'].to_numpy())
+    if hasattr(a, 'coef_') and not is_classifier(a):   # score (a deviance): the same, given once
+        np.testing.assert_allclose(a.score(X, Y, sample_weight=D['w'].to_numpy()),
+                                   a.score(X, Y.assign(weight=D['w'].to_numpy())),
+                                   rtol=1e-12)
+        with pytest.raises(ValueError, match='given twice'):
+            a.score(X, Y.assign(weight=1.), sample_weight=D['w'].to_numpy())
+
+
+def test_sample_weight_array_series():
+    # a response alone (an array or a series) and the weights
+    X, D = _data()
+    w = D['w'].to_numpy()
+    ref = GLM().fit(X, Outcome('y', weight='w').fit_transform(D))
+    for y in [D['y'], D['y'].to_numpy()]:
+        np.testing.assert_allclose(GLM().fit(X, y, sample_weight=w).coef_, ref.coef_, rtol=1e-10)
+    ref = LogNet().fit(X, Outcome('lab', weight='w').fit_transform(D))
+    np.testing.assert_allclose(LogNet().fit(X, D['lab'], sample_weight=w).coefs_, ref.coefs_,
+                               rtol=1e-10)
+    with pytest.raises(ValueError, match='120 rows'):
+        GLM().fit(X, D['y'], sample_weight=w[:10])
+
+
+def test_sample_weight_ids():
+    # with the deprecated weight_id, sample_weight gives the weights twice
+    X, D = _data()
+    with pytest.raises(ValueError, match='given twice'):
+        _quiet(GLM(response_id='y', weight_id='w').fit, X, D[['y', 'w']],
+               sample_weight=D['w'].to_numpy())
+
+
+def test_sample_weight_cross_validate():
+    # cross_validate's params are split with the folds, as the columns of Y
+    from sklearn.model_selection import cross_validate
+    X, D = _data()
+    Y = Outcome('cnt', offset='O').fit_transform(D)
+    cv = KFold(3, shuffle=True, random_state=0)
+    a = cross_validate(GLM(family=POISSON), X, Y, cv=cv, return_estimator=True,
+                       params={'sample_weight': D['w'].to_numpy()})
+    b = cross_validate(GLM(family=POISSON), X, Y.assign(weight=D['w'].to_numpy()), cv=cv,
+                       return_estimator=True)
+    for e, f in zip(a['estimator'], b['estimator']):
+        np.testing.assert_allclose(e.coef_, f.coef_, rtol=1e-10)

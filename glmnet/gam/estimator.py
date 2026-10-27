@@ -28,7 +28,7 @@ from statsmodels.genmod.families import family as sm_family
 from modelmatrix import Feature
 
 from glmnet._utils import _extract_y, _binomial_counts, _parent_dataclass_from_child
-from glmnet._roles import _role_y, cox_ids, OFFSET, WEIGHT
+from glmnet._roles import _role_y, cox_ids, OFFSET, WEIGHT, with_sample_weight
 from glmnet.family import GLMFamilySpec
 from glmnet.cox import CoxFamily, CoxFamilySpec
 from glmnet.glm import GLM, GLMControl
@@ -261,7 +261,8 @@ class GAM(BaseEstimator):
             X,
             y,
             linear_term=None,
-            dispersion=None):
+            dispersion=None,
+            sample_weight=None):
         """
         Fit the GAM.
 
@@ -281,13 +282,15 @@ class GAM(BaseEstimator):
             Dispersion. By default it is estimated, by Pearson's chi-squared
             over `df_resid_`, for families with a free dispersion, and is 1
             for the binomial and Poisson.
+        sample_weight: np.ndarray, optional
+            The weights, in place of a column `weight` of `y` (not both).
 
         Returns
         -------
         self
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         # (the roles of its columns, as the LaTeX shows them)
         self.y_roles_ = tuple(c for c in (OFFSET, WEIGHT)
                               if isinstance(y, pd.DataFrame) and c in y.columns)
@@ -538,8 +541,8 @@ class GAM(BaseEstimator):
     def score(self, X, y, sample_weight=None):
         """
         Minus half the deviance of the fit on `(X, y)` (with its offset and
-        weights, the columns `offset` and `weight`, unless `sample_weight` is
-        given): a sum over the observations, as `GLM.score`, the larger the
+        weights, the columns `offset` and `weight`; `sample_weight` in place
+        of a column `weight`): a sum over the observations, as `GLM.score`, the larger the
         better, for scikit-learn's cross-validation. For the Cox family, the
         partial log-likelihood of the rows of `y`, the risk sets among them.
 
@@ -549,19 +552,17 @@ class GAM(BaseEstimator):
         serially correlated rows need blocked folds.
         """
         X, y = as_pandas(X), as_pandas(y)
-        y = _role_y(self, y)
+        y = with_sample_weight(_role_y(self, y), sample_weight)
         nobs = X.shape[0]
         if self._cox:
             family, _, offset, weight = self._cox_data(y, nobs)
             eta = self._linear_predictor(X, offset)
-            w = weight if sample_weight is None else np.asarray(sample_weight, float)
-            return -float(family.deviance(None, eta, w)) / 2
+            return -float(family.deviance(None, eta, weight)) / 2
         response, offset, weight = _extract_y(y)
         if self._family.is_binomial:   # (successes, failures), as R's cbind
             response, weight = _binomial_counts(response, weight)
         response = np.asarray(response, float).reshape(-1)
-        w = (np.asarray(weight, float).reshape(-1) if sample_weight is None
-             else np.asarray(sample_weight, float))
+        w = np.asarray(weight, float).reshape(-1)
         mu = self.predict(X, offset=offset)
         return -float(self._family.deviance(response, mu, w)) / 2
 
