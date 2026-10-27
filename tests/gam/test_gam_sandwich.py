@@ -195,6 +195,28 @@ def test_max_dense_coef(data):
             call()
 
 
+def test_max_dense_design(data):
+    # the dense N x P design is not formed above max_dense_design: the
+    # covariances are None, the standard errors raise
+    D = data
+    terms = [s('a', df=5), linear('b'), categorical('c')]
+    ref = GAM(terms=terms).fit(D, D['y'])
+    n_coef = 1 + sum(term.n_coef() for term in ref.terms_)   # (as max_dense_coef counts)
+    G = GAM(terms=terms, control=GAMControl(max_dense_design=D.shape[0] * n_coef - 1)).fit(D, D['y'])
+    assert G.design_ is None and G.posterior_covariance_ is None
+    for call in (G.score_contributions, G.sandwich_covariance,
+                 lambda: G.predict(D, return_std=True)):
+        with pytest.raises(ValueError, match='max_dense_design'):
+            call()
+    # nor by dir() and scikit-learn's HTML display (a notebook's), which
+    # evaluate the properties
+    from sklearn.utils import estimator_html_repr
+    dir(G), estimator_html_repr(G)
+    assert G._covariance['design'] is None
+    # at the limit, as before
+    H = GAM(terms=terms, control=GAMControl(max_dense_design=D.shape[0] * n_coef)).fit(D, D['y'])
+    np.testing.assert_allclose(H.posterior_covariance_, ref.posterior_covariance_)
+
 def test_cox(data):
     D = data.copy()
     rng = np.random.default_rng(1)
