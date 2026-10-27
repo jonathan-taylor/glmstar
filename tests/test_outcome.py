@@ -12,7 +12,7 @@ from sklearn.preprocessing import FunctionTransformer
 from modelmatrix import Outcome, Surv, Binomial, Multinomial, derived_feature
 
 from glmnet import (GLM, GLMNet, GaussNet, LogNet, FishNet, CoxNet,
-                    MultiGaussNet, MultiClassNet, Columns)
+                    MultiGaussNet, MultiClassNet)
 from glmnet.glm import BinomialGLM, GLMFamilySpec
 from glmnet.regularized_glm import RegGLM
 from glmnet.cox import CoxFamily, CoxLM, CoxNetIRLS
@@ -64,7 +64,7 @@ CASES = {
                           dict(response_id=['trials', 'succ'])),
     'lognet-counts': (LogNet, Outcome(Binomial('succ', trials='trials'), weight='w'),
                       dict(response_id=['trials', 'succ'], weight_id='w')),
-    'multigauss': (MultiGaussNet, Outcome(Columns(['y', 'y2']), weight='w'),
+    'multigauss': (MultiGaussNet, Outcome(['y', 'y2'], weight='w'),
                    dict(response_id=['y', 'y2'], weight_id='w')),
     'multiclass': (MultiClassNet, Outcome(Multinomial('cls'), weight='w'),
                    dict(response_id='cls', weight_id='w')),
@@ -144,14 +144,33 @@ def test_multiclass_categories():
     np.testing.assert_allclose(fit.coefs_, ref.coefs_, rtol=1e-10)
 
 
-def test_multiresponse_offset_raises():
-    # an offset of a multi-response model has a column for each response
-    # (as in R), which an Outcome does not give yet
+def test_multiresponse_offsets():
+    # offset='O': the same for every response; offset={...}: one for each
     X, D = _data()
+    D['O2'] = D['O'] / 2
+    a = MultiGaussNet(outcome=Outcome(['y', 'y2'], offset='O')).fit(X, D)
+    b = MultiGaussNet(response_id=['y', 'y2'], offset_id=['O', 'O']).fit(X, D)
+    np.testing.assert_allclose(a.coefs_, b.coefs_, rtol=1e-10)
+    a = MultiGaussNet(outcome=Outcome(['y', 'y2'], offset={'y2': 'O2', 'y': 'O'})).fit(X, D)
+    b = MultiGaussNet(response_id=['y', 'y2'], offset_id=['O', 'O2']).fit(X, D)
+    np.testing.assert_allclose(a.coefs_, b.coefs_, rtol=1e-10)
+    _same_scores(a.score_path(X, D), b.score_path(X, D))
+    # a multinomial's: by its classes, in the order of its levels
+    D['Oa'], D['Ob'], D['Oc'] = D['O'], -D['O'], D['O2']
+    a = MultiClassNet(outcome=Outcome(Multinomial('cls'),
+                                      offset={'c': 'Oc', 'a': 'Oa', 'b': 'Ob'})).fit(X, D)
+    b = MultiClassNet(response_id='cls', offset_id=['Oa', 'Ob', 'Oc']).fit(X, D)
+    np.testing.assert_allclose(a.coefs_, b.coefs_, rtol=1e-10)
+    _same_scores(a.score_path(X, D), b.score_path(X, D))
+    # the offsets of new data, for predict
+    new = a.outcome_.transform(D.iloc[:5], response=False)
+    np.testing.assert_allclose(a.predict(X[:5], offset=new.to_numpy()),
+                               b.predict(X[:5], offset=D[['Oa', 'Ob', 'Oc']].iloc[:5].to_numpy()))
+    with pytest.raises(ValueError, match='weights of each response'):
+        MultiGaussNet(outcome=Outcome(['y', 'y2'], weight={'y': 'w', 'y2': 'w'})).fit(X, D)
+    # as with the ids, a multi-response offset of one column raises
     with pytest.raises(ValueError, match='same shape as the response'):
-        MultiGaussNet(outcome=Outcome(Columns(['y', 'y2']), offset='O')).fit(X, D)
-    with pytest.raises(ValueError, match='a column for each class'):
-        MultiClassNet(outcome=Outcome(Multinomial('cls'), offset='O')).fit(X, D)
+        MultiGaussNet(response_id=['y', 'y2'], offset_id='O').fit(X, D)
 
 
 def test_feature_offset():

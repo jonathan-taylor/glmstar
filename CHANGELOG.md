@@ -12,7 +12,7 @@
   narwhals is a new dependency (#206).
 
 - **`outcome=`: the columns of `y` by their role**, with modelmatrix's
-  `Outcome` (modelmatrix 0.3.0 is a new dependency): `GLM`, `GLMNet`,
+  `Outcome`: `GLM`, `GLMNet`,
   the C++ paths and the Cox models take `outcome=Outcome('y',
   offset='O', weight='w')` in place of `response_id`, `offset_id` and
   `weight_id`, and `outcome=Outcome(Surv('time', 'status'),
@@ -29,9 +29,13 @@
     or `level=`), and `Binomial(successes, trials=...)` a proportion
     weighted by its trials (with `output='counts'` too);
   - `Multinomial('class')` gives `MultiClassNet`'s categories (a
-    categorical's, unseen ones included), and `glmnet.Columns(['y1',
-    'y2'])` a response of several columns for `MultiGaussNet` (whose
-    offset, of a column for each response, an Outcome does not give yet).
+    categorical's, unseen ones included), and a list of columns,
+    `Outcome(['y1', 'y2'])`, a response of several columns for
+    `MultiGaussNet`;
+  - a multi-response model's `offset='O'` is the same for every
+    response, and `offset={'y1': 'O1', 'y2': 'O2'}` (by the classes of a
+    `Multinomial`) one for each.
+  `modelmatrix>=0.3.1` is a new dependency.
   The ids are unchanged; giving both raises. `CoxLM` and `RegCoxLM`
   default to a `CoxFamily`, as `CoxNetIRLS` does.
 

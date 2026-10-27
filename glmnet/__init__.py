@@ -22,4 +22,3 @@ from .paths.multiclassnet import MultiClassNet
 from .paths.coxnet import CoxNet
 from .big_glm import big_glm
 from .data import make_x
-from ._outcome import Columns
