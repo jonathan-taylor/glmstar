@@ -142,10 +142,10 @@
 
 ### Packaging
 
-- **Installing from source works again**, in a fresh environment and
-  without SSH keys:
-  - the glmnetpp submodule is cloned over HTTPS (it was SSH, so
-    `git clone --recursive` failed without a GitHub key);
+- **Installing from source works again**, in a fresh environment:
+  - the README says that the glmnetpp submodule, a private repository, is
+    cloned over SSH, needing access and a GitHub key (otherwise, PyPI's
+    source distribution includes it);
   - `meson.build` takes the version from the build's Python
     (`find_program`), not whatever `python` is on the PATH, which may be
     none;

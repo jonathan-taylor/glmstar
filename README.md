@@ -22,13 +22,16 @@ pip install glmstar
 
 Wheels are on PyPI for Python 3.11 to 3.14 (glmstar 0.6.0 also for 3.10) on Linux
 (x86-64), macOS (Apple silicon) and Windows; elsewhere pip builds from the source
-distribution, which needs a C++17 compiler. The package imports as `glmnet`.
+distribution, which includes glmnetpp and Eigen and needs a C++17 compiler. The package
+imports as `glmnet`.
 
 ### Get the source
 
 The C++ code depends on two git submodules, [Eigen](https://gitlab.com/libeigen/eigen)
 (from its GitHub mirror) and [glmnetpp](https://github.com/intro-stat-learning/glmnetpp),
-so clone recursively:
+so clone recursively. glmnetpp is a private repository, cloned over SSH: cloning it needs
+access to it and an SSH key on GitHub (without them, install from PyPI, whose source
+distribution includes it).
 
 ```bash
 git clone --recursive https://github.com/jonathan-taylor/glmstar.git
