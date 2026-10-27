@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- **Docs for each version**: the docs workflow builds a release's docs
+  (from its tag, with its wheel from PyPI) into `<version>/` of the
+  `gh-pages` branch, and main's into `dev/`; the site's root redirects to
+  the latest release, and `versions.html` lists them. The docs no longer
+  install R, nor `rpy2` (dropped from the `doc` extra): no page runs R.
+
 ## 0.7.0 (2026-10-27)
 
 ### New features

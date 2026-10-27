@@ -1,30 +1,42 @@
-# This builds and deploys glmnet docs
+# This builds the glmstar docs into a folder of the gh-pages branch, one for
+# each version: <version>/ for a release (its tag's docs, with its wheel from
+# PyPI), dev/ for the branch the workflow is run on (built from source). The
+# site's root redirects to the latest release, and versions.html lists them.
+#
+#   gh workflow run build_docs.yml                       # dev/, from main
+#   gh workflow run build_docs.yml -f version=0.7.0      # 0.7.0/, after its PyPI upload
 
 name: Build docs
 
-# Controls when the workflow will run
 on:
   workflow_dispatch:
-    inputs: null
-    
-# A workflow run is made up of one or more jobs that can run
-# sequentially or in parallel
+    inputs:
+      version:
+        description: 'A release (e.g. 0.7.0), built from its tag and its PyPI wheel; empty for dev/, from source'
+        required: false
+        default: ''
 
-jobs: # This workflow contains a single
-      # job called "build"
+# one push to gh-pages at a time
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
 
   build:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      FOLDER: ${{ inputs.version || 'dev' }}
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      # a release's docs are those of its tag; glmnetpp (a private submodule)
+      # is needed only to build from source
       - uses: actions/checkout@v7
         with:
-          # Use the PAT to authorize the submodule clone
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
           token: ${{ secrets.GLMNETPP_SUBMODULE_TOKEN }}
-          submodules: recursive
+          submodules: ${{ inputs.version && 'false' || 'recursive' }}
 
       - uses: actions/setup-python@v7
         with:
@@ -36,21 +48,33 @@ jobs: # This workflow contains a single
         with:
           node-version: '24'
 
-      # Install
+      # The doc and gam extras of the checked-out pyproject.toml, but rpy2:
+      # no page runs R (the tests compare with R, not the docs)
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libtirpc-dev
-          sudo apt-get install -y r-base
-          pip install .[doc]
-          pip install .[gam]
+          python - > doc-requirements.txt <<'EOF'
+          import tomllib
+          extras = tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']
+          print('\n'.join(r for r in extras['doc'] + extras.get('gam', [])
+                          if not r.startswith('rpy2')))
+          EOF
+          cat doc-requirements.txt
+          if [ -n "$VERSION" ]; then
+            pip install "glmstar==$VERSION"
+          else
+            pip install .
+          fi
+          pip install -r doc-requirements.txt
           # the data of the GAM page (ISLP's load_data, without its dependencies)
           pip install --no-deps ISLP
+          # the glmstar the docs run
+          (cd /tmp && python -c "import glmnet, importlib.metadata as m; print(m.version('glmstar'), glmnet.__file__)")
 
-      # The narrative docs: Jupyter Book 2, notebooks executed.
-      # BASE_URL: the site is served from https://<owner>.github.io/glmstar/
+      # The narrative docs: Jupyter Book 2, notebooks executed, served from
+      # https://<owner>.github.io/glmstar/<folder>/
       - name: Make book
         env:
-          BASE_URL: /${{ github.event.repository.name }}
+          BASE_URL: /${{ github.event.repository.name }}/${{ env.FOLDER }}
         run: |
           cd docs
           jupyter-book build --html --execute --ci
@@ -62,7 +86,6 @@ jobs: # This workflow contains a single
           sphinx-build -b html docs/api docs/_build/html/api
           test -f docs/_build/html/api/index.html
 
-      # Store the output
       - name: Upload docs
         uses: actions/upload-artifact@v7
         with:
@@ -74,25 +97,62 @@ jobs: # This workflow contains a single
   deploy:
     runs-on: ubuntu-latest
     needs: build
-
-    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
     permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment originates from an appropriate source
+      contents: write   # to push to gh-pages
+    env:
+      FOLDER: ${{ inputs.version || 'dev' }}
 
-    environment:
-      name: github-pages
-      url: ${{steps.deployment.outputs.page_url}}
-      
     steps:
-    - uses: actions/download-artifact@v8
-      with:
-        name: glmstar_docs
-        path: .
-    - uses: actions/configure-pages@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: glmstar_docs
+          path: built
 
-    - uses: actions/upload-pages-artifact@v5
-      with:
-        path: .
-    - id: deployment
-      uses: actions/deploy-pages@v5
+      # the folder replaced, then the root redirect and versions.html remade
+      # from the folders there
+      - name: Push to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git init -q pages && cd pages
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth 1 origin gh-pages; then
+            git checkout -q -b gh-pages FETCH_HEAD
+          else
+            git checkout -q --orphan gh-pages
+          fi
+          rm -rf "$FOLDER"
+          cp -r ../built "$FOLDER"
+          touch .nojekyll   # (serve the folders starting with _ too)
+          python3 - <<'EOF'
+          import json, os, re
+          releases = sorted((d for d in os.listdir('.') if re.fullmatch(r'\d+\.\d+\.\d+', d)),
+                            key=lambda v: tuple(map(int, v.split('.'))), reverse=True)
+          folders = releases + (['dev'] if os.path.isdir('dev') else [])
+          latest = releases[0] if releases else 'dev'
+          json.dump({'latest': latest, 'versions': folders}, open('versions.json', 'w'), indent=1)
+          open('index.html', 'w').write(
+              f'<!doctype html><meta charset="utf-8"><title>glmstar docs</title>'
+              f'<meta http-equiv="refresh" content="0; url={latest}/">'
+              f'<p>Redirecting to <a href="{latest}/">the glmstar {latest} docs</a>.'
+              f' Other versions: <a href="versions.html">versions.html</a>.</p>')
+          # (the docs' absolute links to /glmstar/api/: the latest's)
+          os.makedirs('api', exist_ok=True)
+          open('api/index.html', 'w').write(
+              f'<!doctype html><meta charset="utf-8"><title>glmstar API reference</title>'
+              f'<meta http-equiv="refresh" content="0; url=../{latest}/api/">'
+              f'<p>Redirecting to <a href="../{latest}/api/">the glmstar {latest} API reference</a>.</p>')
+          items = ''.join(f'<li><a href="{v}/">{v}</a>'
+                          f'{" (latest release)" if v == latest else ""}'
+                          f'{" (main)" if v == "dev" else ""}</li>' for v in folders)
+          open('versions.html', 'w').write(
+              f'<!doctype html><meta charset="utf-8"><title>glmstar docs: versions</title>'
+              f'<h1>glmstar documentation</h1><ul>{items}</ul>')
+          EOF
+          cat versions.json
+          git add -A
+          git commit -q -m "Docs for $FOLDER (${GITHUB_SHA::7})"
+          git push -q origin gh-pages
