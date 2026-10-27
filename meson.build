@@ -1,5 +1,9 @@
 project('glmnet', 'cpp',
-  version : run_command('python', '-c', 'import setuptools_scm; print(setuptools_scm.get_version())', check : true).stdout().strip(),
+  # the python of the build, as meson-python's native file gives it to find_program
+  # (a bare 'python' is looked up on the PATH, which may have none, or another)
+  version : run_command(find_program('python', 'python3'), '-c',
+                        'import setuptools_scm; print(setuptools_scm.get_version())',
+                        check : true).stdout().strip(),
   default_options : ['warning_level=3', 'cpp_std=c++17'])
 
 py = import('python').find_installation(pure: false)
@@ -42,8 +46,11 @@ sources_coxnet = [
 # requirement), and compiled into _coxnet
 coxdev_incdir = run_command(py, ['-c', 'import coxdev; print(coxdev.get_include())'],
                             check : true).stdout().strip()
-inc_cox = include_directories('eigen', 'src/glmnetpp/include', 'src/glmnetpp/src', 'src/glmnetpp/test',
-                              coxdev_incdir)
+# (as a compile argument, not include_directories: the environment, and so
+# coxdev's headers, may be in the source tree, e.g. uv's .venv, an absolute
+# path there that include_directories refuses)
+coxdev_dep = declare_dependency(compile_args : ['-I' + coxdev_incdir])
+inc_cox = include_directories('eigen', 'src/glmnetpp/include', 'src/glmnetpp/src', 'src/glmnetpp/test')
 
 sources_multigaussnet = [
   'src/multigaussnet.cpp',
@@ -101,7 +108,7 @@ py.extension_module(
   '_coxnet',
   sources_coxnet,
   include_directories : inc_cox,
-  dependencies : pybind11_dep,
+  dependencies : [pybind11_dep, coxdev_dep],
   install : true,
   subdir : 'glmnet'
 )
