@@ -8,13 +8,12 @@ from dataclasses import (dataclass,
    
 import numpy as np
 
-from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils import check_X_y
 from sklearn.metrics import (accuracy_score,
                              zero_one_loss)
 
 from .fastnet import MultiFastNetMixin
-from .._utils import _jerr_lognet
+from .._utils import _jerr_lognet, _multinomial_response
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -185,20 +184,7 @@ class MultiClassNet(MultiFastNetMixin):
 
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         
-        if response.ndim == 2 and response.shape[1] > 1:
-            trials = response.sum(axis=1)
-            if np.any(response < 0) or np.any(trials <= 0):
-                raise ValueError("Response matrix must contain non-negative counts and row sums must be > 0.")
-            weight = weight * trials
-            y_onehot = np.asfortranarray(response / trials[:, None])
-            self.categories_ = np.arange(response.shape[1])
-        else:
-            if response.ndim == 2 and response.shape[1] == 1:
-                response = response.ravel()
-            encoder = OneHotEncoder(sparse_output=False)
-            y_onehot = np.asfortranarray(encoder.fit_transform(response.reshape((-1,1))))
-            self.categories_ = encoder.categories_[0]
-
+        y_onehot, weight, self.categories_ = _multinomial_response(self, response, weight)
         return X, y, y_onehot, offset, weight
 
     def predict_proba(self,

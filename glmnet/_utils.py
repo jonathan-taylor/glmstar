@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.utils import check_X_y
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from dataclasses import fields
 from ._frames import as_pandas
@@ -54,6 +55,47 @@ def _get_data(estimator,
         The extracted weights, or an array of ones if not provided.
     """
     X, y = as_pandas(X), as_pandas(y)
+    response, offset, weight = _extract_y(y,
+                                          offset_id=offset_id,
+                                          weight_id=weight_id,
+                                          response_id=response_id)
+
+    # Validate against Response
+    if check:
+        X, _ = check_X_y(X, response,
+                         accept_sparse=['csc'],
+                         multi_output=multi_output,
+                         estimator=estimator)
+
+    return X, y, np.squeeze(response), offset, weight
+
+def _extract_y(y,
+               offset_id=None,
+               weight_id=None,
+               response_id=None):
+    """
+    The response, offset and weights of `y`, from their columns.
+
+    With `response_id` None, the response is every column of `y` other
+    than the offset and weights (or `y` itself if it is 1-dimensional).
+
+    Parameters
+    ----------
+    y : array-like or pd.DataFrame
+        The target variable, which may contain response, offset, and weights.
+    offset_id, weight_id, response_id : str, int, or list, optional
+        Column identifiers in `y`.
+
+    Returns
+    -------
+    response : np.ndarray
+        The response, not squeezed.
+    offset : np.ndarray or None
+        The offset, or None if not provided.
+    weight : np.ndarray
+        The weights, or an array of ones if not provided.
+    """
+    y = as_pandas(y)
     is_df = isinstance(y, pd.DataFrame)
 
     def _as_list(val):
@@ -98,14 +140,94 @@ def _get_data(estimator,
     if weight is None:
         weight = np.ones(y.shape[0])
 
-    # Validate against Response
-    if check:
-        X, _ = check_X_y(X, response,
-                         accept_sparse=['csc'],
-                         multi_output=multi_output,
-                         estimator=estimator)
+    return response, offset, weight
 
-    return X, y, np.squeeze(response), offset, weight
+def _y_ids(estimator):
+    """The column ids of `y` of an estimator, to pass to another."""
+    return dict(offset_id=estimator.offset_id,
+                weight_id=estimator.weight_id,
+                response_id=estimator.response_id)
+
+def _forget_encoding(estimator):
+    """Drop the classes of a previous fit, so that `fit` learns them again."""
+    for attr in ('classes_', 'categories_'):
+        estimator.__dict__.pop(attr, None)
+
+def _binomial_response(estimator,
+                       response,
+                       weight,
+                       proportion=False):
+    """
+    The labels (in [0, 1]), weights and classes of a binomial response.
+
+    The response is a vector of labels of two classes, a 2-column array of
+    (trials, successes), whose trials multiply the weights, or (with
+    `proportion`) a vector of proportions. The classes of labels are
+    learned when the estimator has none, i.e. at `fit`; otherwise the
+    labels are coded by them, e.g. those of a fold being scored, which
+    may not have both classes.
+
+    Returns
+    -------
+    labels, weight, classes : np.ndarray
+    """
+    if response.ndim == 2 and response.shape[1] == 2:
+        trials = response[:, 0]
+        successes = response[:, 1]
+        if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
+            raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
+        return successes / trials, weight * trials, np.array([0, 1])
+    if proportion and _is_proportion(response):
+        return np.asfortranarray(np.asarray(response, float).ravel()), weight, np.array([0, 1])
+    if response.ndim == 2 and response.shape[1] == 1:
+        response = response.ravel()
+    encoder = LabelEncoder()
+    classes = getattr(estimator, 'classes_', None)
+    if classes is None:
+        encoder.fit(response)
+        if len(encoder.classes_) > 2:
+            raise ValueError(f"{type(estimator).__name__} expecting a binary classification problem.")
+    else:
+        encoder.classes_ = np.asarray(classes)
+    return np.asfortranarray(encoder.transform(response)), weight, encoder.classes_
+
+def _multinomial_response(estimator,
+                          response,
+                          weight):
+    """
+    The one-hot response (proportions), weights and categories of a
+    multinomial response: a vector of labels, or a 2-column (or more)
+    array of counts of each class, whose row sums multiply the weights.
+    The categories of labels are learned when the estimator has none,
+    i.e. at `fit`; otherwise the labels are coded by them.
+
+    Returns
+    -------
+    y_onehot, weight, categories : np.ndarray
+    """
+    if response.ndim == 2 and response.shape[1] > 1:
+        trials = response.sum(axis=1)
+        if np.any(response < 0) or np.any(trials <= 0):
+            raise ValueError("Response matrix must contain non-negative counts and row sums must be > 0.")
+        return (np.asfortranarray(response / trials[:, None]), weight * trials,
+                np.arange(response.shape[1]))
+    if response.ndim == 2 and response.shape[1] == 1:
+        response = response.ravel()
+    categories = getattr(estimator, 'categories_', None)
+    encoder = OneHotEncoder(sparse_output=False,
+                            categories='auto' if categories is None else [categories])
+    y_onehot = encoder.fit_transform(np.asarray(response).reshape((-1, 1)))
+    return np.asfortranarray(y_onehot), weight, encoder.categories_[0]
+
+def _is_proportion(response):
+    """A numeric response in [0, 1] with some value strictly between 0 and 1."""
+    response = np.asarray(response)
+    if response.ndim == 2 and response.shape[1] == 1:
+        response = response.ravel()
+    if response.ndim != 1 or not np.issubdtype(response.dtype, np.number):
+        return False
+    return bool(np.all((response >= 0) & (response <= 1)) and
+                np.any((response > 0) & (response < 1)))
 
 class UnboundedObjectiveError(ValueError):
     """

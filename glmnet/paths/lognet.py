@@ -7,13 +7,12 @@ from dataclasses import (dataclass,
    
 import numpy as np
 
-from sklearn.preprocessing import (OneHotEncoder,
-                                   LabelEncoder)
+from sklearn.preprocessing import OneHotEncoder
 from statsmodels.genmod.families import family as sm_family
 
 from .fastnet import FastNetMixin
 from ..glm import BinomFamilySpec
-from .._utils import _jerr_lognet
+from .._utils import _jerr_lognet, _binomial_response
 
 from .._lognet import lognet as _dense
 from .._lognet import splognet as _sparse
@@ -134,26 +133,9 @@ class LogNet(FastNetMixin):
         """
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         
-        if response.ndim == 2 and response.shape[1] == 2:
-            trials = response[:, 0]
-            successes = response[:, 1]
-            if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
-                raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
-            
-            weight = weight * trials
-            labels = successes / trials
-            self.classes_ = self._family.classes_ = np.array([0, 1])
-        elif _is_proportion(response):
-            labels = np.asfortranarray(np.asarray(response, float).ravel())
-            self.classes_ = self._family.classes_ = np.array([0, 1])
-        else:
-            if response.ndim == 2 and response.shape[1] == 1:
-                response = response.ravel()
-            encoder = LabelEncoder()
-            labels = np.asfortranarray(encoder.fit_transform(response))
-            self.classes_ = self._family.classes_ = encoder.classes_
-            if len(encoder.classes_) > 2:
-                raise ValueError("BinomialGLM expecting a binary classification problem.")
+        labels, weight, self.classes_ = _binomial_response(self, response, weight,
+                                                           proportion=True)
+        self._family.classes_ = self.classes_
         return X, y, labels, offset, weight
 
     def _wrapper_args(self,
@@ -273,13 +255,3 @@ class LogNet(FastNetMixin):
         result[:,:,0] = 1 - prob_1
 
         return result
-
-def _is_proportion(response):
-    """A numeric response in [0, 1] with some value strictly between 0 and 1."""
-    response = np.asarray(response)
-    if response.ndim == 2 and response.shape[1] == 1:
-        response = response.ravel()
-    if response.ndim != 1 or not np.issubdtype(response.dtype, np.number):
-        return False
-    return bool(np.all((response >= 0) & (response <= 1)) and
-                np.any((response > 0) & (response < 1)))

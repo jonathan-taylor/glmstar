@@ -18,6 +18,7 @@ from ..cox import (CoxFamily,
                    cox_survfit)
 
 from .._utils import (_get_data,
+                      _y_ids,
                       _jerr_coxnet)
 
 from .._coxnet import coxnet as _dense
@@ -233,9 +234,7 @@ class CoxNet(FastNetMixin):
         return _get_data(self,
                          X,
                          y,
-                         offset_id=self.offset_id,
-                         response_id=self.response_id,
-                         weight_id=self.weight_id,
+                         **_y_ids(self),
                          check=check,
                          multi_output=True)
 

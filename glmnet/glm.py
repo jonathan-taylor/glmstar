@@ -25,11 +25,13 @@ from sklearn.base import (BaseEstimator,
                           RegressorMixin)
 from sklearn.metrics import mean_absolute_error
 from sklearn.linear_model import (LinearRegression, Ridge)
-from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.validation import _get_feature_names
 
 from ._utils import (_parent_dataclass_from_child,
-                     _get_data)
+                     _get_data,
+                     _y_ids,
+                     _binomial_response,
+                     _forget_encoding)
 
 from .base import (Design,
                    DiagonalOperator,
@@ -512,9 +514,7 @@ class GLMBase(BaseEstimator,
         return _get_data(self,
                          X,
                          y,
-                         offset_id=self.offset_id,
-                         response_id=self.response_id,
-                         weight_id=self.weight_id,
+                         **_y_ids(self),
                          check=check)
     
     def fit(self,
@@ -584,6 +584,7 @@ class GLMBase(BaseEstimator,
         if not hasattr(self, "_family"):
             self._family = self._finalize_family(response=y)
 
+        _forget_encoding(self) # the classes are those of these data
         X, y, response, offset, weight = self.get_data_arrays(X, y, check=check)
 
         sample_weight = weight
@@ -909,9 +910,7 @@ class GLMBase(BaseEstimator,
         """
         X, y = as_pandas(X), as_pandas(y)
         _, _, response, offset, weight = _get_data(self, X, y,
-                                                   offset_id=self.offset_id,
-                                                   response_id=self.response_id,
-                                                   weight_id=self.weight_id,
+                                                   **_y_ids(self),
                                                    check=False)
         mu = self.predict(X, prediction_type='response', offset=offset)
         if sample_weight is None:
@@ -1611,27 +1610,9 @@ class BinomialGLM(ClassifierMixin, GLM):
         """
         X, y, response, offset, weight = super().get_data_arrays(X, y, check=check)
         
-        if response.ndim == 2 and response.shape[1] == 2:
-            trials = response[:, 0]
-            successes = response[:, 1]
-            if np.any(trials <= 0) or np.any(successes < 0) or np.any(successes > trials):
-                raise ValueError("For (trials, successes) input, trials must be > 0 and 0 <= successes <= trials.")
-            
-            weight = weight * trials
-            labels = successes / trials
-            self.classes_ = np.array([0, 1])
-            if hasattr(self, '_family'):
-                self._family.classes_ = self.classes_
-        else:
-            if response.ndim == 2 and response.shape[1] == 1:
-                response = response.ravel()
-            encoder = LabelEncoder()
-            labels = np.asfortranarray(encoder.fit_transform(response))
-            self.classes_ = encoder.classes_
-            if hasattr(self, '_family'):
-                self._family.classes_ = self.classes_
-            if len(encoder.classes_) > 2:
-                raise ValueError("BinomialGLM expecting a binary classification problem.")
+        labels, weight, self.classes_ = _binomial_response(self, response, weight)
+        if hasattr(self, '_family'):
+            self._family.classes_ = self.classes_
         return X, y, labels, offset, weight
 
     def _finalize_family(self,

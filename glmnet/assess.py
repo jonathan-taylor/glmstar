@@ -10,7 +10,7 @@ from sklearn.utils.validation import check_is_fitted
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
-from ._utils import _get_data
+from ._utils import _get_data, _y_ids
 from .cox import CoxFamilySpec, c_index
 from .family import is_link
 from .paths.multiclassnet import MultiClassNet
@@ -58,9 +58,7 @@ def _link_predictions(estimator, X, y):
     _, _, response, offset, weight = _get_data(estimator,
                                                X,
                                                y,
-                                               offset_id=estimator.offset_id,
-                                               response_id=estimator.response_id,
-                                               weight_id=estimator.weight_id,
+                                               **_y_ids(estimator),
                                                check=False,
                                                multi_output=True)
     nfit = estimator.lambda_values_.shape[0]

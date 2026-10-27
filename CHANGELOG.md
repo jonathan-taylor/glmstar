@@ -20,6 +20,16 @@
   on a GLM with these columns scored NaN. `y` must now have the columns
   of `fit`: for a fit with `weight_id` or `offset_id`, `score(X,
   y['response'])` no longer works (it scored without the offset) (#208).
+- **Scoring uses the classes of the fit**: `score_path`,
+  `cross_validation_path` and the inference functions coded a binomial or
+  multinomial response by refitting its classes on the data being scored,
+  so a fold of one class was coded as the first class (its deviance was
+  wrong), a multinomial fold missing a class failed, and a direct
+  `get_data_arrays` call overwrote `classes_`. The classes are now learned
+  at `fit` only, and a label not seen at fit raises. The encoding of
+  `BinomialGLM`, `BinomialRegGLM` and `LogNet` (and of `MultiClassNet`) is
+  one function, as is reading the response, offset and weights from `y`
+  (GAM no longer passes a dummy `X`).
 - **Builds with coxdev 0.4.1**, which put its C++ library in namespace
   `coxdev`: glmnetpp's Cox adapter finds `CoxDeviance` there or, with
   0.4.0, in the global namespace (glmnetpp#21, #207).

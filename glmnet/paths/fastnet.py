@@ -22,7 +22,8 @@ from ..glmnet import (GLMNet,
                       CoefPath)
 from ..family import GLMFamilySpec
 
-from .._utils import (_jerr_elnetfit,
+from .._utils import (_forget_encoding,
+                      _jerr_elnetfit,
                       _validate_cpp_args,
                       _check_offset,
                       _check_predict_X)
@@ -240,6 +241,7 @@ class FastNetMixin(GLMNet): # base class for C++ path methods
         X_fit, y_fit = X, y # as passed, for the relaxed refits
 
         self._set_penalty_factor(X, y)
+        _forget_encoding(self) # the classes are those of these data
         X, y, response, offset, weight = self.get_data_arrays(X, y)
 
         if not scipy.sparse.issparse(X):
