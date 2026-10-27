@@ -94,6 +94,12 @@ def test_matches_blocks(family):
 def test_glmm_matches_blocks():
     pytest.importorskip('jax')
     D = _data()
+    # a group effect, so that its variance is not near 0 (where the REML
+    # criterion is flat, and the fits agree across platforms to only 1e-7)
+    rng = np.random.default_rng(3)
+    effect = dict(zip(sorted(D['g'].unique()), 0.5 * rng.standard_normal(D['g'].nunique())))
+    eta = 0.3 * (np.sin(6 * D['x']) + D['z'])
+    D['cnt'] = rng.poisson(np.exp(eta + D['g'].map(effect)))
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', ExperimentalWarning)
         a = GLMM([s('x'), random_effect('g')] + ITEMS, family=POISSON,
@@ -101,9 +107,7 @@ def test_glmm_matches_blocks():
         blocks, E = _by_hand(D)
         c = GLMM([s('x'), random_effect('g')] + blocks, family=POISSON,
                  response_id='cnt').fit(E, E)
-    # (the random effect's lam is large, its variance near 0: the criterion is flat
-    # there, and the platforms agree to about 1e-7)
-    np.testing.assert_allclose(a.smoothing_.lam, c.smoothing_.lam, rtol=1e-6)
+    np.testing.assert_allclose(a.smoothing_.lam, c.smoothing_.lam, rtol=1e-8)
     np.testing.assert_allclose(a.predict(D), c.predict(E), rtol=1e-8)
     np.testing.assert_allclose(a.fixed_effects_.to_numpy(), c.fixed_effects_.to_numpy(),
                                rtol=1e-7, atol=1e-10)
