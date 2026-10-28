@@ -99,9 +99,9 @@ def test_survfit_default_is_efron(Rinfo):
     lam = L.lambda_values_[10]
     curves = L.survfit(X, D, lambda_val=lam)
     efron = L.survfit(X, D, lambda_val=lam, tie_breaking='efron')
-    np.testing.assert_allclose(curves.cumhaz, efron.cumhaz)
+    np.testing.assert_allclose(curves.cumulative_hazard, efron.cumulative_hazard)
     breslow = L.survfit(X, D, lambda_val=lam, tie_breaking='breslow')
-    assert np.abs(breslow.cumhaz - curves.cumhaz).max() > 1e-6
+    assert np.abs(breslow.cumulative_hazard - curves.cumulative_hazard).max() > 1e-6
 
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
@@ -113,7 +113,7 @@ def test_survfit_default_is_efron(Rinfo):
         cumhaz_R = np.asarray(rpy.r('as.numeric(S$cumhaz)'))
         time_R = np.asarray(rpy.r('as.numeric(S$time)'))
     np.testing.assert_allclose(curves.time, time_R)
-    np.testing.assert_allclose(np.asarray(curves.cumhaz).reshape(-1), cumhaz_R, rtol=1e-5, atol=1e-8)
+    np.testing.assert_allclose(np.asarray(curves.cumulative_hazard).reshape(-1), cumhaz_R, rtol=1e-5, atol=1e-8)
 
 
 def test_cv_uses_linear_predictor():

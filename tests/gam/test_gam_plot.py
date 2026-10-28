@@ -119,3 +119,82 @@ def test_plot_cox(data):
     curve, lower, upper = ax.get_lines()[:3]
     fit, std = G.partial_effect(0, curve.get_xdata(), return_std=True)
     np.testing.assert_allclose(upper.get_ydata() - lower.get_ydata(), 4 * std)
+
+
+# fixed effects of one column of the data: drawn from their columns rebuilt
+# at a grid of that column, or at its levels
+
+def test_fixed_effect_curve(data):
+    from modelmatrix import ns, poly
+    D = data.assign(c=data['c'].astype('category'))
+    G = GAM(terms=[ns('a', df=4), poly('b', 2), 'c']).fit(D, D['y'])
+    ax = plot_term(G, 'ns(a, df=4)')
+    curve, lower, upper = [l for l in ax.get_lines() if l.get_marker() in ('None', '')][:3]
+    grid = curve.get_xdata()
+    np.testing.assert_allclose(grid[[0, -1]], [data['a'].min(), data['a'].max()])
+    # the term's columns at the grid, times its coefficients, centered as the term
+    term = G.terms_[0]
+    B = np.asarray(G.model_specs_[0].build_submodel(pd.DataFrame({'a': grid}), [term.term_]))
+    np.testing.assert_allclose(curve.get_ydata(), (B - term.center_) @ term.coef_, atol=1e-10)
+    fit, std = G.partial_effect(0, B, return_std=True)
+    np.testing.assert_allclose(lower.get_ydata(), fit - 2 * std)
+    np.testing.assert_allclose(upper.get_ydata(), fit + 2 * std)
+    rug = [l for l in ax.get_lines() if l.get_marker() == '|'][0]
+    np.testing.assert_allclose(rug.get_xdata(), np.unique(data['a']))
+    assert ax.get_xlabel() == 'a' and ax.get_ylabel() == 'ns(a, df=4)'
+    assert plot_term(G, 1).get_xlabel() == 'b'
+    # every term has a panel
+    assert [ax.get_xlabel() for ax in G.plot()] == ['a', 'b', 'c']
+
+
+def test_fixed_effect_levels(data):
+    from modelmatrix import contrast
+    D = data.assign(c=data['c'].astype('category'))
+    G = GAM(terms=[s('a', df=4), 'c']).fit(D, D['y'])
+    H = GAM(terms=[s('a', df=4), categorical('c')]).fit(D, D['y'])
+    ax, bx = plot_term(G, 'c'), plot_term(H, 'categorical(c)')
+    # treatment coding, centered: the effects of categorical()
+    np.testing.assert_allclose(ax.get_lines()[0].get_ydata(), bx.get_lines()[0].get_ydata(),
+                               atol=1e-8)
+    assert [t.get_text() for t in ax.get_xticklabels()] == ['x', 'y', 'z']
+    assert ax.get_xlabel() == 'c' and len(ax.collections) == 1
+    # a column of strings, and a contrast
+    G = GAM(terms=[s('a', df=4), contrast('c', 'sum')]).fit(data, data['y'])
+    ax = plot_term(G, 1)
+    np.testing.assert_allclose(ax.get_lines()[0].get_ydata(), bx.get_lines()[0].get_ydata(),
+                               atol=1e-8)
+
+
+def test_fixed_effect_of_a_feature(data):
+    # a function of a feature of one column (ns(log(a))): drawn against the column
+    from modelmatrix import ns, derived_feature
+    from sklearn.preprocessing import FunctionTransformer
+    log_a = derived_feature(['a'], encoder=FunctionTransformer(np.log), name='log(a)')
+    G = GAM(terms=[ns(log_a, df=3), 'b']).fit(data, data['y'])
+    ax = plot_term(G, 0)
+    assert ax.get_xlabel() == 'a'
+    np.testing.assert_allclose(ax.get_lines()[0].get_xdata()[[0, -1]],
+                               [data['a'].min(), data['a'].max()])
+
+
+def test_fixed_effect_of_several_columns(data):
+    from modelmatrix import pca
+    D = data.assign(c=data['c'].astype('category'))
+    G = GAM(terms=[s('a', df=4), ('b', 'c'), pca(['b', 'v'], n_components=2, name='pc')]).fit(
+        D, D['y'])
+    assert [ax.get_ylabel() for ax in G.plot()] == ['s(a, df=4)']
+    with pytest.raises(ValueError, match=r"function of the columns \['b', 'c'\]"):
+        plot_term(G, 'b:c')
+    with pytest.raises(ValueError, match=r"function of the columns \['b', 'v'\]"):
+        plot_term(G, 2)
+
+
+def test_fixed_effect_pickled(data):
+    import pickle
+    from modelmatrix import ns
+    D = data.assign(c=data['c'].astype('category'))
+    G = GAM(terms=[ns('a', df=4), 'c']).fit(D, D['y'])
+    P = pickle.loads(pickle.dumps(G))
+    for j in range(2):
+        np.testing.assert_allclose(plot_term(P, j).get_lines()[0].get_ydata(),
+                                   plot_term(G, j).get_lines()[0].get_ydata())

@@ -7,6 +7,7 @@ surface: `gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn as filled
 contours over the data's bounding box, as mgcv's `plot.gam` (`too.far`).
 """
 import numpy as np
+import pandas as pd
 from scipy.spatial import cKDTree
 
 from .terms import CategoricalSmoother, ColumnsSmoother, RandomEffectSmoother, PenalizedColumnsSmoother, _column_label
@@ -34,7 +35,8 @@ def plottable(term):
     functions of more than two: Gaussian processes, tensor products)?
     """
     if isinstance(term, (ColumnsSmoother, PenalizedColumnsSmoother)):
-        return term.X_.shape[1] == 1
+        # (a fixed effect of one column of the data, as ns(age), has a curve)
+        return term.X_.shape[1] == 1 or _source(term)
     if isinstance(term, GaussianProcessSmoother):
         return term.dim_ <= 2
     if isinstance(term, TensorSplineSmoother):
@@ -43,6 +45,22 @@ def plottable(term):
         # (a curve per level, or the varying coefficient, of one column)
         return len(term._inner_columns) == 1
     return True
+
+
+def _source(term):
+    """Is the term a fixed effect of one column of the data (`ns(age)`, `education`)?"""
+    return getattr(term, 'source_column_', None) is not None
+
+
+def _source_basis(gam, term, values):
+    """The columns of a fixed effect of one column, at the values of that column."""
+    spec = gam.model_specs_[term.spec_index_]
+    if term.source_levels_ is not None and isinstance(term.source_levels_, pd.CategoricalIndex):
+        values = pd.Categorical(values, categories=term.source_levels_)
+    elif term.source_levels_ is not None:
+        values = pd.Series(values, dtype=term.source_levels_.dtype)
+    frame = pd.DataFrame({term.source_column_: values})
+    return np.asarray(spec.build_submodel(frame, [term.term_]), float)
 
 
 def _surface(term):
@@ -104,7 +122,10 @@ def plot_term(gam,
     A term of a numeric column (a spline, loess, a linear term) is drawn as
     its curve over the range of the column (`n_grid` points); a categorical or a
     random effect as one point per level (per group; for `random_effect(g, by=x)` the
-    groups' slopes). The fits are centered, as the GAM's terms. A term of
+    groups' slopes). So is a fixed effect that is a function of one column of
+    the data (`ns('age', df=4)`, `poly('year', 2)`, `'education'`): its
+    columns are rebuilt from a grid of that column, or from its levels. The
+    fits are centered, as the GAM's terms. A term of
     two columns (`gaussian_process(u, v)`, `tensor_spline(u, v)`) is drawn
     as filled contours on an `n_grid` by `n_grid` grid over the data's
     bounding box, without bands, the data marked as points (`rug`).
@@ -155,6 +176,10 @@ def plot_term(gam,
         if isinstance(term, VaryingSmoother):
             raise ValueError(f'{term.name} varies a function of several columns: '
                              'plot it with partial_effect')
+        columns = getattr(term, 'data_columns_', None) or []
+        if len(columns) > 1:
+            raise ValueError(f'{term.name} is a function of the columns {columns}: it has no '
+                             'curve to plot; plot it with partial_effect')
         raise ValueError(f'{term.name} is a block of several columns: it has no curve to plot')
     if ax is None:
         _, ax = plt.subplots()
@@ -207,12 +232,17 @@ def plot_term(gam,
         ax.set_xlabel(str(_column_label(xlabel)))
         ax.set_ylabel(f'coefficient of {term.by}: {term.name}')
         return ax
-    elif isinstance(term, (CategoricalSmoother, RandomEffectSmoother)):
-        levels = np.asarray(term.levels_)
-        if isinstance(term, RandomEffectSmoother) and term.by is not None:
+    elif (isinstance(term, (CategoricalSmoother, RandomEffectSmoother)) or
+          (_source(term) and term.source_levels_ is not None)):
+        if _source(term):
+            # a fixed effect of a categorical (education): a point per level
+            levels = np.asarray(term.source_levels_)
+            x = _source_basis(gam, term, levels)
+        elif isinstance(term, RandomEffectSmoother) and term.by is not None:
+            levels = np.asarray(term.levels_)
             x = np.column_stack([levels, np.ones(len(levels))])
         else:
-            x = levels
+            levels = x = np.asarray(term.levels_)
         if se:
             fit, std = gam.partial_effect(j, x, return_std=True, covariance=covariance)
         else:
@@ -233,14 +263,21 @@ def plot_term(gam,
         ax.set_xticklabels(labels, rotation=30 if crowded else 0,
                            ha='right' if crowded else 'center')
         ax.axhline(0, color='k', lw=0.5, alpha=0.5)
-        xlabel = term.column
+        xlabel = term.source_column_ if _source(term) else term.column
     else:
-        if isinstance(term, ColumnsSmoother):
+        if _source(term):
+            values = term.source_values_
+        elif isinstance(term, ColumnsSmoother):
             values = term.X_[:, 0]
         else:
             values = term.x_
         grid = np.linspace(values.min(), values.max(), n_grid)
-        x = grid[:, None] if isinstance(term, ColumnsSmoother) else grid
+        if _source(term):
+            # a fixed effect of a numeric column (ns(age)): its columns at the grid
+            x = _source_basis(gam, term, grid)
+            column = term.source_column_
+        else:
+            x = grid[:, None] if isinstance(term, ColumnsSmoother) else grid
         if se:
             fit, std = gam.partial_effect(j, x, return_std=True, covariance=covariance)
         else:
