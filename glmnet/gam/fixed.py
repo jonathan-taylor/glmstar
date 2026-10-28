@@ -72,7 +72,7 @@ def expand_terms(items, X):
     expanded = {j: [item] for j, item in enumerate(items) if isinstance(item, Smoother)}
     for k, (spec, place) in enumerate(zip(specs, places)):
         for j, spec_terms in _place(spec, [items[i] for i in place], place).items():
-            expanded[j] = [_columns_smoother(spec, k, t) for t in spec_terms]
+            expanded[j] = [_columns_smoother(spec, k, t, data) for t in spec_terms]
     terms = [term for j in sorted(expanded) for term in expanded[j]]
     _check_identified(terms, specs[:len(specs) - len(features)])
     return terms, specs, augment(data, specs)
@@ -157,12 +157,41 @@ def _private(k, name):
     return f'{_PREFIX}{k}:{name}'
 
 
-def _columns_smoother(spec, k, term):
+def _columns_smoother(spec, k, term, data):
     i = _index(spec.expanded_terms_, term)
     names = list(spec.column_names_[spec.expanded_terms_[i]])
     smoother = ColumnsSmoother([_private(k, c) for c in names], label=spec.terms_[i].name)
     smoother.coef_names = names
+    # the term's place among the specs, and the column of the data it is a
+    # function of, if only one: `plot_term` rebuilds its columns from a grid
+    # of that column (ns(age)), or from its levels (education)
+    smoother.spec_index_ = k
+    smoother.term_ = spec.terms_[i]     # (fitted: its encoders are)
+    smoother.data_columns_ = _data_columns(smoother.term_)
+    smoother.source_column_ = smoother.source_values_ = smoother.source_levels_ = None
+    if len(smoother.data_columns_) == 1:
+        column = smoother.data_columns_[0]
+        x = data[column]
+        smoother.source_column_ = column
+        if pd.api.types.is_numeric_dtype(x) and not pd.api.types.is_bool_dtype(x):
+            smoother.source_values_ = np.unique(np.asarray(x, float))
+        else:
+            # (in modelmatrix's order of the levels: a categorical's, else sorted)
+            smoother.source_levels_ = (x.cat.categories if isinstance(x.dtype, pd.CategoricalDtype)
+                                       else pd.Index(sorted(x.dropna().unique())))
     return smoother
+
+
+def _data_columns(term):
+    """The columns of the data a term is a function of, in their order."""
+    # (Feature and Column are named tuples: before the tuple of an interaction)
+    if isinstance(term, Feature):
+        return list(dict.fromkeys(c for v in term.variables for c in _data_columns(v)))
+    if isinstance(term, Column):
+        return [term.idx]
+    if isinstance(term, tuple):   # an interaction
+        return list(dict.fromkeys(c for t in term for c in _data_columns(t)))
+    return [term]
 
 
 def _index(terms, term):
