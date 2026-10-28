@@ -87,7 +87,6 @@ def test_gradient(data, method):
     eps = 1e-4
     fd = np.array([(C.value_and_grad(x + eps * e)[0] - C.value_and_grad(x - eps * e)[0]) / (2 * eps)
                    for e in np.identity(len(x))])
-    # (the third derivatives are differences of the information: to 1e-5)
     np.testing.assert_allclose(grad, fd, rtol=1e-4, atol=1e-4)
 
 

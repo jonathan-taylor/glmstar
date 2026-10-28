@@ -247,8 +247,8 @@ def _criterion(G, method):
 @pytest.mark.parametrize('ties, option', [('breslow', 'plain'), ('efron', 'all')])
 def test_cox_reml_gradient(data, method, ties, option):
     # the gradient (through the implicit derivative of the coefficients and
-    # a difference of the information) against central differences of the
-    # criterion (refitted at each point), away from the optimum
+    # coxdev's derivative of the information) against central differences
+    # of the criterion (refitted at each point), away from the optimum
     G = GLMM(terms=[s('x'), s('z'), categorical('c')], family=_family(ties, option), method=method,
             weight_id='w', offset_id='o').fit(data, data)
     assert G.smoothing_.converged
