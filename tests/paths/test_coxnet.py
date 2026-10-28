@@ -8,7 +8,9 @@ import pytest
 from glmnet.paths import CoxNet
 from sklearn.model_selection import KFold
 
-from glmnet.cox import CoxFamily, CoxCIndexScorer, c_index, cox_survfit
+from coxdev import CoxDeviance
+
+from glmnet.cox import CoxFamily, CoxCIndexScorer, CoxSurvivalCurves, c_index, cox_survfit
 
 rng = np.random.default_rng(0)
 
@@ -327,6 +329,10 @@ def test_coxnet_input_validation(n=50, p=5):
     with pytest.raises(ValueError, match='intercept'):
         CoxNet(family=CoxFamily(**family), fit_intercept=True).fit(X, D)
 
+def _c_index(pred, time, status, start=None, strata=None, sample_weight=None):
+    return CoxDeviance(event=time, status=status, start=start, strata=strata,
+                       sample_weight=sample_weight).c_index(pred, sample_weight=sample_weight)
+
 @pytest.mark.parametrize('start', [False, True])
 @pytest.mark.parametrize('strata', [False, True])
 def test_c_index(Rinfo, start, strata, n=150):
@@ -363,16 +369,16 @@ C_w = Cindex(pred, Y, weights=W)
             C_strat_R = np.asarray(rpy.r('concordance(Y ~ I(-pred) + strata(strata), weights=W)$concordance'))[0]
 
     S = D['start'] if start else None
-    assert np.allclose(c_index(pred, D['stop'], D['status'], start=S), C_R, rtol=0, atol=1e-12)
-    assert np.allclose(c_index(pred, D['stop'], D['status'], start=S, sample_weight=W), C_w_R, rtol=0, atol=1e-12)
+    assert np.allclose(_c_index(pred, D['stop'], D['status'], start=S), C_R, rtol=0, atol=1e-12)
+    assert np.allclose(_c_index(pred, D['stop'], D['status'], start=S, sample_weight=W), C_w_R, rtol=0, atol=1e-12)
     if strata:
-        assert np.allclose(c_index(pred, D['stop'], D['status'], start=S, strata=D['strata'], sample_weight=W),
+        assert np.allclose(_c_index(pred, D['stop'], D['status'], start=S, strata=D['strata'], sample_weight=W),
                            C_strat_R, rtol=0, atol=1e-12)
 
     # one value per column
     P = np.column_stack([pred, -pred, np.zeros(n)])
-    C = c_index(P, D['stop'], D['status'], start=S)
-    assert np.allclose(C, [c_index(P[:, j], D['stop'], D['status'], start=S) for j in range(3)])
+    C = _c_index(P, D['stop'], D['status'], start=S)
+    assert np.allclose(C, [_c_index(P[:, j], D['stop'], D['status'], start=S) for j in range(3)])
     assert np.allclose(C[0] + C[1], 1) and C[2] == 0.5
 
 @pytest.mark.parametrize('start', [False, True])
@@ -484,7 +490,7 @@ def test_c_index_brute_force(seed):
     P = np.round(rng_.standard_normal((n, 4)), 1)
 
     for S, G, W in [(None, None, None), (start, None, w), (None, strata, w), (start, strata, w)]:
-        C = c_index(P, time, status, start=S, strata=G, sample_weight=W)
+        C = _c_index(P, time, status, start=S, strata=G, sample_weight=W)
         C_bf = _c_index_brute_force(P, time, status,
                                     np.full(n, -np.inf) if S is None else S,
                                     np.zeros(n) if G is None else G,
@@ -493,7 +499,7 @@ def test_c_index_brute_force(seed):
 
 def _flatten_curves(curves):
     """Stack each curve's non-NaN rows, as R lays out one curve per subject."""
-    H = curves.cumhaz
+    H = curves.cumulative_hazard
     return np.concatenate([H[~np.isnan(H[:, j]), j] for j in range(H.shape[1])])
 
 @pytest.mark.parametrize('start', [False, True])
@@ -573,11 +579,11 @@ S = survfit(G, s=lam, x=X, y=Y{args}{new_args})
         assert np.allclose(curves.n_event, R['n.event'])
         assert np.allclose(curves.n_censor, R['n.censor'])
         # R stores the cumhaz matrix column-major
-        assert np.allclose(curves.cumhaz.T.reshape(-1), R['cumhaz'], rtol=1e-6, atol=1e-8)
+        assert np.allclose(curves.cumulative_hazard.T.reshape(-1), R['cumhaz'], rtol=1e-6, atol=1e-8)
 
 @pytest.mark.parametrize('ties', ['breslow', 'efron'])
 def test_cox_survfit_ties(Rinfo, ties, n=80):
-    """Compare cox_survfit to survival::survfit.coxph for both tie methods."""
+    """Compare CoxDeviance.survfit to survival::survfit.coxph for both tie methods."""
 
     if not Rinfo.get('has_rpy2'):
         pytest.skip('requires rpy2')
@@ -591,9 +597,9 @@ def test_cox_survfit_ties(Rinfo, ties, n=80):
     W = rng_.uniform(0.5, 2, n)
     new_lp = np.array([-1., 0., 0.7])
 
-    curves = cox_survfit(lp, stop, status, sample_weight=W, new_linear_predictor=new_lp,
-                         tie_breaking=ties)
-    default = cox_survfit(lp, stop, status, sample_weight=W, tie_breaking=ties)
+    cox = CoxDeviance(event=stop, status=status, sample_weight=W, tie_breaking=ties)
+    curves = cox.survfit(lp, new_linear_predictor=new_lp)
+    default = cox.survfit(lp)
 
     with np_cv_rules.context():
         for k, v in dict(stop=stop, status=status.astype(float), lp=lp, W=W, new_lp=new_lp).items():
@@ -609,16 +615,16 @@ S0 = survfit(F, se.fit=FALSE)
         H0 = np.asarray(rpy.r('as.numeric(S0$cumhaz)'))
         surv = np.asarray(rpy.r('as.numeric(S$surv)'))
 
-    assert np.allclose(curves.cumhaz.T.reshape(-1), H, rtol=1e-8, atol=1e-10)
-    assert np.allclose(curves.surv.T.reshape(-1), surv, rtol=1e-8, atol=1e-10)
-    assert np.allclose(default.cumhaz[:, 0], H0, rtol=1e-8, atol=1e-10)
+    assert np.allclose(curves.cumulative_hazard.T.reshape(-1), H, rtol=1e-8, atol=1e-10)
+    assert np.allclose(curves.survival.T.reshape(-1), surv, rtol=1e-8, atol=1e-10)
+    assert np.allclose(default.cumulative_hazard[:, 0], H0, rtol=1e-8, atol=1e-10)
 
     # step-function evaluation
     P = curves.predict([0.5, curves.time[2], curves.time[2] + 0.5, 100])
     assert np.allclose(P[0], 1)
-    assert np.allclose(P[1], curves.surv[2])
-    assert np.allclose(P[2], curves.surv[2])
-    assert np.allclose(P[3], curves.surv[-1])
+    assert np.allclose(P[1], curves.survival[2])
+    assert np.allclose(P[2], curves.survival[2])
+    assert np.allclose(P[3], curves.survival[-1])
 
 def test_coxnet_survfit_args(n=60, p=4):
 
@@ -627,7 +633,7 @@ def test_coxnet_survfit_args(n=60, p=4):
 
     curves = L.survfit(X, D, lambda_val=L.lambda_values_[[3, 10]])
     assert isinstance(curves, list) and len(curves) == 2
-    assert np.all(np.diff(curves[1].cumhaz[curves[1].strata == 'a', 0]) >= 0)
+    assert np.all(np.diff(curves[1].cumulative_hazard[curves[1].stratum == 'a', 0]) >= 0)
     assert len(L.survfit(X, D)) == L.lambda_values_.shape[0]
 
     with pytest.raises(ValueError, match='new_offset'):
@@ -637,3 +643,37 @@ def test_coxnet_survfit_args(n=60, p=4):
     with pytest.raises(ValueError, match='not seen'):
         L.survfit(X, D, lambda_val=L.lambda_values_[3], newX=X[:2], new_offset=[0, 0],
                   new_strata=['a', 'z'])
+
+def test_deprecated_c_index_cox_survfit():
+    # c_index and cox_survfit warn, and give CoxDeviance's c_index and
+    # survfit; CoxSurvivalCurves' cumhaz, surv and strata warn
+    rng_ = np.random.default_rng(6)
+    n = 50
+    stop = rng_.integers(1, 10, n).astype(float)
+    status = rng_.binomial(1, 0.7, n)
+    lp = rng_.standard_normal(n)
+    W = rng_.uniform(0.5, 2, n)
+    G = rng_.choice(['a', 'b'], n)
+    cox = CoxDeviance(event=stop, status=status, strata=G, sample_weight=W)
+    with pytest.warns(FutureWarning, match='c_index is deprecated'):
+        C = c_index(lp, stop, status, strata=G, sample_weight=W)
+    assert C == cox.c_index(lp, sample_weight=W)
+    with pytest.warns(FutureWarning, match='cox_survfit is deprecated'):
+        curves = cox_survfit(lp, stop, status, strata=G, sample_weight=W,
+                             new_linear_predictor=[0., 1.], new_strata=['a', 'b'])
+    assert isinstance(curves, CoxSurvivalCurves) and curves.stratified
+    np.testing.assert_array_equal(curves.cumulative_hazard,
+                                  cox.survfit(lp, new_linear_predictor=[0., 1.],
+                                              new_strata=['a', 'b']).cumulative_hazard)
+    with pytest.warns(FutureWarning, match='cumhaz is deprecated'):
+        np.testing.assert_array_equal(curves.cumhaz, curves.cumulative_hazard)
+    with pytest.warns(FutureWarning, match='surv is deprecated'):
+        np.testing.assert_array_equal(curves.surv, curves.survival)
+    with pytest.warns(FutureWarning, match='strata is deprecated'):
+        np.testing.assert_array_equal(curves.strata, curves.stratum)
+    with pytest.warns(FutureWarning):
+        plain = cox_survfit(lp, stop, status, sample_weight=W)
+    with pytest.warns(FutureWarning, match='strata is deprecated'):
+        assert plain.strata is None
+    with pytest.raises(ValueError, match='tie_breaking'), pytest.warns(FutureWarning):
+        cox_survfit(lp, stop, status, tie_breaking='exact')

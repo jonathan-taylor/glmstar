@@ -25,7 +25,26 @@
   interaction, `pca()`) has none: `plot_term` says which columns, and
   `GAM.plot()` leaves it out.
 
+### Deprecations
+
+- **`cox_survfit` and `c_index` are deprecated** for coxdev's
+  `CoxDeviance.survfit` and `CoxDeviance.c_index` (a FutureWarning; they
+  will be removed). A `CoxDeviance` holds the data, ties and weights, so
+  the curves of a fixed linear predictor are
+  `CoxDeviance(event, status, start=..., strata=..., sample_weight=...,
+  tie_breaking=...).survfit(linear_predictor, new_linear_predictor=...,
+  new_strata=..., center=...)`. `CoxNet.survfit`, the C-index scorer and
+  `assess` use coxdev's methods. Requires coxdev 0.5.0.
+- **`CoxSurvivalCurves` is coxdev's `SurvivalCurves`** with `plot` (and
+  `stratified`): its `cumhaz`, `surv` and `strata` are deprecated for
+  `cumulative_hazard`, `survival` and `stratum` (a FutureWarning). An
+  unstratified model's `stratum` is 0 (`strata` was None, as the
+  deprecated `strata` still is).
+
 ### Documentation
+
+- **Survival curves in the Cox docs**: `docs/coxnet.md` said R's `survfit`
+  was not available; it shows `CoxNet.survfit` and its plot.
 
 - **The docs build without R**: the docs workflow no longer installs R,
   and `rpy2` is no longer in the `doc` extra (no page runs R; the tests,
