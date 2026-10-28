@@ -11,6 +11,19 @@
   per smoothing parameter instead of two. The gradient tolerance of the
   search, `grad_tol`, is now 1e-5 for Cox, as for the other families (it
   was 1e-4).
+### New features
+
+- **`GAM.plot` draws fixed effects of one column**: a fixed effect that is
+  a function of one column of the data, e.g. `ns('age', df=4)`,
+  `poly('year', 2)`, `ns(log_age, df=3)` (a feature of `age`), `'education'`
+  or `contrast('education', 'sum')`, is drawn as the smoothers are: a curve
+  over a grid of the column, with bands and a rug, or a point per level of a
+  categorical. Its columns are rebuilt at the grid (or the levels) by the
+  fitted ModelSpec. So `GAM([ns('age', df=4), ns('year', df=5),
+  'education'])`, a linear model, has the partial dependence plots of R's
+  `plot.Gam` of an `lm` fit. A fixed effect of several columns (an
+  interaction, `pca()`) has none: `plot_term` says which columns, and
+  `GAM.plot()` leaves it out.
 
 ### Documentation
 
