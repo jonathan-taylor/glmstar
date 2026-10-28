@@ -1,16 +1,17 @@
 # Changelog
 
-## 0.7.1 (2026-10-27)
+## 0.7.1 (2026-10-28)
 
 ### Improvements
 
 - **The Cox GLMM's REML and ML gradient is exact**: the derivative of
   `log|H|` along the implicit derivative of the coefficients is coxdev's
-  `information_derivative` (coxdev 0.4.0, already required) in place of
-  a central difference of the information, at one information product
-  per smoothing parameter instead of two. The gradient tolerance of the
+  `information_derivative` (new in coxdev 0.4.0) in place of a central
+  difference of the information, at one information product per
+  smoothing parameter instead of two. The gradient tolerance of the
   search, `grad_tol`, is now 1e-5 for Cox, as for the other families (it
-  was 1e-4).
+  was 1e-4) (#228).
+
 ### New features
 
 - **`GAM.plot` draws fixed effects of one column**: a fixed effect that is
@@ -23,7 +24,7 @@
   'education'])`, a linear model, has the partial dependence plots of R's
   `plot.Gam` of an `lm` fit. A fixed effect of several columns (an
   interaction, `pca()`) has none: `plot_term` says which columns, and
-  `GAM.plot()` leaves it out.
+  `GAM.plot()` leaves it out (#227).
 
 ### Deprecations
 
@@ -34,17 +35,17 @@
   `CoxDeviance(event, status, start=..., strata=..., sample_weight=...,
   tie_breaking=...).survfit(linear_predictor, new_linear_predictor=...,
   new_strata=..., center=...)`. `CoxNet.survfit`, the C-index scorer and
-  `assess` use coxdev's methods. Requires coxdev 0.5.0.
+  `assess` use coxdev's methods. glmstar now requires coxdev 0.5.0 (#229).
 - **`CoxSurvivalCurves` is coxdev's `SurvivalCurves`** with `plot` (and
   `stratified`): its `cumhaz`, `surv` and `strata` are deprecated for
   `cumulative_hazard`, `survival` and `stratum` (a FutureWarning). An
   unstratified model's `stratum` is 0 (`strata` was None, as the
-  deprecated `strata` still is).
+  deprecated `strata` still is) (#229).
 
 ### Documentation
 
 - **Survival curves in the Cox docs**: `docs/coxnet.md` said R's `survfit`
-  was not available; it shows `CoxNet.survfit` and its plot.
+  was not available; it shows `CoxNet.survfit` and its plot (#229).
 
 - **The docs build without R**: the docs workflow no longer installs R,
   and `rpy2` is no longer in the `doc` extra (no page runs R; the tests,
