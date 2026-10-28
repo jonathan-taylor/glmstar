@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Improvements
+
+- **The Cox GLMM's REML and ML gradient is exact**: the derivative of
+  `log|H|` along the implicit derivative of the coefficients is coxdev's
+  `information_derivative` (coxdev 0.4.0, already required) in place of
+  a central difference of the information, at one information product
+  per smoothing parameter instead of two. The gradient tolerance of the
+  search, `grad_tol`, is now 1e-5 for Cox, as for the other families (it
+  was 1e-4).
+
 ### Documentation
 
 - **The docs build without R**: the docs workflow no longer installs R,

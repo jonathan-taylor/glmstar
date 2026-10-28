@@ -913,14 +913,15 @@ class CoxLaplaceCriterion(LaplaceCriterion):
     with `H = X' I X + S`, `I` the information of the partial likelihood in
     the linear predictor (coxdev's operator), on the scale of the prior
     weights. In numpy: the derivative of `log|H|` along the coefficients'
-    implicit derivative is a central difference of the information operator
-    (it needs the third derivatives of the partial likelihood).
+    implicit derivative is coxdev's directional derivative of the
+    information operator (the third derivatives of the partial likelihood).
     """
     # the partial likelihood's criterion is precise to about 1e-9 (relative:
     # the inner fit, warm started, depends a little on the search's path,
-    # about 3e-10 at the optimum in the tests), its gradient (from a
-    # difference of the information) to about 1e-5
-    grad_tol = 1e-4
+    # about 3e-10 at the optimum in the tests); its gradient agrees with a
+    # difference of the criterion to about 1e-7, so the Gaussian family's
+    # tolerance holds
+    grad_tol = 1e-5
     value_tol = 1e-9
     hess_eps = 1e-3
 
@@ -1020,9 +1021,9 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         """
         As `LaplaceCriterion.value_and_grad`, with the information of the
         partial likelihood: the derivative of `log|H|` along the implicit
-        derivative of the coefficients is a central difference of the
-        information along `X d beta` (it needs the partial likelihood's
-        third derivatives).
+        derivative of the coefficients is coxdev's derivative of the
+        information along `X d beta` (the partial likelihood's third
+        derivatives).
         """
         self.n_evaluations += 1
         params = np.asarray(params, float)
@@ -1051,13 +1052,12 @@ class CoxLaplaceCriterion(LaplaceCriterion):
         # log|H| through b: H = X' I(eta) X + S_lambda, with I the partial
         # likelihood's information (not diagonal), so along db/drho_k,
         #   d log|H| = tr(H^{-1} X' [dI(eta) along X db/drho_k] X),
-        # the directional derivative of I by a central difference in eta (it
-        # stands in for the Gaussian family's X' (a d''' . lev) / 4)
+        # the directional derivative of I, exact, from coxdev (it stands in
+        # for the Gaussian family's X' (a d''' . lev) / 4)
         idx = H_int.coords
         for i in range(K):
             v = X @ dbeta[:, i]
-            eps = 1e-4 / max(np.max(np.abs(v)), 1e-12)
-            dI = (self._XIX(X, eta + eps * v) - self._XIX(X, eta - eps * v)) / (2 * eps)
+            dI = X.T @ (self._coxdev.information_derivative(eta, v, self.a) @ X)
             g[i] += g_beta @ dbeta[:, i] + H_int.trace(idx, dI[np.ix_(idx, idx)]) / 2
         self._max_value = max(getattr(self, '_max_value', -np.inf), value)
         return value, g
