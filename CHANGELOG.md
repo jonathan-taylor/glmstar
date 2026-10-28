@@ -25,7 +25,7 @@
   `CoxDeviance(event, status, start=..., strata=..., sample_weight=...,
   tie_breaking=...).survfit(linear_predictor, new_linear_predictor=...,
   new_strata=..., center=...)`. `CoxNet.survfit`, the C-index scorer and
-  `assess` use coxdev's methods. Requires coxdev 0.5.0.
+  `assess` use coxdev's methods. Requires coxdev 0.4.2.
 - **`CoxSurvivalCurves` is coxdev's `SurvivalCurves`** with `plot` (and
   `stratified`): its `cumhaz`, `surv` and `strata` are deprecated for
   `cumulative_hazard`, `survival` and `stratum` (a FutureWarning). An
