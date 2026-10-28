@@ -222,8 +222,8 @@ def test_relaxed_fixed_lambda_survfit():
     b = _quiet(CoxNet(family=CoxFamily(event_id='time', status_id='status', strata_id='inst'),
                       offset_id='O').fit, X, D)
     lam = a.lambda_values_[5]
-    np.testing.assert_allclose(a.survfit(X, Y, lambda_val=lam).cumhaz,
-                               _quiet(b.survfit, X, D, lambda_val=lam).cumhaz, rtol=1e-10)
+    np.testing.assert_allclose(a.survfit(X, Y, lambda_val=lam).cumulative_hazard,
+                               _quiet(b.survfit, X, D, lambda_val=lam).cumulative_hazard, rtol=1e-10)
 
 
 @pytest.mark.parametrize('name', ['gaussnet', 'lognet', 'coxnet', 'multigauss'])

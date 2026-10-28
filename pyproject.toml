@@ -21,7 +21,8 @@ dependencies = [
     "joblib",
     "statsmodels>=0.13",
     # 0.3.1: its Windows wheels import (0.3.0's needed MinGW DLLs)
-    "coxdev>=0.4.0",
+    # 0.5.0: CoxDeviance.survfit (cox_survfit, CoxNet.survfit)
+    "coxdev>=0.5.0",
     # glmnet.gam: the smoothing spline and loess terms
     "scatter-smooth>=0.3.0",
     "tqdm",

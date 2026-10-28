@@ -9,13 +9,15 @@ import pandas as pd
 from sklearn.utils.validation import check_is_fitted
 from sklearn.base import BaseEstimator
 
+from coxdev import CoxDeviance
+
 from .fastnet import FastNetMixin
 from ..cox import (CoxFamily,
                    CoxFamilySpec,
                    CoxNetIRLS,
                    CoxState,
                    RegCoxLM,
-                   cox_survfit)
+                   CoxSurvivalCurves)
 
 from .._utils import (_get_data,
                       _jerr_coxnet)
@@ -162,6 +164,8 @@ class CoxNet(FastNetMixin):
             A list if `lambda_val` has more than one value.
         """
         check_is_fitted(self, ["coefs_"])
+        if tie_breaking not in ['efron', 'breslow']:
+            raise ValueError("tie_breaking must be one of 'efron' or 'breslow'")
 
         y = _role_y(self, as_pandas(y))
         _, _, _, offset, weight = self.get_data_arrays(X, y, check=False)
@@ -187,6 +191,12 @@ class CoxNet(FastNetMixin):
         coefs, _ = self.interpolate_coefs(np.atleast_1d(lambda_val))
 
         offset = np.asarray(offset, float).reshape(-1)
+        cox = CoxDeviance(event=surv_data['stop'],
+                          status=surv_data['status'],
+                          start=surv_data['start'],
+                          strata=strata,
+                          sample_weight=weight,
+                          tie_breaking=tie_breaking)
         curves = []
         for beta in coefs:
             eta = np.asarray(X @ beta).reshape(-1)
@@ -202,16 +212,12 @@ class CoxNet(FastNetMixin):
             if newX is not None:
                 new_lp = (np.asarray(newX @ beta).reshape(-1) +
                           np.asarray(new_offset, float).reshape(-1))
-            curves.append(cox_survfit(lp,
-                                      surv_data['stop'],
-                                      surv_data['status'],
-                                      start=surv_data['start'],
-                                      strata=strata,
-                                      sample_weight=weight,
-                                      new_linear_predictor=new_lp,
-                                      new_strata=new_strata,
-                                      tie_breaking=tie_breaking,
-                                      center=center))
+            curves.append(CoxSurvivalCurves.from_curves(
+                cox.survfit(lp,
+                            new_linear_predictor=new_lp,
+                            new_strata=new_strata,
+                            center=center),
+                stratified=strata is not None))
 
         return curves[0] if lambda_val.ndim == 0 else curves
 

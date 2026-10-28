@@ -202,11 +202,18 @@ np.max(np.abs(glmnet_fit.coefs_[0] - coxph_fit.params))
 
 ## Survival curves
 
-R's `glmnet` provides a `survfit` method for Cox fits, which estimates the baseline hazard and plots survival curves. This is not yet available in Python; `predict` returns the linear predictor, from which relative risks $e^{x^T \hat\beta}$ can be computed:
+`predict` returns the linear predictor, from which relative risks $e^{x^T \hat\beta}$ can be computed:
 
 ```{code-cell} ipython3
 fit = CoxNet().fit(x, y)
 fit.predict(x[:3], interpolation_grid=0.05)
+```
+
+`CoxNet.survfit` is the analogue of R's `survfit.coxnet`: it estimates the baseline hazard with the coefficients held fixed at a value of $\lambda$, so the training data are passed again, and gives the survival curves of new subjects (or one curve at the mean linear predictor). The curves are coxdev's `SurvivalCurves` (from `coxdev.CoxDeviance.survfit`, which gives them for any fixed linear predictor), with a `plot` method:
+
+```{code-cell} ipython3
+curves = fit.survfit(x, y, lambda_val=fit.lambda_values_[10], newX=x[:3])
+curves.plot();
 ```
 
 To be consistent with other methods, if `interpolation_grid` is not specified, predictions are returned for the entire $\lambda$ sequence:

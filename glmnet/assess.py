@@ -10,10 +10,12 @@ from sklearn.utils.validation import check_is_fitted
 from statsmodels.genmod.families import family as sm_family
 from statsmodels.genmod.families import links as sm_links
 
+from coxdev import CoxDeviance
+
 from ._utils import _get_data
 from ._roles import _role_y, START
 from ._frames import as_pandas
-from .cox import CoxFamilySpec, c_index
+from .cox import CoxFamilySpec
 from .family import is_link
 from .paths.multiclassnet import MultiClassNet
 from .paths.multigaussnet import MultiGaussNet
@@ -111,7 +113,9 @@ def assess(estimator, X, y):
         # R's coxnet.deviance standardizes the weights to sum to n
         std_weight = weight * weight.shape[0] / weight.sum()
         deviance = [fam._coxdev_at(std_weight)(link[:, j], std_weight).deviance for j in range(link.shape[1])]
-        C = c_index(link, surv['stop'], surv['status'], start=start, sample_weight=weight)
+        # R's Cindex ignores strata
+        C = CoxDeviance(event=surv['stop'], status=surv['status'], start=start,
+                        sample_weight=weight).c_index(link, sample_weight=weight)
         return pd.DataFrame({'deviance': deviance, 'C': C}, index=index)
 
     scores = estimator.score_path(X, y).scores
